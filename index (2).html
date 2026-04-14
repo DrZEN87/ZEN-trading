@@ -332,6 +332,19 @@ let nameCache={};
 try{const nc=localStorage.getItem('zen_nameCache');if(nc)nameCache=JSON.parse(nc);}catch{}
 function getSymName(sym){return nameCache[sym]||KNOWN_NAMES[sym]||'';}
 function setSymName(sym,name){if(name&&name.length>1){nameCache[sym]=name;try{localStorage.setItem('zen_nameCache',JSON.stringify(nameCache));}catch{}}}
+// Async name fetch via Yahoo search API
+async function fetchSymName(sym){
+  if(getSymName(sym))return;
+  try{
+    const url='https://query2.finance.yahoo.com/v1/finance/search?q='+encodeURIComponent(sym)+'&quotesCount=1&newsCount=0';
+    const txt=await corsGet(url,5000);
+    if(txt&&txt.startsWith('{')){
+      const j=JSON.parse(txt);
+      const q=j.quotes?.[0];
+      if(q&&q.shortname){setSymName(sym,q.longname||q.shortname);renderWL();}
+    }
+  }catch{}
+}
 let drawMode='pointer',drawings=[],drawStep=0,drawTemp=null;
 let selectedDrawing=null;
 let mousePos=null,snapPoint=null;
@@ -421,22 +434,32 @@ function stooqSym(s){return /\.[A-Z]{2,3}$/.test(s)?s.toLowerCase():(s+'.US').to
 async function loadCandles(sym,tf){
   const iYahoo={'5m':'5m','1h':'1h','4h':'4h',d1:'1d',w1:'1wk',m1:'1mo'};
   const rYahoo={'5m':'5d','1h':'1mo','4h':'6mo',d1:'5y',w1:'max',m1:'max'};
-  const iStooq={d1:'d',w1:'w',m1:'m'};
 
-  // Expected max gap between candles (in days) for each timeframe
-  const maxGapDays={d1:5,w1:10,m1:45};
-
-  function validateFrequency(rows,expectedTF){
-    if(rows.length<10)return true; // too few to validate
-    const sample=rows.slice(-Math.min(20,rows.length));
-    let totalGap=0;
-    for(let i=1;i<sample.length;i++){
-      totalGap+=(sample[i].t-sample[i-1].t)/(1000*60*60*24);
-    }
-    const avgGap=totalGap/(sample.length-1);
-    return avgGap<=(maxGapDays[expectedTF]||5);
+  // ── Helper: aggregate daily candles into weekly or monthly ──
+  function aggregateCandles(dailyRows, period){
+    if(!dailyRows.length)return[];
+    const groups={};
+    dailyRows.forEach(c=>{
+      let key;
+      if(period==='w1'){
+        // ISO week: Monday-based week
+        const d=new Date(c.t);const day=d.getDay()||7;
+        const monday=new Date(d);monday.setDate(d.getDate()-(day-1));
+        key=monday.getFullYear()+'-'+String(monday.getMonth()+1).padStart(2,'0')+'-'+String(monday.getDate()).padStart(2,'0');
+      }else{
+        // Monthly
+        key=c.t.getFullYear()+'-'+String(c.t.getMonth()+1).padStart(2,'0');
+      }
+      if(!groups[key])groups[key]=[];
+      groups[key].push(c);
+    });
+    return Object.keys(groups).sort().map(k=>{
+      const g=groups[k];
+      return{t:g[0].t,o:g[0].o,h:Math.max(...g.map(c=>c.h)),l:Math.min(...g.map(c=>c.l)),c:g[g.length-1].c,v:g.reduce((s,c)=>s+c.v,0)};
+    });
   }
 
+  // ── Try Yahoo Finance ──
   async function tryYahoo(sym,tf){
     const yUrls=[
       `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=${iYahoo[tf]}&range=${rYahoo[tf]||'max'}`,
@@ -453,12 +476,8 @@ async function loadCandles(sym,tf){
         const rows=ts.map((t,i)=>({t:new Date(t*1000),o:q.open[i],h:q.high[i],l:q.low[i],c:q.close[i],v:q.volume[i]||0}))
           .filter(c=>c.o!=null&&c.c!=null&&c.c>0);
         if(rows.length>0){
-          // Try to extract company name from Yahoo metadata
           const meta=res.meta;
-          if(meta){
-            const name=meta.longName||meta.shortName||'';
-            if(name)setSymName(sym,name);
-          }
+          if(meta){const name=meta.longName||meta.shortName||'';if(name)setSymName(sym,name);}
           return{candles:rows,source:'Yahoo'};
         }
       }catch{}
@@ -466,13 +485,12 @@ async function loadCandles(sym,tf){
     return null;
   }
 
-  async function tryStooq(sym,tf){
-    if(!iStooq[tf])return null;
-    let stooqUrl=`https://stooq.com/q/d/l/?s=${stooqSym(sym)}&i=${iStooq[tf]}`;
-    if(tf==='d1'){
-      const now=new Date();const from=new Date(now.getFullYear()-5,now.getMonth(),now.getDate());
-      stooqUrl+=`&d1=${from.getFullYear()}${String(from.getMonth()+1).padStart(2,'0')}${String(from.getDate()).padStart(2,'0')}&d2=${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
-    }
+  // ── Try Stooq (always loads daily, then aggregates if needed) ──
+  async function tryStooqDaily(sym){
+    const now=new Date();const from=new Date(now.getFullYear()-10,now.getMonth(),now.getDate());
+    const d1=`${from.getFullYear()}${String(from.getMonth()+1).padStart(2,'0')}${String(from.getDate()).padStart(2,'0')}`;
+    const d2=`${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+    const stooqUrl=`https://stooq.com/q/d/l/?s=${stooqSym(sym)}&i=d&d1=${d1}&d2=${d2}`;
     const txt=await corsGet(stooqUrl,7000);
     if(txt&&txt.includes(',')){
       const lines=txt.trim().split('\n');
@@ -487,23 +505,29 @@ async function loadCandles(sym,tf){
       }).filter(Boolean);
       if(rows.length>10){
         rows.sort((a,b)=>a.t-b.t);
-        if(validateFrequency(rows,tf)){
-          return{candles:rows,source:'Stooq'};
-        }else{
-          console.warn('Stooq wrong frequency for '+sym+' '+tf+' — rejected');
-        }
+        // Validate: must be daily (avg gap ≤ 5 days)
+        const sample=rows.slice(-20);let gapSum=0;
+        for(let i=1;i<sample.length;i++)gapSum+=(sample[i].t-sample[i-1].t)/86400000;
+        if(gapSum/(sample.length-1)<=5)return rows;
       }
     }
     return null;
   }
 
-  // ── Yahoo FIRST for all timeframes (most reliable interval control)
-  // ── Stooq as fallback for D1/W1/M1 only
+  // ── Strategy: Yahoo first, then Stooq daily + aggregate ──
+
+  // 1. Try Yahoo directly for the requested timeframe
   const yahoo=await tryYahoo(sym,tf);
   if(yahoo)return yahoo;
+
+  // 2. For D1/W1/M1: load daily from Stooq, aggregate if needed
   if(['d1','w1','m1'].includes(tf)){
-    const stooq=await tryStooq(sym,tf);
-    if(stooq)return stooq;
+    const dailyRows=await tryStooqDaily(sym);
+    if(dailyRows){
+      if(tf==='d1')return{candles:dailyRows,source:'Stooq'};
+      if(tf==='w1')return{candles:aggregateCandles(dailyRows,'w1'),source:'Stooq→W1'};
+      if(tf==='m1')return{candles:aggregateCandles(dailyRows,'m1'),source:'Stooq→M1'};
+    }
   }
 
   return null;
@@ -555,6 +579,8 @@ async function fetchData(sym,tf,silent=false,_retries=3){
       viewStart=n-show;viewEnd=n-1;ensureRightPad();
     }
     renderAll();
+    // Try to fetch company name if not known yet
+    if(!getSymName(sym))fetchSymName(sym);
     const from=candles[0].t.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
     const to=candles[n-1].t.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
     // Calculate avg gap for status
@@ -1757,6 +1783,8 @@ function loadWL(){
   renderWL();
   // Load prices for all symbols immediately on startup
   setTimeout(updateWLPrices,500);
+  // Fetch company names for all watchlist symbols
+  setTimeout(()=>watchlist.forEach(s=>{if(!getSymName(s))fetchSymName(s);}),2000);
 }
 function saveWL(){try{localStorage.setItem('cp-wl8',JSON.stringify(watchlist));}catch{}}
 function renderWL(){
