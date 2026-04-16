@@ -350,7 +350,7 @@ async function fetchSymName(sym){
 let drawMode='pointer',drawings=[],drawStep=0,drawTemp=null;
 let selectedDrawing=null;
 let mousePos=null,snapPoint=null;
-let isDragging=false,dragStartX=0,dragViewStart=0,dragViewEnd=0;
+let isDragging=false,dragStartX=0,dragStartY=0,dragViewStart=0,dragViewEnd=0,dragYMin=0,dragYMax=0;
 let yDragging=false,yDragStartY=0,yDragMinStart=0,yDragMaxStart=0,yDragJustEnded=false;
 let resizePanel=null,resizePanelStartY=0,resizePanelStartH=0;
 let mainResizing=false,mainResizeStartY=0,mainResizeStartH=0;
@@ -1120,7 +1120,9 @@ function syncOC(){
     const rect=mw.getBoundingClientRect();const rx=e.clientX-rect.left;const ca=mainChart.chartArea;
     if(ca&&rx>ca.right)return; // Y-axis drag handled separately
     e.preventDefault();
-    isDragging=true;dragStartX=e.clientX;dragViewStart=viewStart;dragViewEnd=viewEnd;mw.style.cursor='grabbing';
+    isDragging=true;dragStartX=e.clientX;dragStartY=e.clientY;dragViewStart=viewStart;dragViewEnd=viewEnd;
+    if(mainChart){dragYMin=mainChart.scales.y.min;dragYMax=mainChart.scales.y.max;}
+    mw.style.cursor='grabbing';
   });
 })();
 function rawToChart(rx,ry){
@@ -1560,7 +1562,9 @@ mainWrap.addEventListener('mousedown',e=>{
   const rect=mainWrap.getBoundingClientRect();const rx=e.clientX-rect.left;const ca=mainChart.chartArea;
   if(ca&&rx>ca.right){e.preventDefault();e.stopPropagation();yDragging=true;yDragStartY=e.clientY;yDragMinStart=mainChart.scales.y.min;yDragMaxStart=mainChart.scales.y.max;mainWrap.style.cursor='ns-resize';autoFit=false;document.getElementById('autofit-btn').classList.remove('on');return;}
   if(drawMode!=='pointer')return;
-  isDragging=true;dragStartX=e.clientX;dragViewStart=viewStart;dragViewEnd=viewEnd;mainWrap.style.cursor='grabbing';
+  isDragging=true;dragStartX=e.clientX;dragStartY=e.clientY;dragViewStart=viewStart;dragViewEnd=viewEnd;
+  if(mainChart){dragYMin=mainChart.scales.y.min;dragYMax=mainChart.scales.y.max;}
+  mainWrap.style.cursor='grabbing';
 });
 // ── Main chart height resize ──────────────────────────────────
 document.getElementById('main-ch-resize').addEventListener('mousedown',e=>{
@@ -1580,7 +1584,18 @@ window.addEventListener('mousemove',e=>{
   if(!isDragging)return;
   const dx=e.clientX-dragStartX;const range=dragViewEnd-dragViewStart+1;const pxPerCandle=mainWrap.clientWidth/range;const shift=-Math.round(dx/pxPerCandle);
   const ns=Math.max(0,dragViewStart+shift),ne=dragViewEnd+shift;
-  if(ne>=ns+4&&ns<=candles.length-1){viewStart=ns;viewEnd=ne;updateView();}
+  if(ne>=ns+4&&ns<=candles.length-1){viewStart=ns;viewEnd=ne;}
+  // Y panning: shift price range by vertical drag
+  if(mainChart&&mainChart.chartArea){
+    const dy=e.clientY-dragStartY;
+    const chartH=mainChart.chartArea.bottom-mainChart.chartArea.top;
+    const priceRange=dragYMax-dragYMin;
+    const priceShift=(dy/chartH)*priceRange;
+    yOverride={min:dragYMin+priceShift,max:dragYMax+priceShift};
+    autoFit=false;
+    document.getElementById('autofit-btn').classList.remove('on');
+  }
+  updateView();
 });
 window.addEventListener('mouseup',()=>{
   if(mainResizing){mainResizing=false;document.body.style.cursor='';syncOC();redrawOC();}
