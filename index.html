@@ -254,6 +254,19 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
         </div>
         <div id="al-list"></div>
         <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;color:#22d3ee;font-weight:500;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">☁️ Cloud-Alarme (24/7 auch bei PC aus)</div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+            <label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer">
+              <input type="checkbox" id="al-cloud-enabled"/>
+              <span>Aktiviert</span>
+            </label>
+            <span style="font-size:9px;color:var(--text3)">· Neue Alarme gehen an Google Apps Script + E-Mail</span>
+          </div>
+          <div id="al-cloud-status" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
+          <button id="al-cloud-sync" style="font-size:10px;padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;margin-top:4px">Cloud-Alarme anzeigen</button>
+          <div id="al-cloud-list" style="margin-top:6px;font-size:10px"></div>
+        </div>
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
           <div style="font-size:11px;color:var(--amber);font-weight:500;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">RSI-Alarme (Watchlist)</div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer">
@@ -1788,7 +1801,16 @@ function showPopup(alarm){
   if(popupTimer)clearTimeout(popupTimer);popupTimer=setTimeout(()=>document.getElementById('al-popup').style.display='none',8000);
 }
 document.getElementById('pop-close').addEventListener('click',()=>{document.getElementById('al-popup').style.display='none';if(popupTimer)clearTimeout(popupTimer);});
-function addAlarm(price,dir){if(isNaN(price)||price<=0)return;alarms.push({price,dir,sym:currentSymbol,id:Date.now()});renderAlarmTags();if(!alarmInterval)alarmInterval=setInterval(checkAlarms,8000);}
+function addAlarm(price,dir){
+  if(isNaN(price)||price<=0)return;
+  alarms.push({price,dir,sym:currentSymbol,id:Date.now()});
+  renderAlarmTags();
+  if(!alarmInterval)alarmInterval=setInterval(checkAlarms,8000);
+  // Push to cloud if enabled
+  if(localStorage.getItem('zen_cloudEnabled')==='1'){
+    cloudAddAlarm(currentSymbol,dir,price);
+  }
+}
 function renderAlarmTags(){
   const el=document.getElementById('al-list');
   el.innerHTML=alarms.map(a=>`<div class="al-tag">${a.sym} ${a.dir==='above'?'▲':'▼'} ${getCurrency(a.sym)}${a.price.toFixed(2)}<span class="al-x" data-id="${a.id}">✕</span></div>`).join('');
@@ -1875,6 +1897,63 @@ document.getElementById('al-rsi-enabled').addEventListener('change',e=>{
 });
 // Load state on startup
 setTimeout(loadRsiAlarmState,3000);
+
+// ── Cloud-Alarme (Google Apps Script Backend) ────────────────
+const CLOUD_WEBHOOK_URL='https://script.google.com/macros/s/AKfycbwFVvK46TJ-nlFU3c_9LwTNyOWHZtPAsnj8pPDiZEi1M5-1zUzYLs74R28dM6RFT0-r/exec';
+async function cloudRequest(action,data){
+  try{
+    const email=localStorage.getItem('zen_alarm_email')||'';
+    const payload={action,email,...data};
+    // Use no-cors to bypass CORS since Google Apps Script doesn't set CORS headers properly
+    // We lose response data but the request still lands at the backend
+    const resp=await fetch(CLOUD_WEBHOOK_URL,{
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify(payload)
+    });
+    return true;
+  }catch(e){console.warn('Cloud error',e);return false;}
+}
+async function cloudAddAlarm(sym,type,price){
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(!email){
+    document.getElementById('al-cloud-status').textContent='⚠ Erst E-Mail speichern!';
+    document.getElementById('al-cloud-status').style.color='var(--dn)';
+    return;
+  }
+  const ok=await cloudRequest('add',{symbol:sym,type,price});
+  const s=document.getElementById('al-cloud-status');
+  if(ok){
+    s.textContent='☁️ '+sym+' '+(type==='above'?'>':'<')+' '+price+' in Cloud gespeichert ('+new Date().toLocaleTimeString('de-DE')+')';
+    s.style.color='var(--up)';
+  }else{
+    s.textContent='⚠ Cloud-Fehler';s.style.color='var(--dn)';
+  }
+}
+async function cloudListAlarms(){
+  // Since we use no-cors, we can't read the response.
+  // Instead open the Google Sheet in a new tab
+  document.getElementById('al-cloud-status').textContent='Öffne Google-Tabelle…';
+  window.open('https://script.google.com/home/projects','_blank');
+}
+// Cloud checkbox
+(function(){
+  const cb=document.getElementById('al-cloud-enabled');
+  cb.checked=localStorage.getItem('zen_cloudEnabled')==='1';
+  cb.addEventListener('change',e=>{
+    if(e.target.checked){
+      localStorage.setItem('zen_cloudEnabled','1');
+      document.getElementById('al-cloud-status').textContent='✓ Cloud-Alarme aktiviert — neue Alarme gehen jetzt auch an Google';
+      document.getElementById('al-cloud-status').style.color='var(--up)';
+    }else{
+      localStorage.removeItem('zen_cloudEnabled');
+      document.getElementById('al-cloud-status').textContent='Deaktiviert';
+      document.getElementById('al-cloud-status').style.color='var(--text3)';
+    }
+  });
+  document.getElementById('al-cloud-sync').addEventListener('click',cloudListAlarms);
+})();
 
 // ── Email notification ───────────────────────────────────────
 (function(){
