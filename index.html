@@ -1544,13 +1544,13 @@ function setDrawMode(mode){
 const mainWrap=document.getElementById('main-wrap');
 mainWrap.addEventListener('wheel',e=>{
   e.preventDefault();if(!candles.length)return;
+  // Any zoom → not standard view anymore
+  if(autoFit){autoFit=false;document.getElementById('autofit-btn').classList.remove('on');}
   const range=viewEnd-viewStart+1;
   const delta=Math.max(2,Math.round(range*0.12));
   if(e.deltaY>0){
-    // Zoom OUT → show more history (expand left), right edge stays
     setView(viewStart-delta,viewEnd);
   }else if(range>8){
-    // Zoom IN → show less (shrink from left), right edge stays
     setView(viewStart+delta,viewEnd);
   }
   updateView();
@@ -1582,18 +1582,22 @@ window.addEventListener('mousemove',e=>{
   }
   if(yDragging&&mainChart){const dy=e.clientY-yDragStartY;const range=yDragMaxStart-yDragMinStart;const mid=(yDragMaxStart+yDragMinStart)/2;const newRange=range*(1+dy/200);yOverride={min:mid-newRange/2,max:mid+newRange/2};mainChart.options.scales.y.min=yOverride.min;mainChart.options.scales.y.max=yOverride.max;mainChart.update('none');return;}
   if(!isDragging)return;
-  const dx=e.clientX-dragStartX;const range=dragViewEnd-dragViewStart+1;const pxPerCandle=mainWrap.clientWidth/range;const shift=-Math.round(dx/pxPerCandle);
+  const dx=e.clientX-dragStartX;
+  const dy=e.clientY-dragStartY;
+  // Has user moved at all?
+  if(Math.abs(dx)<2&&Math.abs(dy)<2)return;
+  // Any movement → disable autoFit (standard view is no longer active)
+  if(autoFit){autoFit=false;document.getElementById('autofit-btn').classList.remove('on');}
+  // X panning: shift candles
+  const range=dragViewEnd-dragViewStart+1;const pxPerCandle=mainWrap.clientWidth/range;const shift=-Math.round(dx/pxPerCandle);
   const ns=Math.max(0,dragViewStart+shift),ne=dragViewEnd+shift;
   if(ne>=ns+4&&ns<=candles.length-1){viewStart=ns;viewEnd=ne;}
-  // Y panning: shift price range by vertical drag
+  // Y panning: shift price range by vertical drag (always, even tiny movement)
   if(mainChart&&mainChart.chartArea){
-    const dy=e.clientY-dragStartY;
     const chartH=mainChart.chartArea.bottom-mainChart.chartArea.top;
     const priceRange=dragYMax-dragYMin;
     const priceShift=(dy/chartH)*priceRange;
     yOverride={min:dragYMin+priceShift,max:dragYMax+priceShift};
-    autoFit=false;
-    document.getElementById('autofit-btn').classList.remove('on');
   }
   updateView();
 });
