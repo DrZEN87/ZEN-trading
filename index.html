@@ -1288,6 +1288,8 @@ function deleteSelectedDrawing(){
     if(a&&localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
     alarms.splice(idx,1);
     renderAlarmTags();
+    // Alarm is drawn by main chart plugin — need to update it
+    if(mainChart)mainChart.update('none');
   }
   selectedDrawing=null;
   redrawOC();
