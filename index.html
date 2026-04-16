@@ -188,7 +188,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button id="ai-btn" title="KI analysiert Chart automatisch — setzt Trendlinien, S/R, Fibonacci">✦ KI-Analyse</button>
   <div class="sep"></div>
   <button class="btn ag" id="add-wl-btn">+ Watchlist</button>
-  <button class="btn aa" id="al-toggle-btn">Alarme</button>
+  <span style="font-size:10px;color:var(--text3);margin-left:6px">📧</span>
+  <input id="al-email" type="email" placeholder="email@beispiel.de" style="width:160px;font-size:11px;padding:4px 7px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
+  <button id="al-email-save" style="font-size:10px;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">💾</button>
+  <span id="al-email-status" style="font-size:10px;color:var(--text3);margin-right:4px"></span>
+  <button class="btn aa" id="al-toggle-btn" title="Alarm im Chart setzen — Klick, dann im Chart klicken">⚡ Alarm setzen</button>
 </div>
 
 <div id="main-row">
@@ -249,46 +253,20 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 </div>
 </div>
 
-<!-- Alarm Panel (floating, at body level to avoid clipping) -->
-<div id="alarm-panel">
-  <h3>Alarme — <span id="al-sym">—</span></h3>
-  <div id="al-row">
-    <input id="al-price" type="number" placeholder="Preis eingeben" step="0.01"/>
-    <button class="atype active" data-t="above">▲ Über</button>
-    <button class="atype" data-t="below">▼ Unter</button>
-    <button id="al-set">Setzen</button>
-  </div>
-  <div id="al-email-row" style="display:flex;align-items:center;gap:6px;margin:6px 0;flex-wrap:wrap">
-    <span style="font-size:10px;color:var(--text3)">📧 E-Mail:</span>
-    <input id="al-email" type="email" placeholder="email@beispiel.de" style="flex:1;min-width:120px;font-size:11px;padding:3px 7px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
-    <button id="al-email-save" style="font-size:10px;padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">Speichern</button>
-    <span id="al-email-status" style="font-size:9px;color:var(--text3)"></span>
-  </div>
+<!-- Hidden elements for compatibility with existing logic -->
+<div id="alarm-panel" style="display:none">
+  <span id="al-sym">—</span>
+  <input id="al-price" type="number" step="0.01"/>
+  <button class="atype active" data-t="above">▲</button>
+  <button class="atype" data-t="below">▼</button>
+  <button id="al-set">Setzen</button>
   <div id="al-list"></div>
-  <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
-    <div style="font-size:11px;color:#22d3ee;font-weight:500;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">☁️ Cloud-Alarme (24/7 auch bei PC aus)</div>
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">
-      <label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer">
-        <input type="checkbox" id="al-cloud-enabled"/>
-        <span>Aktiviert</span>
-      </label>
-      <span style="font-size:9px;color:var(--text3)">· Neue Alarme gehen an Google Apps Script + E-Mail</span>
-    </div>
-    <div id="al-cloud-status" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
-    <button id="al-cloud-sync" style="font-size:10px;padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;margin-top:4px">Cloud-Alarme anzeigen</button>
-    <div id="al-cloud-list" style="margin-top:6px;font-size:10px"></div>
-  </div>
-  <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
-    <div style="font-size:11px;color:var(--amber);font-weight:500;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">RSI-Alarme (Watchlist)</div>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer">
-        <input type="checkbox" id="al-rsi-enabled"/>
-        <span>RSI-Überwachung aktiv</span>
-      </label>
-      <span style="font-size:10px;color:var(--text3)">· Warnt wenn RSI &gt; 70 oder &lt; 30 im D1</span>
-    </div>
-    <div id="al-rsi-status" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
-  </div>
+  <input type="checkbox" id="al-rsi-enabled"/>
+  <span id="al-rsi-status"></span>
+  <input type="checkbox" id="al-cloud-enabled" checked/>
+  <span id="al-cloud-status"></span>
+  <button id="al-cloud-sync">Sync</button>
+  <div id="al-cloud-list"></div>
 </div>
 
 <script>
@@ -1808,8 +1786,8 @@ function addAlarm(price,dir){
   alarms.push({price,dir,sym:currentSymbol,id:Date.now()});
   renderAlarmTags();
   if(!alarmInterval)alarmInterval=setInterval(checkAlarms,8000);
-  // Push to cloud if enabled
-  if(localStorage.getItem('zen_cloudEnabled')==='1'){
+  // Always push to cloud if email is set
+  if(localStorage.getItem('zen_alarm_email')){
     cloudAddAlarm(currentSymbol,dir,price);
   }
 }
@@ -1822,22 +1800,17 @@ function checkAlarms(){
   if(!candles.length)return;const cur=candles[candles.length-1].c;
   alarms.forEach(a=>{if(a.sym!==currentSymbol)return;if((a.dir==='above'&&cur>=a.price)||(a.dir==='below'&&cur<=a.price)){if(!a.triggered){a.triggered=true;playAlarmSound();showPopup(a);const cur2=getCurrency(a.sym);setStatus('⚡ Alarm: '+a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2),'err');if(Notification.permission==='granted')new Notification(a.sym+' Alarm',{body:(a.dir==='above'?'Über':'Unter')+' '+cur2+a.price.toFixed(2)});else if(Notification.permission!=='denied')Notification.requestPermission();sendAlarmEmail(a);}}});
 }
-const alPanel=document.getElementById('alarm-panel');
+// Alarme Button → aktiviert Alarm-Zeichenmodus
 document.getElementById('al-toggle-btn').addEventListener('click',(e)=>{
   e.stopPropagation();
-  const isOpen=alPanel.style.display==='block';
-  alPanel.style.display=isOpen?'none':'block';
-  document.getElementById('al-toggle-btn').className='btn '+(isOpen?'aa':'ab');
-  if(!isOpen)setDrawMode('alarm');
-});
-// Close alarm panel when clicking outside
-document.addEventListener('click',(e)=>{
-  if(alPanel.style.display==='block'&&!alPanel.contains(e.target)&&e.target.id!=='al-toggle-btn'){
-    // don't close if clicking inside the panel
+  setDrawMode('alarm');
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    setStatus('⚡ Alarm-Modus AKTIV — Klick im Chart setzt Alarm (wird an Cloud+'+email+' gesendet)','ai');
+  }else{
+    setStatus('⚡ Alarm-Modus AKTIV — Klick im Chart setzt Alarm. ⚠ Keine E-Mail gespeichert!','err');
   }
 });
-document.querySelectorAll('.atype').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.atype').forEach(x=>x.classList.remove('active'));b.classList.add('active');alarmType=b.dataset.t;}));
-document.getElementById('al-set').addEventListener('click',()=>{addAlarm(parseFloat(document.getElementById('al-price').value),alarmType);renderAll();redrawOC();});
 
 // ── RSI-Alarme für Watchlist-Symbole ──────────────────────────
 let rsiAlarmInterval=null;
