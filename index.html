@@ -1021,7 +1021,17 @@ function createRSI(labels){
       {label:'RSI SMA',data:[...rsiSMA.slice(viewStart,viewStart+vc.length),...Array(pads).fill(null)],borderColor:'rgba(139,92,246,.7)',borderWidth:1,pointRadius:0,fill:false,borderDash:[]}
     ]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw!=null?c.dataset.label+': '+c.raw?.toFixed(1):''}}},scales:{x:{display:false},y:{position:'right',min:0,max:100,ticks:{color:C.txt,font:{size:9}},grid:{color:C.grid}}}},
-    plugins:[{id:'rz',beforeDraw(chart){const{ctx,chartArea,scales:{y}}=chart;if(!chartArea)return;const{left,right}=chartArea;ctx.save();ctx.fillStyle='rgba(239,68,68,.07)';ctx.fillRect(left,y.getPixelForValue(70),right-left,y.getPixelForValue(100)-y.getPixelForValue(70));ctx.fillStyle='rgba(34,197,94,.07)';ctx.fillRect(left,y.getPixelForValue(30),right-left,y.getPixelForValue(0)-y.getPixelForValue(30));[70,50,30].forEach(l=>{ctx.save();ctx.strokeStyle=C.grid;ctx.lineWidth=.5;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(left,y.getPixelForValue(l));ctx.lineTo(right,y.getPixelForValue(l));ctx.stroke();ctx.restore();});ctx.restore();}},
+    plugins:[{id:'rz',beforeDraw(chart){const{ctx,chartArea,scales:{y}}=chart;if(!chartArea)return;const{left,right}=chartArea;ctx.save();
+      // Light overbought/oversold zones
+      ctx.fillStyle='rgba(239,68,68,.07)';ctx.fillRect(left,y.getPixelForValue(70),right-left,y.getPixelForValue(100)-y.getPixelForValue(70));
+      ctx.fillStyle='rgba(34,197,94,.07)';ctx.fillRect(left,y.getPixelForValue(30),right-left,y.getPixelForValue(0)-y.getPixelForValue(30));
+      // Dashed lines at 70/50/30 — more visible
+      [{v:70,c:'rgba(239,83,80,.5)'},{v:50,c:'rgba(148,163,184,.3)'},{v:30,c:'rgba(38,208,124,.5)'}].forEach(({v,c})=>{
+        ctx.save();ctx.strokeStyle=c;ctx.lineWidth=1;ctx.setLineDash([4,4]);
+        ctx.beginPath();ctx.moveTo(left,y.getPixelForValue(v));ctx.lineTo(right,y.getPixelForValue(v));ctx.stroke();
+        ctx.restore();
+      });
+      ctx.restore();}},
       makeLiveLabelPlugin(0,v=>v>=70?C.dn:v<=30?C.up:C.rsiLine,v=>v.toFixed(1))]
   });
 }
@@ -1099,6 +1109,20 @@ function syncOC(){
   oc.style.width=w.clientWidth+'px';oc.style.height=w.clientHeight+'px';
   oc.style.pointerEvents='all';
 }
+// Bridge mousedown from overlay to mainWrap for panning (pointer mode only)
+(function(){
+  const oc=document.getElementById('ov-canvas');
+  const mw=document.getElementById('main-wrap');
+  if(!oc||!mw)return;
+  oc.addEventListener('mousedown',e=>{
+    if(drawMode!=='pointer')return;
+    if(!mainChart)return;
+    const rect=mw.getBoundingClientRect();const rx=e.clientX-rect.left;const ca=mainChart.chartArea;
+    if(ca&&rx>ca.right)return; // Y-axis drag handled separately
+    e.preventDefault();
+    isDragging=true;dragStartX=e.clientX;dragViewStart=viewStart;dragViewEnd=viewEnd;mw.style.cursor='grabbing';
+  });
+})();
 function rawToChart(rx,ry){
   if(!mainChart)return null;
   const{scales:{x,y},chartArea:ca}=mainChart;if(!ca)return null;
