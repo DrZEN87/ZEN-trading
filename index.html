@@ -253,6 +253,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
           <span id="al-email-status" style="font-size:9px;color:var(--text3)"></span>
         </div>
         <div id="al-list"></div>
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--amber);font-weight:500;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">RSI-Alarme (Watchlist)</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer">
+              <input type="checkbox" id="al-rsi-enabled"/>
+              <span>RSI-Überwachung aktiv</span>
+            </label>
+            <span style="font-size:10px;color:var(--text3)">· Warnt wenn RSI &gt; 70 oder &lt; 30 im D1</span>
+          </div>
+          <div id="al-rsi-status" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
+        </div>
       </div>
     </div>
     <div id="status-bar" class="st-idle">Bereit</div>
@@ -1792,6 +1803,79 @@ document.getElementById('al-toggle-btn').addEventListener('click',()=>{const v=a
 document.querySelectorAll('.atype').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.atype').forEach(x=>x.classList.remove('active'));b.classList.add('active');alarmType=b.dataset.t;}));
 document.getElementById('al-set').addEventListener('click',()=>{addAlarm(parseFloat(document.getElementById('al-price').value),alarmType);renderAll();redrawOC();});
 
+// ── RSI-Alarme für Watchlist-Symbole ──────────────────────────
+let rsiAlarmInterval=null;
+let rsiAlarmState={}; // { "AAPL": "overbought"|"oversold"|"neutral" }
+function loadRsiAlarmState(){
+  try{
+    rsiAlarmState=JSON.parse(localStorage.getItem('zen_rsiAlarmState')||'{}');
+    const enabled=localStorage.getItem('zen_rsiAlarmEnabled')==='1';
+    document.getElementById('al-rsi-enabled').checked=enabled;
+    if(enabled)startRsiAlarms();
+  }catch{}
+}
+function saveRsiAlarmState(){try{localStorage.setItem('zen_rsiAlarmState',JSON.stringify(rsiAlarmState));}catch{}}
+async function checkRsiAlarms(){
+  const statusEl=document.getElementById('al-rsi-status');
+  if(!watchlist.length){statusEl.textContent='Watchlist leer';return;}
+  statusEl.textContent='Prüfe RSI…';
+  for(const sym of watchlist){
+    try{
+      const res=await loadCandles(sym,'d1');
+      if(!res||res.candles.length<30)continue;
+      const closes=res.candles.map(c=>c.c);
+      const rsiArr=rsiCalc(closes,14);
+      const rsi=rsiArr[rsiArr.length-1];
+      if(rsi===null||isNaN(rsi))continue;
+      const prev=rsiAlarmState[sym]||'neutral';
+      let now='neutral';
+      if(rsi>=70)now='overbought';
+      else if(rsi<=30)now='oversold';
+      // Trigger only on state change into overbought/oversold
+      if(now!==prev&&now!=='neutral'){
+        const alarm={sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true,id:Date.now()+Math.random()};
+        playAlarmSound();
+        showRsiPopup(sym,rsi,now);
+        setStatus('⚡ RSI-Alarm: '+sym+' '+(now==='overbought'?'überkauft':'überverkauft')+' (RSI '+rsi.toFixed(1)+')','err');
+        if(Notification.permission==='granted')new Notification('RSI-Alarm: '+sym,{body:(now==='overbought'?'Überkauft':'Überverkauft')+' (RSI '+rsi.toFixed(1)+')'});
+        sendAlarmEmail({sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true});
+      }
+      rsiAlarmState[sym]=now;
+      saveRsiAlarmState();
+    }catch{}
+    await new Promise(r=>setTimeout(r,300));
+  }
+  statusEl.textContent='Letzter Check: '+new Date().toLocaleTimeString('de-DE');
+}
+function showRsiPopup(sym,rsi,type){
+  const isOver=type==='overbought';
+  document.getElementById('pop-body').textContent=sym+' ist '+(isOver?'überkauft':'überverkauft')+' — RSI '+rsi.toFixed(1);
+  document.getElementById('pop-meta').textContent='RSI(14) '+(isOver?'≥ 70':'≤ 30')+' · '+new Date().toLocaleString('de-DE');
+  const bar=document.getElementById('pop-bar');bar.style.animation='none';requestAnimationFrame(()=>requestAnimationFrame(()=>{bar.style.animation='barDown 8s linear forwards';}));
+  document.getElementById('al-popup').style.display='flex';
+  if(popupTimer)clearTimeout(popupTimer);popupTimer=setTimeout(()=>document.getElementById('al-popup').style.display='none',8000);
+}
+function startRsiAlarms(){
+  if(rsiAlarmInterval)clearInterval(rsiAlarmInterval);
+  checkRsiAlarms(); // run once immediately
+  rsiAlarmInterval=setInterval(checkRsiAlarms,5*60*1000); // every 5 min
+}
+function stopRsiAlarms(){
+  if(rsiAlarmInterval){clearInterval(rsiAlarmInterval);rsiAlarmInterval=null;}
+  document.getElementById('al-rsi-status').textContent='Deaktiviert';
+}
+document.getElementById('al-rsi-enabled').addEventListener('change',e=>{
+  if(e.target.checked){
+    localStorage.setItem('zen_rsiAlarmEnabled','1');
+    startRsiAlarms();
+  }else{
+    localStorage.removeItem('zen_rsiAlarmEnabled');
+    stopRsiAlarms();
+  }
+});
+// Load state on startup
+setTimeout(loadRsiAlarmState,3000);
+
 // ── Email notification ───────────────────────────────────────
 (function(){
   const emailIn=document.getElementById('al-email');
@@ -1815,9 +1899,16 @@ document.getElementById('al-set').addEventListener('click',()=>{addAlarm(parseFl
 function sendAlarmEmail(alarm){
   const email=localStorage.getItem('zen_alarm_email');
   if(!email)return;
-  const cur=getCurrency(alarm.sym);
-  const subj=encodeURIComponent('ZEN-Trading Alarm: '+alarm.sym+' '+(alarm.dir==='above'?'über':'unter')+' '+cur+alarm.price.toFixed(2));
-  const body=encodeURIComponent('ZEN-Trading Preisalarm ausgelöst!\n\nSymbol: '+alarm.sym+'\nRichtung: '+(alarm.dir==='above'?'Über':'Unter')+'\nPreis: '+cur+alarm.price.toFixed(2)+'\nZeit: '+new Date().toLocaleString('de-DE')+'\n\n— ZEN-Trading');
+  let subj,body;
+  if(alarm.isRsi){
+    const label=alarm.dir==='above'?'überkauft (RSI≥70)':'überverkauft (RSI≤30)';
+    subj=encodeURIComponent('ZEN-Trading RSI-Alarm: '+alarm.sym+' '+label);
+    body=encodeURIComponent('ZEN-Trading RSI-Alarm ausgelöst!\n\nSymbol: '+alarm.sym+'\nStatus: '+label+'\nRSI(14): '+alarm.price.toFixed(1)+'\nZeit: '+new Date().toLocaleString('de-DE')+'\n\n— ZEN-Trading');
+  }else{
+    const cur=getCurrency(alarm.sym);
+    subj=encodeURIComponent('ZEN-Trading Alarm: '+alarm.sym+' '+(alarm.dir==='above'?'über':'unter')+' '+cur+alarm.price.toFixed(2));
+    body=encodeURIComponent('ZEN-Trading Preisalarm ausgelöst!\n\nSymbol: '+alarm.sym+'\nRichtung: '+(alarm.dir==='above'?'Über':'Unter')+'\nPreis: '+cur+alarm.price.toFixed(2)+'\nZeit: '+new Date().toLocaleString('de-DE')+'\n\n— ZEN-Trading');
+  }
   window.open('mailto:'+email+'?subject='+subj+'&body='+body,'_blank');
 }
 
