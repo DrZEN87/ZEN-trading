@@ -53,13 +53,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 .wl-item{display:flex;align-items:center;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--border);gap:3px;transition:background .1s}
 .wl-item:hover{background:var(--bg3)}
 .wl-item.active{background:rgba(59,130,246,.1);border-right:2px solid var(--blue)}
-.wl-sym{font-size:10px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.wl-name{font-size:8px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;line-height:1.2}
+.wl-sym{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wl-name{font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;line-height:1.2}
 .wl-left{flex:1;min-width:0;display:flex;flex-direction:column;gap:0px}
 .wl-item.active .wl-sym{color:var(--blue)}
 .wl-info{display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex-shrink:0}
-.wl-price{font-size:10px;color:var(--text);white-space:nowrap}
-.wl-chg{font-size:9px;white-space:nowrap}
+.wl-price{font-size:12px;font-weight:500;color:var(--text);white-space:nowrap}
+.wl-chg{font-size:11px;white-space:nowrap}
 .wl-del{font-size:12px;color:var(--dn);cursor:pointer;opacity:.3;flex-shrink:0;margin-left:2px}
 .wl-del:hover{opacity:1}
 .wl-item[draggable]{cursor:grab}
@@ -68,7 +68,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 #chart-area{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
 #price-bar{display:flex;align-items:baseline;gap:8px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
 #sym-lbl{font-size:14px;font-weight:600;color:var(--text)}
-#cur-price{font-size:20px;font-weight:300;color:var(--text);letter-spacing:-.5px}
+#cur-price{font-size:20px;font-weight:300;color:var(--text);letter-spacing:-.5px;transition:color .2s}
+.flash-up{color:#26a69a!important;font-weight:700!important}
+.flash-dn{color:#ef5350!important;font-weight:700!important}
 #price-chg{font-size:12px}
 .up{color:var(--up)}.dn{color:var(--dn)}
 #ohlc{font-size:11px;color:var(--text3);margin-left:auto}
@@ -124,6 +126,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 #loading.hidden{opacity:0;pointer-events:none}
 .spinner{width:26px;height:26px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+.flash-up{color:var(--up)!important;font-weight:700!important;transition:color .2s,font-weight .2s}
+.flash-dn{color:var(--dn)!important;font-weight:700!important;transition:color .2s,font-weight .2s}
 #loading p{font-size:11px;color:var(--text3)}
 /* AI drawings have a distinct style */
 .ai-badge{position:absolute;top:8px;right:60px;font-size:10px;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);border-radius:4px;padding:2px 6px;pointer-events:none}
@@ -143,7 +147,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 
 <div id="app">
 <div id="topbar">
-  <div id="logo">ZEN<span>-Trading</span></div>
+  <div id="logo">🌅 ZEN<span>-Trading</span></div>
   <input id="sym-in" type="text" value="SAP.DE" autocomplete="off" spellcheck="false"/>
   <button class="btn" id="load-btn">Laden</button>
   <div class="sep"></div>
@@ -161,7 +165,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <div class="sep"></div>
   <span class="tlbl">Zeichnen</span>
   <button class="btn ab" data-draw="pointer">↖</button>
-  <button class="btn" data-draw="alarm" title="Alarm per Klick">⚡</button>
   <button class="btn" data-draw="trendline" title="Trendlinie (2 Klicks)">╱ Trend</button>
   <button class="btn" data-draw="channel" title="Kanal (3 Klicks)">⫶ Kanal</button>
   <button class="btn" data-draw="support" title="S/R-Strahl — geht von der Kerze nach rechts">─▶ S/R Ray</button>
@@ -202,7 +205,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
       <span id="cur-price">—</span>
       <span id="price-chg"></span>
       <span id="ohlc"></span>
-      <span id="candle-cd" style="font-size:11px;color:#2196f3;font-weight:500;margin-left:auto;background:rgba(33,150,243,.1);padding:2px 8px;border-radius:3px"></span>
+      <span id="candle-cd" style="font-size:11px;color:#e2e8f0;font-weight:500;margin-left:auto;padding:2px 8px;border-radius:3px"></span>
       <span id="draw-hint"></span>
       <span id="ai-hint"></span>
     </div>
@@ -768,20 +771,17 @@ function getLabels(){
   const range=vc.length;
   return [...vc.map((c,i)=>{
     if(isIntra){
-      // Show date on first candle of a new day
       const prev=i>0?vc[i-1]:null;
       const newDay=!prev||c.t.getDate()!==prev.t.getDate();
-      if(newDay)return c.t.toLocaleDateString('de-DE',{day:'2-digit',month:'short'})+' '+c.t.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+      if(newDay)return c.t.toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'})+' '+c.t.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
       return c.t.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
     }
     if(currentTF==='d1'){
-      // Zoomed out far → show month+year; zoomed in → day+month+year
-      if(range>365)return c.t.toLocaleDateString('de-DE',{month:'short',year:'2-digit'});
-      if(range>120)return c.t.toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'2-digit'});
-      return c.t.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'short',year:'2-digit'});
+      if(range>365)return c.t.toLocaleDateString('de-DE',{month:'short',year:'numeric'});
+      if(range>120)return c.t.toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'});
+      return c.t.toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'});
     }
-    // W1, M1
-    return c.t.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
+    return c.t.toLocaleDateString('de-DE',{month:'short',year:'numeric'});
   }),...Array(pads).fill('')];
 }
 function setView(s,e){
@@ -937,10 +937,15 @@ const cpPlugin={
     // Alarm lines
     alarms.filter(a=>a.sym===currentSymbol).forEach(a=>{
       const yp=y.getPixelForValue(a.price);
-      ctx.save();ctx.strokeStyle=C.alarm;ctx.lineWidth=1;ctx.setLineDash([5,3]);
+      const isSel=selectedDrawing&&selectedDrawing.pool==='alarms'&&selectedDrawing.id===a.id;
+      if(isSel){ctx.save();ctx.strokeStyle='rgba(255,224,102,.25)';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(ca.left,yp);ctx.lineTo(ca.right,yp);ctx.stroke();ctx.restore();}
+      ctx.save();ctx.strokeStyle=isSel?'#ffe066':C.alarm;ctx.lineWidth=isSel?2:1;ctx.setLineDash([5,3]);
       ctx.beginPath();ctx.moveTo(ca.left,yp);ctx.lineTo(ca.right,yp);ctx.stroke();
-      ctx.setLineDash([]);ctx.fillStyle=C.alarm;ctx.font='10px system-ui';
-      ctx.fillText('⚡ $'+a.price.toFixed(2),ca.right-88,yp-4);ctx.restore();
+      ctx.setLineDash([]);ctx.fillStyle=isSel?'#ffe066':C.alarm;ctx.font='10px system-ui';
+      const label='⚡ '+(a.dir==='above'?'▲':'▼')+' '+fmtPrice(a.price);
+      ctx.fillText(label,ca.right-100,yp-4);
+      if(isSel){ctx.fillStyle='rgba(255,224,102,.9)';ctx.font='bold 10px system-ui';ctx.fillText('← Entf zum Löschen',ca.left+6,yp-4);}
+      ctx.restore();
     });
     setTimeout(redrawOC,0);
   }
@@ -997,7 +1002,7 @@ function createCharts(){
     data:{labels,datasets:[{label:'K',data:lineData,type:'line',borderColor:chartType==='line'?'#3b82f6':'transparent',borderWidth:chartType==='line'?1.5:0,pointRadius:0,tension:.3}]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,
       plugins:{legend:{display:false},tooltip:{callbacks:{label:()=>''}}},
-      scales:{x:{ticks:{color:C.txt,maxTicksLimit:9,font:{size:10}},grid:{color:C.grid}},
+      scales:{x:{ticks:{color:C.txt,maxTicksLimit:12,font:{size:9},maxRotation:45,minRotation:0},grid:{color:C.grid}},
               y:{position:'right',min,max,ticks:{color:C.txt,font:{size:10},callback:v=>fmtPrice(v),padding:4},grid:{color:C.grid}}}
     },plugins:[cpPlugin]});
   // Vol
@@ -1252,7 +1257,19 @@ function hitTestDrawing(d,rx,ry,ca){
   return false;
 }
 function findDrawingAtPoint(rx,ry,ca){
-  // Check manual drawings first, then AI
+  // Check alarms (horizontal lines)
+  if(mainChart){
+    const y=mainChart.scales.y;
+    const activeAlarms=alarms.filter(a=>a.sym===currentSymbol);
+    for(let i=activeAlarms.length-1;i>=0;i--){
+      const a=activeAlarms[i];
+      const yp=y.getPixelForValue(a.price);
+      if(Math.abs(ry-yp)<8&&rx>=ca.left&&rx<=ca.right){
+        return{pool:'alarms',idx:alarms.indexOf(a),id:a.id};
+      }
+    }
+  }
+  // Check manual drawings
   for(let i=drawings.length-1;i>=0;i--){
     if(hitTestDrawing(drawings[i],rx,ry,ca))return{pool:'drawings',idx:i,id:drawings[i].id};
   }
@@ -1266,9 +1283,15 @@ function deleteSelectedDrawing(){
   const{pool,idx}=selectedDrawing;
   if(pool==='drawings')drawings.splice(idx,1);
   else if(pool==='aiDrawings')aiDrawings.splice(idx,1);
+  else if(pool==='alarms'){
+    const a=alarms[idx];
+    if(a&&localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
+    alarms.splice(idx,1);
+    renderAlarmTags();
+  }
   selectedDrawing=null;
   redrawOC();
-  setStatus('Zeichnung gelöscht','idle');
+  setStatus('Gelöscht','idle');
 }
 
 function drawObj(ctx,d,ca){
@@ -1951,17 +1974,14 @@ async function cloudRequest(action,data){
 async function cloudAddAlarm(sym,type,price){
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(!email){
-    document.getElementById('al-cloud-status').textContent='⚠ Erst E-Mail speichern!';
-    document.getElementById('al-cloud-status').style.color='var(--dn)';
+    setStatus('⚠ Erst E-Mail in der Toolbar speichern!','err');
     return;
   }
+  const cur=getCurrency(sym);
   const ok=await cloudRequest('add',{symbol:sym,type,price});
-  const s=document.getElementById('al-cloud-status');
   if(ok){
-    s.textContent='☁️ '+sym+' '+(type==='above'?'>':'<')+' '+price+' in Cloud gespeichert ('+new Date().toLocaleTimeString('de-DE')+')';
-    s.style.color='var(--up)';
-  }else{
-    s.textContent='⚠ Cloud-Fehler';s.style.color='var(--dn)';
+    setStatus('☁️ '+sym+' '+(type==='above'?'≥':'≤')+' '+cur+price.toFixed(2)+' → Cloud gespeichert','ok');
+    setTimeout(()=>setStatus('Bereit','idle'),4000);
   }
 }
 async function cloudListAlarms(){
@@ -2147,20 +2167,42 @@ function startLiveRefresh(){
   const intervals={'5m':15000,'1h':20000,'4h':30000,d1:60000,m1:300000};
   const ms=intervals[currentTF]||60000;
   let refreshing=false;
+  let lastKnownPrice=candles.length?candles[candles.length-1].c:0;
   liveInterval=setInterval(async()=>{
-    if(refreshing)return; // skip if previous refresh still running
+    if(refreshing)return;
     refreshing=true;
     try{
       const res=await loadCandles(currentSymbol,currentTF);
       if(res&&res.candles.length>0){
+        const oldPrice=lastKnownPrice;
         candles=res.candles;
         updateView();
         const last=candles[candles.length-1],prev=candles.length>1?candles[candles.length-2]:last;
+        const newPrice=last.c;
         document.getElementById('cur-price').textContent=fmtPrice(last.c);
         const chg=last.c-prev.c,pct=prev.c>0?chg/prev.c*100:0;
         const ce=document.getElementById('price-chg');
         ce.textContent=(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chg>=0?'+':'')+pct.toFixed(2)+'%)';
         ce.className=chg>=0?'up':'dn';
+        // Flash effect on price change
+        if(Math.abs(newPrice-oldPrice)>0.001){
+          const flashClass=newPrice>oldPrice?'flash-up':'flash-dn';
+          const priceEl=document.getElementById('cur-price');
+          const chgEl=document.getElementById('price-chg');
+          priceEl.classList.add(flashClass);chgEl.classList.add(flashClass);
+          // Flash watchlist too
+          const wlId=currentSymbol.replace(/\W/g,'_');
+          const wlP=document.getElementById('wlp-'+wlId);
+          const wlC=document.getElementById('wlc-'+wlId);
+          if(wlP)wlP.classList.add(flashClass);
+          if(wlC)wlC.classList.add(flashClass);
+          setTimeout(()=>{
+            priceEl.classList.remove(flashClass);chgEl.classList.remove(flashClass);
+            if(wlP)wlP.classList.remove(flashClass);
+            if(wlC)wlC.classList.remove(flashClass);
+          },5000);
+          lastKnownPrice=newPrice;
+        }
       }
     }catch{}finally{refreshing=false;}
   },ms);
