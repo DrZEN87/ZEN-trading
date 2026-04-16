@@ -1665,7 +1665,14 @@ ovCanvas.addEventListener('click',e=>{
     return;
   }
   const sp=snapPoint;const useIdx=sp?sp.idx:pos.idx,usePrice=sp?sp.price:pos.price;const usePx=sp?{x:sp.px,y:sp.py}:{x:pos.rx,y:pos.ry};
-  if(drawMode==='alarm'){addAlarm(pos.price,'above');renderAll();return;}
+  if(drawMode==='alarm'){
+    // Auto-detect direction: above or below current price
+    const cur=candles[candles.length-1]?.c||0;
+    const dir=pos.price>=cur?'above':'below';
+    addAlarm(pos.price,dir);
+    renderAll();
+    return;
+  }
   if(drawMode==='support'||drawMode==='supportfull'){drawings.push({type:'support',price:usePrice,startIdx:useIdx,full:drawMode==='supportfull',id:Date.now()});redrawOC();return;}
   if(drawMode==='trendline'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else{drawings.push({type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice},id:Date.now()});drawTemp=null;drawStep=0;redrawOC();}return;}
   if(drawMode==='channel'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else if(drawStep===1){drawTemp.push({idx:useIdx,price:usePrice});drawStep=2;}else{const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2)drawings.push({type:'channel',p1:drawTemp[0],p2:drawTemp[1],offsetPx:usePx.y-(p1.y+p2.y)/2,id:Date.now()});drawTemp=null;drawStep=0;redrawOC();}return;}
@@ -1783,7 +1790,11 @@ function showPopup(alarm){
 document.getElementById('pop-close').addEventListener('click',()=>{document.getElementById('al-popup').style.display='none';if(popupTimer)clearTimeout(popupTimer);});
 function addAlarm(price,dir){
   if(isNaN(price)||price<=0)return;
-  alarms.push({price,dir,sym:currentSymbol,id:Date.now()});
+  // Duplicate protection: ignore if same symbol+price+dir added in last 2s
+  const now=Date.now();
+  const dup=alarms.find(a=>a.sym===currentSymbol&&Math.abs(a.price-price)<0.01&&a.dir===dir&&(now-a.id)<2000);
+  if(dup){setStatus('⚠ Alarm schon gesetzt','err');return;}
+  alarms.push({price,dir,sym:currentSymbol,id:now});
   renderAlarmTags();
   if(!alarmInterval)alarmInterval=setInterval(checkAlarms,8000);
   // Always push to cloud if email is set
@@ -1797,8 +1808,43 @@ function renderAlarmTags(){
   el.querySelectorAll('.al-x').forEach(b=>b.addEventListener('click',()=>{alarms=alarms.filter(a=>a.id!=b.dataset.id);renderAlarmTags();renderAll();redrawOC();}));
 }
 function checkAlarms(){
-  if(!candles.length)return;const cur=candles[candles.length-1].c;
-  alarms.forEach(a=>{if(a.sym!==currentSymbol)return;if((a.dir==='above'&&cur>=a.price)||(a.dir==='below'&&cur<=a.price)){if(!a.triggered){a.triggered=true;playAlarmSound();showPopup(a);const cur2=getCurrency(a.sym);setStatus('⚡ Alarm: '+a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2),'err');if(Notification.permission==='granted')new Notification(a.sym+' Alarm',{body:(a.dir==='above'?'Über':'Unter')+' '+cur2+a.price.toFixed(2)});else if(Notification.permission!=='denied')Notification.requestPermission();sendAlarmEmail(a);}}});
+  if(!candles.length)return;
+  const cur=candles[candles.length-1].c;
+  const triggeredIds=[];
+  alarms.forEach(a=>{
+    if(a.sym!==currentSymbol)return;
+    if((a.dir==='above'&&cur>=a.price)||(a.dir==='below'&&cur<=a.price)){
+      if(!a.triggered){
+        a.triggered=true;
+        playAlarmSound();
+        showPopup(a);
+        const cur2=getCurrency(a.sym);
+        setStatus('⚡ Alarm: '+a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2),'err');
+        if(Notification.permission==='granted')new Notification(a.sym+' Alarm',{body:(a.dir==='above'?'Über':'Unter')+' '+cur2+a.price.toFixed(2)});
+        else if(Notification.permission!=='denied')Notification.requestPermission();
+        sendAlarmEmail(a);
+        // Cloud: mark as triggered (will be auto-removed on next check)
+        if(localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
+        triggeredIds.push(a.id);
+      }
+    }
+  });
+  // Auto-remove triggered alarms from chart (like TradingView)
+  if(triggeredIds.length){
+    setTimeout(()=>{
+      alarms=alarms.filter(a=>!triggeredIds.includes(a.id));
+      renderAlarmTags();
+      redrawOC();
+    },2000); // 2s delay so user sees the alarm line briefly
+  }
+}
+async function cloudDeleteAlarm(sym,price){
+  try{
+    await fetch(CLOUD_WEBHOOK_URL,{
+      method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'delete',symbol:sym,price})
+    });
+  }catch{}
 }
 // Alarme Button → aktiviert Alarm-Zeichenmodus
 document.getElementById('al-toggle-btn').addEventListener('click',(e)=>{
