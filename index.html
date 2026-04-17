@@ -53,10 +53,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 .wl-item{display:flex;align-items:center;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--border);gap:3px;transition:background .1s}
 .wl-item:hover{background:var(--bg3)}
 .wl-item.active{background:rgba(59,130,246,.1);border-right:2px solid var(--blue)}
-.wl-sym{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.wl-name{font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;line-height:1.2}
+.wl-name{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wl-sym{font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;line-height:1.2}
 .wl-left{flex:1;min-width:0;display:flex;flex-direction:column;gap:0px}
-.wl-item.active .wl-sym{color:var(--blue)}
+.wl-item.active .wl-name{color:var(--blue)}
 .wl-info{display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex-shrink:0}
 .wl-price{font-size:12px;font-weight:500;color:var(--text);white-space:nowrap}
 .wl-chg{font-size:12px;white-space:nowrap}
@@ -1200,8 +1200,30 @@ function redrawOC(){
   const{chartArea:ca,scales:{x,y}}=mainChart;if(!ca)return;
   trashZones=[]; // reset for this frame
   ctx.save();ctx.beginPath();ctx.rect(ca.left,ca.top,ca.right-ca.left,ca.bottom-ca.top);ctx.clip();
-  // All drawings (manual + AI) — nur für aktuelles Symbol
-  [...drawings,...aiDrawings].filter(d=>!d.sym||d.sym===currentSymbol).forEach(d=>drawObj(ctx,d,ca));
+  // All drawings (manual + AI) — nur für aktuelles Symbol UND wenn Zeitbereich vorhanden
+  function drawingInRange(d){
+    if(!candles.length)return false;
+    const firstT=candles[0].t.getTime();
+    const lastT=candles[candles.length-1].t.getTime();
+    // Extract time(s) from drawing
+    const times=[];
+    if(d.p1?.time!=null)times.push(d.p1.time);
+    if(d.p2?.time!=null)times.push(d.p2.time);
+    if(d.time!=null)times.push(d.time);
+    if(!times.length)return true; // old-format drawings: always show
+    // If ANY point is before firstT → hide (can't accurately place)
+    for(const t of times){if(t<firstT-86400000)return false;}
+    return true;
+  }
+  [...drawings,...aiDrawings].filter(d=>(!d.sym||d.sym===currentSymbol)&&drawingInRange(d)).forEach(d=>drawObj(ctx,d,ca));
+  // Info: some drawings hidden due to timeframe history limit
+  const totalForSym=[...drawings,...aiDrawings].filter(d=>!d.sym||d.sym===currentSymbol).length;
+  const visibleForSym=[...drawings,...aiDrawings].filter(d=>(!d.sym||d.sym===currentSymbol)&&drawingInRange(d)).length;
+  if(totalForSym>visibleForSym){
+    ctx.save();ctx.fillStyle='rgba(245,158,11,.7)';ctx.font='10px system-ui';
+    ctx.fillText('ℹ '+(totalForSym-visibleForSym)+' Zeichnung(en) außerhalb '+currentTF.toUpperCase()+'-Zeitraum',ca.left+6,ca.top+14);
+    ctx.restore();
+  }
   // Trash icon for selected alarm
   if(selectedDrawing&&selectedDrawing.pool==='alarms'){
     const a=alarms[selectedDrawing.idx];
@@ -2288,7 +2310,7 @@ function renderWL(){
   el.innerHTML=watchlist.map((s,idx)=>{
     const id=s.replace(/\W/g,'_');
     const name=getSymName(s);
-    const label=name?`<span class="wl-sym">${s}</span><span class="wl-name">${name}</span>`:`<span class="wl-sym">${s}</span>`;
+    const label=name?`<span class="wl-name">${name}</span><span class="wl-sym">${s}</span>`:`<span class="wl-sym">${s}</span>`;
     return `<div class="wl-item${s===currentSymbol?' active':''}" data-sym="${s}" data-idx="${idx}" draggable="true"><div class="wl-left">${label}</div><div class="wl-info"><span class="wl-price" id="wlp-${id}">…</span><span class="wl-chg" id="wlc-${id}">…</span></div><span class="wl-del" data-del="${s}">✕</span></div>`;
   }).join('');
   // Click handlers
