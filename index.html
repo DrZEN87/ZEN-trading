@@ -1147,6 +1147,42 @@ function idxToPx(fullIdx,price){
   const{scales:{x,y}}=mainChart;
   return{x:x.getPixelForValue(fullIdx-viewStart),y:y.getPixelForValue(price)};
 }
+// Convert index → timestamp (ms)
+function idxToTime(idx){
+  if(idx>=0&&idx<candles.length)return candles[idx].t.getTime();
+  // Extrapolate: for indices beyond candles, use last candle time + N*tf_ms
+  const tfMs={'5m':300000,'1h':3600000,'4h':14400000,d1:86400000,m1:2592000000}[currentTF]||86400000;
+  if(!candles.length)return 0;
+  const last=candles[candles.length-1].t.getTime();
+  if(idx>=candles.length)return last+(idx-(candles.length-1))*tfMs;
+  return candles[0].t.getTime()-(-idx)*tfMs;
+}
+// Convert timestamp (ms) → nearest index (may be fractional for accuracy)
+function timeToIdx(ms){
+  if(!candles.length)return 0;
+  // Binary search nearest candle
+  let lo=0,hi=candles.length-1;
+  const first=candles[0].t.getTime(),last=candles[hi].t.getTime();
+  if(ms<=first)return 0;
+  if(ms>=last){
+    // Extrapolate forward
+    const tfMs={'5m':300000,'1h':3600000,'4h':14400000,d1:86400000,m1:2592000000}[currentTF]||86400000;
+    return hi+(ms-last)/tfMs;
+  }
+  while(lo<hi-1){
+    const mid=(lo+hi)>>1;
+    if(candles[mid].t.getTime()<=ms)lo=mid;else hi=mid;
+  }
+  // Linear interpolate between lo and hi
+  const tLo=candles[lo].t.getTime(),tHi=candles[hi].t.getTime();
+  if(tHi===tLo)return lo;
+  return lo+(ms-tLo)/(tHi-tLo);
+}
+// Resolve drawing point: prefer .time (new format), fallback to .idx (old format)
+function resolvePoint(p){
+  if(p.time!=null)return{idx:timeToIdx(p.time),price:p.price};
+  return p;
+}
 function findSnap(rx,ry){
   if(!mainChart)return null;const{scales:{x,y}}=mainChart;const SNAP=20;let best=null,bd=SNAP;
   visCandles().forEach((c,vi)=>{
@@ -1162,9 +1198,20 @@ function redrawOC(){
   const ctx=oc.getContext('2d');
   ctx.clearRect(0,0,oc.width,oc.height);
   const{chartArea:ca,scales:{x,y}}=mainChart;if(!ca)return;
+  trashZones=[]; // reset for this frame
   ctx.save();ctx.beginPath();ctx.rect(ca.left,ca.top,ca.right-ca.left,ca.bottom-ca.top);ctx.clip();
   // All drawings (manual + AI) — nur für aktuelles Symbol
   [...drawings,...aiDrawings].filter(d=>!d.sym||d.sym===currentSymbol).forEach(d=>drawObj(ctx,d,ca));
+  // Trash icon for selected alarm
+  if(selectedDrawing&&selectedDrawing.pool==='alarms'){
+    const a=alarms[selectedDrawing.idx];
+    if(a&&a.sym===currentSymbol){
+      const yp=y.getPixelForValue(a.price);
+      ctx.restore(); // temporarily exit clip to draw icon over axis
+      drawTrashIcon(ctx,ca.right-18,yp,a.id);
+      ctx.save();ctx.beginPath();ctx.rect(ca.left,ca.top,ca.right-ca.left,ca.bottom-ca.top);ctx.clip();
+    }
+  }
   // Preview
   if(mousePos){
     const mp=mousePos,sp=snapPoint;
@@ -1227,8 +1274,11 @@ function hitTestDrawing(d,rx,ry,ca){
   if(!mainChart)return false;
   const{scales:{x,y}}=mainChart;
   const HIT=8;
+  const rp1=d.p1?resolvePoint(d.p1):null;
+  const rp2=d.p2?resolvePoint(d.p2):null;
   if(d.type==='trendline'){
-    const p1=idxToPx(d.p1.idx,d.p1.price),p2=idxToPx(d.p2.idx,d.p2.price);
+    if(!rp1||!rp2)return false;
+    const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);
     if(!p1||!p2)return false;
     const ext=extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);
     return ptLineDist(rx,ry,ext.x1,ext.y1,ext.x2,ext.y2)<HIT;
@@ -1236,22 +1286,29 @@ function hitTestDrawing(d,rx,ry,ca){
   if(d.type==='support'){
     const yp=y.getPixelForValue(d.price);
     let xFrom=ca.left;
-    if(!d.full&&!d.ai&&d.startIdx!=null){const vi=d.startIdx-viewStart;if(vi>=0){const px2=x.getPixelForValue(vi);if(px2>=ca.left&&px2<=ca.right)xFrom=px2;}}
+    if(!d.full&&!d.ai){
+      let sIdx=d.startIdx;
+      if(d.time!=null)sIdx=timeToIdx(d.time);
+      if(sIdx!=null){const vi=sIdx-viewStart;const px2=x.getPixelForValue(vi);if(px2>=ca.left&&px2<=ca.right)xFrom=px2;}
+    }
     return Math.abs(ry-yp)<HIT && rx>=xFrom && rx<=ca.right;
   }
   if(d.type==='channel'){
-    const p1=idxToPx(d.p1.idx,d.p1.price),p2=idxToPx(d.p2.idx,d.p2.price);
+    if(!rp1||!rp2)return false;
+    const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);
     if(!p1||!p2)return false;
+    const offsetY=d.offsetPrice!=null?(y.getPixelForValue(rp1.price+d.offsetPrice)-p1.y):d.offsetPx;
     const e1=extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);
-    const e2=extLine(p1.x,p1.y+d.offsetPx,p2.x,p2.y+d.offsetPx,ca.left,ca.right);
+    const e2=extLine(p1.x,p1.y+offsetY,p2.x,p2.y+offsetY,ca.left,ca.right);
     return ptLineDist(rx,ry,e1.x1,e1.y1,e1.x2,e1.y2)<HIT ||
            ptLineDist(rx,ry,e2.x1,e2.y1,e2.x2,e2.y2)<HIT;
   }
   if(d.type==='fib'){
-    const p1=idxToPx(d.p1.idx,d.p1.price),p2=idxToPx(d.p2.idx,d.p2.price);
+    if(!rp1||!rp2)return false;
+    const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);
     if(!p1||!p2)return false;
     return FIB_LEVELS.some(lvl=>{
-      const price=d.p1.price+(d.p2.price-d.p1.price)*lvl;
+      const price=rp1.price+(rp2.price-rp1.price)*lvl;
       return Math.abs(ry-y.getPixelForValue(price))<HIT;
     });
   }
@@ -1286,7 +1343,11 @@ function findDrawingAtPoint(rx,ry,ca){
 function deleteSelectedDrawing(){
   if(!selectedDrawing)return;
   const{pool,idx}=selectedDrawing;
-  if(pool==='drawings')drawings.splice(idx,1);
+  if(pool==='drawings'){
+    const d=drawings[idx];
+    if(d&&localStorage.getItem('zen_alarm_email'))cloudDeleteDrawing(d);
+    drawings.splice(idx,1);
+  }
   else if(pool==='aiDrawings')aiDrawings.splice(idx,1);
   else if(pool==='alarms'){
     const a=alarms[idx];
@@ -1306,37 +1367,71 @@ function drawObj(ctx,d,ca){
   if(!mainChart)return;const{scales:{y}}=mainChart;
   const isAI=d.ai;
   const isSel=selectedDrawing&&selectedDrawing.id===d.id;
+  // Resolve points (support both old idx-based and new time-based)
+  const rp1=d.p1?resolvePoint(d.p1):null;
+  const rp2=d.p2?resolvePoint(d.p2):null;
+  // Compute trash icon position — set at end of drawing
+  let trashX=null,trashY=null;
   if(d.type==='trendline'){
-    const p1=idxToPx(d.p1.idx,d.p1.price),p2=idxToPx(d.p2.idx,d.p2.price);if(!p1||!p2)return;
+    if(!rp1||!rp2)return;
+    const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);if(!p1||!p2)return;
     const col=isAI?C.aiTrend:C.trend;
     const ext=extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);
     if(isSel){ctx.save();ctx.strokeStyle='rgba(255,255,100,.25)';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(ext.x1,ext.y1);ctx.lineTo(ext.x2,ext.y2);ctx.stroke();ctx.restore();}
     dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,isSel?'#ffe066':col,isSel?2:isAI?1.2:1.5,isAI&&!isSel?[6,3]:[]);
     dpt(ctx,p1.x,p1.y,isSel?'#ffe066':col);dpt(ctx,p2.x,p2.y,isSel?'#ffe066':col);
-    if(isSel){ctx.save();ctx.fillStyle='rgba(255,224,102,.9)';ctx.font='bold 10px system-ui';ctx.fillText('← Entf zum Löschen',ext.x1+10,ext.y1-8);ctx.restore();}
     if(isAI&&d.label){ctx.save();ctx.fillStyle=col;ctx.font='10px system-ui';ctx.fillText(d.label,ext.x1+8,ext.y1-5);ctx.restore();}
+    if(isSel){trashX=p2.x;trashY=p2.y;}
   }else if(d.type==='channel'){
-    const p1=idxToPx(d.p1.idx,d.p1.price),p2=idxToPx(d.p2.idx,d.p2.price);if(!p1||!p2)return;
+    if(!rp1||!rp2)return;
+    const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);if(!p1||!p2)return;
+    // Use offsetPrice if available (stable across timeframes), fallback to offsetPx
+    const offsetY=d.offsetPrice!=null?(y.getPixelForValue(rp1.price+d.offsetPrice)-p1.y):d.offsetPx;
     const e1=extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);
-    const e2=extLine(p1.x,p1.y+d.offsetPx,p2.x,p2.y+d.offsetPx,ca.left,ca.right);
+    const e2=extLine(p1.x,p1.y+offsetY,p2.x,p2.y+offsetY,ca.left,ca.right);
     ctx.save();ctx.beginPath();ctx.moveTo(e1.x1,e1.y1);ctx.lineTo(e1.x2,e1.y2);ctx.lineTo(e2.x2,e2.y2);ctx.lineTo(e2.x1,e2.y1);ctx.closePath();ctx.fillStyle=isSel?'rgba(255,224,102,.1)':C.chanFill;ctx.fill();ctx.restore();
     dline(ctx,e1.x1,e1.y1,e1.x2,e1.y2,isSel?'#ffe066':C.chan,1.5,[]);
     dline(ctx,e2.x1,e2.y1,e2.x2,e2.y2,isSel?'#ffe066':C.chan,1,[5,3]);
-    if(isSel){ctx.save();ctx.fillStyle='rgba(255,224,102,.9)';ctx.font='bold 10px system-ui';ctx.fillText('← Entf zum Löschen',e1.x1+10,e1.y1-8);ctx.restore();}
+    if(isSel){trashX=p2.x;trashY=p2.y;}
   }else if(d.type==='support'){
     const yp=y.getPixelForValue(d.price);const last=candles[candles.length-1];
     const col=isAI?C.aiSupport:(d.price>=last.c?C.resist:C.support);
     let xFrom=ca.left;
-    if(!d.full&&!isAI&&d.startIdx!=null){const vi=d.startIdx-viewStart;if(vi>=0&&mainChart){const px=mainChart.scales.x.getPixelForValue(vi);if(px>=ca.left&&px<=ca.right)xFrom=px;}}
+    if(!d.full&&!isAI){
+      let sIdx=d.startIdx;
+      if(d.time!=null)sIdx=timeToIdx(d.time);
+      if(sIdx!=null){const vi=sIdx-viewStart;if(mainChart){const px=mainChart.scales.x.getPixelForValue(vi);if(px>=ca.left&&px<=ca.right)xFrom=px;}}
+    }
     if(isSel){ctx.save();ctx.strokeStyle='rgba(255,255,100,.25)';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(xFrom,yp);ctx.lineTo(ca.right,yp);ctx.stroke();ctx.restore();}
     dline(ctx,xFrom,yp,ca.right,yp,isSel?'#ffe066':col,isAI?1:1.5,[]);
     ctx.fillStyle=isSel?'#ffe066':col;ctx.font=(isAI?'':'500 ')+'10px system-ui';
-    const lbl=(isAI?d.label:(d.price>=last.c?'R':'S')+' $'+d.price.toFixed(2))+(isSel?' ← Entf':'');
+    const lbl=isAI?d.label:(d.price>=last.c?'R':'S')+' '+fmtPrice(d.price);
     ctx.fillText(lbl,xFrom+6,yp-4);
+    if(isSel){trashX=ca.right-10;trashY=yp;}
   }else if(d.type==='fib'){
-    const p1=idxToPx(d.p1.idx,d.p1.price),p2=idxToPx(d.p2.idx,d.p2.price);if(!p1||!p2)return;
-    drawFibLevels(ctx,ca,d.p1.price,d.p2.price,p1.x,p2.x,p=>y.getPixelForValue(p));
+    if(!rp1||!rp2)return;
+    const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);if(!p1||!p2)return;
+    drawFibLevels(ctx,ca,rp1.price,rp2.price,p1.x,p2.x,p=>y.getPixelForValue(p));
+    if(isSel){trashX=p2.x;trashY=p2.y;}
   }
+  // Draw trash icon near the drawing if selected
+  if(isSel&&trashX!=null&&trashY!=null){
+    drawTrashIcon(ctx,trashX+14,trashY-14,d.id);
+  }
+}
+// Trash icon drawing + clickable zones
+let trashZones=[];
+function drawTrashIcon(ctx,cx,cy,id){
+  // Draw circle background
+  ctx.save();
+  ctx.fillStyle='rgba(239,83,80,.95)';
+  ctx.strokeStyle='#fff';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.arc(cx,cy,11,0,Math.PI*2);ctx.fill();ctx.stroke();
+  // Trash emoji
+  ctx.fillStyle='#fff';ctx.font='bold 13px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText('🗑',cx,cy);
+  ctx.restore();
+  trashZones.push({cx,cy,r:13,id});
 }
 function dline(ctx,x1,y1,x2,y2,col,w,dash){ctx.save();ctx.strokeStyle=col;ctx.lineWidth=w;ctx.setLineDash(dash||[]);ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.restore();}
 function dpt(ctx,x,y,col){ctx.save();ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();ctx.restore();}
@@ -1685,6 +1780,15 @@ ovCanvas.addEventListener('click',e=>{
   if(drawMode==='pointer'){
     const ca=mainChart?.chartArea;
     if(!ca)return;
+    // Check if user clicked on a trash icon first
+    if(selectedDrawing&&trashZones.length){
+      for(const tz of trashZones){
+        if(Math.hypot(pos.rx-tz.cx,pos.ry-tz.cy)<=tz.r){
+          deleteSelectedDrawing();
+          return;
+        }
+      }
+    }
     const hit=findDrawingAtPoint(pos.rx,pos.ry,ca);
     const delBtn=document.getElementById('del-selected-btn');
     if(hit){
@@ -1707,10 +1811,10 @@ ovCanvas.addEventListener('click',e=>{
     renderAll();
     return;
   }
-  if(drawMode==='support'||drawMode==='supportfull'){drawings.push({type:'support',price:usePrice,startIdx:useIdx,full:drawMode==='supportfull',id:Date.now(),sym:currentSymbol});redrawOC();return;}
-  if(drawMode==='trendline'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else{drawings.push({type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice},id:Date.now(),sym:currentSymbol});drawTemp=null;drawStep=0;redrawOC();}return;}
-  if(drawMode==='channel'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else if(drawStep===1){drawTemp.push({idx:useIdx,price:usePrice});drawStep=2;}else{const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2)drawings.push({type:'channel',p1:drawTemp[0],p2:drawTemp[1],offsetPx:usePx.y-(p1.y+p2.y)/2,id:Date.now(),sym:currentSymbol});drawTemp=null;drawStep=0;redrawOC();}return;}
-  if(drawMode==='fib'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else{drawings.push({type:'fib',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice},id:Date.now(),sym:currentSymbol});drawTemp=null;drawStep=0;redrawOC();}return;}
+  if(drawMode==='support'||drawMode==='supportfull'){const d={type:'support',price:usePrice,startIdx:useIdx,time:idxToTime(useIdx),full:drawMode==='supportfull',id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);redrawOC();return;}
+  if(drawMode==='trendline'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();}return;}
+  if(drawMode==='channel'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else if(drawStep===1){drawTemp.push({idx:useIdx,price:usePrice,time:idxToTime(useIdx)});drawStep=2;}else{const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){const d={type:'channel',p1:drawTemp[0],p2:drawTemp[1],offsetPx:usePx.y-(p1.y+p2.y)/2,offsetPrice:usePrice-((drawTemp[0].price+drawTemp[1].price)/2),id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);}drawTemp=null;drawStep=0;redrawOC();}return;}
+  if(drawMode==='fib'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'fib',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();}return;}
 });
 
 // ── Panel resize ──────────────────────────────────────────────
@@ -1803,6 +1907,8 @@ document.querySelectorAll('[data-draw]').forEach(btn=>btn.addEventListener('clic
 // contextmenu cancel also resets supportfull
 document.getElementById('undo-btn').addEventListener('click',()=>{if(drawings.length){drawings.pop();redrawOC();}});
 document.getElementById('clear-btn').addEventListener('click',()=>{
+  // Clear also in cloud
+  if(localStorage.getItem('zen_alarm_email'))cloudClearDrawings();
   drawings=[];aiDrawings=[];selectedDrawing=null;
   PANEL_KEYS.forEach(k=>panelDrawings[k]=[]);
   drawStep=0;drawTemp=null;
@@ -2031,6 +2137,90 @@ async function cloudAddAlarm(sym,type,price){
 async function cloudListAlarms(){
   await syncCloudAlarms();
 }
+
+// ── Cloud-Sync: Watchlist ────────────────────────────────────
+async function cloudPushWatchlist(){
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(!email)return;
+  await cloudRequest('setWatchlist',{symbols:watchlist});
+}
+async function cloudFetchWatchlist(){
+  try{
+    const email=localStorage.getItem('zen_alarm_email')||'';
+    if(!email)return null;
+    const url=CLOUD_WEBHOOK_URL+'?action=listWatchlist&email='+encodeURIComponent(email);
+    const resp=await fetch(url);
+    if(!resp.ok)return null;
+    const data=await resp.json();
+    if(data.status==='ok'&&Array.isArray(data.watchlist))return data.watchlist;
+    return null;
+  }catch(e){console.warn('WL fetch error',e);return null;}
+}
+async function syncCloudWatchlist(){
+  const cloudWL=await cloudFetchWatchlist();
+  if(!cloudWL||cloudWL.length===0)return; // empty or error → keep local
+  watchlist=cloudWL;
+  saveWL();
+  renderWL();
+  updateWLPrices();
+}
+
+// ── Cloud-Sync: Zeichnungen ──────────────────────────────────
+async function cloudAddDrawing(d){
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(!email)return;
+  // Strip non-essential fields, keep geometry
+  const data={};
+  if(d.p1)data.p1=d.p1;
+  if(d.p2)data.p2=d.p2;
+  if(d.price!=null)data.price=d.price;
+  if(d.startIdx!=null)data.startIdx=d.startIdx;
+  if(d.time!=null)data.time=d.time;
+  if(d.full!=null)data.full=d.full;
+  if(d.offsetPx!=null)data.offsetPx=d.offsetPx;
+  if(d.offsetPrice!=null)data.offsetPrice=d.offsetPrice;
+  await cloudRequest('addDrawing',{symbol:d.sym||currentSymbol,type:d.type,id:String(d.id),data});
+}
+async function cloudDeleteDrawing(d){
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(!email)return;
+  await cloudRequest('deleteDrawing',{id:String(d.id)});
+}
+async function cloudClearDrawings(sym){
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(!email)return;
+  await cloudRequest('clearDrawings',sym?{symbol:sym}:{});
+}
+async function cloudFetchDrawings(){
+  try{
+    const email=localStorage.getItem('zen_alarm_email')||'';
+    if(!email)return null;
+    const url=CLOUD_WEBHOOK_URL+'?action=listDrawings&email='+encodeURIComponent(email);
+    const resp=await fetch(url);
+    if(!resp.ok)return null;
+    const data=await resp.json();
+    if(data.status==='ok'&&Array.isArray(data.drawings))return data.drawings;
+    return null;
+  }catch(e){console.warn('Draw fetch error',e);return null;}
+}
+async function syncCloudDrawings(){
+  const cloud=await cloudFetchDrawings();
+  if(!cloud)return;
+  // Cloud is source of truth — replace local drawings
+  drawings=cloud.map(c=>({
+    type:c.type,
+    sym:c.sym,
+    id:c.id,
+    p1:c.p1,p2:c.p2,
+    price:c.price,
+    startIdx:c.startIdx,
+    time:c.time,
+    full:c.full,
+    offsetPx:c.offsetPx,
+    offsetPrice:c.offsetPrice,
+  }));
+  redrawOC();
+}
 // Cloud checkbox
 (function(){
   const cb=document.getElementById('al-cloud-enabled');
@@ -2085,7 +2275,14 @@ function loadWL(){
   // Fetch company names for all watchlist symbols
   setTimeout(()=>watchlist.forEach(s=>{if(!getSymName(s))fetchSymName(s);}),2000);
 }
-function saveWL(){try{localStorage.setItem('cp-wl8',JSON.stringify(watchlist));}catch{}}
+function saveWL(){
+  try{localStorage.setItem('cp-wl8',JSON.stringify(watchlist));}catch{}
+  // Also sync to cloud (debounced to avoid hammering on rapid reorder)
+  if(localStorage.getItem('zen_alarm_email')){
+    clearTimeout(saveWL._t);
+    saveWL._t=setTimeout(()=>cloudPushWatchlist(),500);
+  }
+}
 function renderWL(){
   const el=document.getElementById('wl-list');
   el.innerHTML=watchlist.map((s,idx)=>{
@@ -2312,6 +2509,8 @@ fetchData(currentSymbol,currentTF).then(()=>startLiveRefresh());
 setTimeout(()=>{
   if(localStorage.getItem('zen_alarm_email')){
     syncCloudAlarms();
+    syncCloudWatchlist();
+    syncCloudDrawings();
     setInterval(syncCloudAlarms,120000); // alle 2 Min
   }
 },3000);
