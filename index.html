@@ -59,7 +59,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 .wl-item.active .wl-sym{color:var(--blue)}
 .wl-info{display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex-shrink:0}
 .wl-price{font-size:12px;font-weight:500;color:var(--text);white-space:nowrap}
-.wl-chg{font-size:11px;white-space:nowrap}
+.wl-chg{font-size:12px;white-space:nowrap}
 .wl-del{font-size:12px;color:var(--dn);cursor:pointer;opacity:.3;flex-shrink:0;margin-left:2px}
 .wl-del:hover{opacity:1}
 .wl-item[draggable]{cursor:grab}
@@ -1962,9 +1962,7 @@ async function cloudRequest(action,data){
   try{
     const email=localStorage.getItem('zen_alarm_email')||'';
     const payload={action,email,...data};
-    // Use no-cors to bypass CORS since Google Apps Script doesn't set CORS headers properly
-    // We lose response data but the request still lands at the backend
-    const resp=await fetch(CLOUD_WEBHOOK_URL,{
+    await fetch(CLOUD_WEBHOOK_URL,{
       method:'POST',
       mode:'no-cors',
       headers:{'Content-Type':'text/plain'},
@@ -1972,6 +1970,37 @@ async function cloudRequest(action,data){
     });
     return true;
   }catch(e){console.warn('Cloud error',e);return false;}
+}
+// GET-based list fetch (works with CORS because GET on Google Apps Script is permissive)
+async function cloudFetchAlarms(){
+  try{
+    const email=localStorage.getItem('zen_alarm_email')||'';
+    if(!email)return null;
+    const url=CLOUD_WEBHOOK_URL+'?action=list&email='+encodeURIComponent(email);
+    const resp=await fetch(url);
+    if(!resp.ok)return null;
+    const data=await resp.json();
+    if(data.status==='ok'&&Array.isArray(data.alarms))return data.alarms;
+    return null;
+  }catch(e){console.warn('Cloud fetch error',e);return null;}
+}
+async function syncCloudAlarms(){
+  const cloudRows=await cloudFetchAlarms();
+  if(!cloudRows){setStatus('⚠ Cloud-Sync fehlgeschlagen','err');setTimeout(()=>setStatus('Bereit','idle'),3000);return;}
+  // Merge: cloud rows replace local alarms (cloud is source of truth)
+  const fresh=cloudRows.filter(r=>r[0]&&r[2]&&String(r[3]).trim()==='active').map(r=>({
+    sym:String(r[0]).trim(),
+    dir:String(r[1]).trim(),
+    price:parseFloat(r[2]),
+    id:Date.now()+Math.random(),
+    triggered:false
+  }));
+  alarms=fresh;
+  renderAlarmTags();
+  if(mainChart)mainChart.update('none');
+  redrawOC();
+  setStatus('☁️ '+fresh.length+' Alarme aus Cloud geladen','ok');
+  setTimeout(()=>setStatus('Bereit','idle'),3000);
 }
 async function cloudAddAlarm(sym,type,price){
   const email=localStorage.getItem('zen_alarm_email')||'';
@@ -1987,10 +2016,7 @@ async function cloudAddAlarm(sym,type,price){
   }
 }
 async function cloudListAlarms(){
-  // Since we use no-cors, we can't read the response.
-  // Instead open the Google Sheet in a new tab
-  document.getElementById('al-cloud-status').textContent='Öffne Google-Tabelle…';
-  window.open('https://script.google.com/home/projects','_blank');
+  await syncCloudAlarms();
 }
 // Cloud checkbox
 (function(){
@@ -2031,19 +2057,9 @@ async function cloudListAlarms(){
   });
 })();
 function sendAlarmEmail(alarm){
-  const email=localStorage.getItem('zen_alarm_email');
-  if(!email)return;
-  let subj,body;
-  if(alarm.isRsi){
-    const label=alarm.dir==='above'?'überkauft (RSI≥70)':'überverkauft (RSI≤30)';
-    subj=encodeURIComponent('ZEN-Trading RSI-Alarm: '+alarm.sym+' '+label);
-    body=encodeURIComponent('ZEN-Trading RSI-Alarm ausgelöst!\n\nSymbol: '+alarm.sym+'\nStatus: '+label+'\nRSI(14): '+alarm.price.toFixed(1)+'\nZeit: '+new Date().toLocaleString('de-DE')+'\n\n— ZEN-Trading');
-  }else{
-    const cur=getCurrency(alarm.sym);
-    subj=encodeURIComponent('ZEN-Trading Alarm: '+alarm.sym+' '+(alarm.dir==='above'?'über':'unter')+' '+cur+alarm.price.toFixed(2));
-    body=encodeURIComponent('ZEN-Trading Preisalarm ausgelöst!\n\nSymbol: '+alarm.sym+'\nRichtung: '+(alarm.dir==='above'?'Über':'Unter')+'\nPreis: '+cur+alarm.price.toFixed(2)+'\nZeit: '+new Date().toLocaleString('de-DE')+'\n\n— ZEN-Trading');
-  }
-  window.open('mailto:'+email+'?subject='+subj+'&body='+body,'_blank');
+  // E-Mail wird vom Google Apps Script verschickt — keine mailto-Fenster mehr.
+  // Diese Funktion bleibt als Stub für Kompatibilität.
+  return;
 }
 
 // ── Watchlist — init prices on startup ────────────────────────
@@ -2276,6 +2292,16 @@ currentSymbol=initSym;currentTF=initTF==='w1'?'d1':initTF;
 document.getElementById('sym-in').value=currentSymbol;
 document.querySelectorAll('[data-tf]').forEach(b=>{b.classList.toggle('ab',b.dataset.tf===currentTF);b.classList.toggle('btn',true);});
 fetchData(currentSymbol,currentTF).then(()=>startLiveRefresh());
+
+// ── Auto-Sync Cloud-Alarme ──────────────────────────────────
+// 1. Sofort beim Start (nach 3s um loadState+fetchData zu lassen)
+// 2. Alle 2 Minuten neu syncen
+setTimeout(()=>{
+  if(localStorage.getItem('zen_alarm_email')){
+    syncCloudAlarms();
+    setInterval(syncCloudAlarms,120000); // alle 2 Min
+  }
+},3000);
 </script>
 </body>
 </html>
