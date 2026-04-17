@@ -1489,19 +1489,49 @@ async function runAIAnalysis(){
   setStatus('✦ KI-Analyse via '+provLabel+' — '+currentSymbol+'…','ai');
   const N=Math.min(120,candles.length);
   const slice=candles.slice(candles.length-N);
-  const ohlcData=slice.map((c,i)=>({i:candles.length-N+i,o:+c.o.toFixed(2),h:+c.h.toFixed(2),l:+c.l.toFixed(2),c:+c.c.toFixed(2)}));
-  const aiPrompt=`Du bist ein professioneller technischer Analyst. Analysiere diese ${N} OHLC-Kerzen für ${currentSymbol} im ${currentTF.toUpperCase()}-Zeitrahmen.
+  const firstIdx=candles.length-N;
+  const lastIdx=candles.length-1;
+  const ohlcData=slice.map((c,i)=>({i:firstIdx+i,o:+c.o.toFixed(2),h:+c.h.toFixed(2),l:+c.l.toFixed(2),c:+c.c.toFixed(2)}));
+  // Current price context
+  const lastC=candles[lastIdx].c;
+  const minPrice=Math.min(...slice.map(c=>c.l));
+  const maxPrice=Math.max(...slice.map(c=>c.h));
+  const aiPrompt=`Du bist ein erfahrener Chart-Analyst. Analysiere ${currentSymbol} im ${currentTF.toUpperCase()}-Chart.
 
-Identifiziere:
-1. Bis zu 3 wichtige Trendlinien (Aufwärts- oder Abwärtstrend) — wähle Punkte die an Hochs/Tiefs liegen
-2. Bis zu 4 horizontale Support/Resistanz-Niveaus — wichtige Preis-Bereiche
-3. Ein Fibonacci-Retracement vom letzten markanten Swing High zu Swing Low
+KONTEXT:
+- Datenpunkte: Index ${firstIdx} bis ${lastIdx} (${N} Kerzen)
+- Preis-Range: ${minPrice.toFixed(2)} bis ${maxPrice.toFixed(2)}
+- Aktueller Preis: ${lastC.toFixed(2)}
 
-OHLC-Daten (i=Index, o=Open, h=High, l=Low, c=Close):
+STRIKTE REGELN für Trendlinien:
+- Verbinde NUR echte Swing-Highs oder Swing-Lows (keine Eröffnungs-Hochs/Tiefs)
+- Swing-High = Kerze deren High höher ist als die 2 Kerzen davor UND die 2 Kerzen danach
+- Swing-Low = umgekehrt
+- Aufwärtstrend-Linie: verbindet 2 aufeinanderfolgende Swing-Lows (beide müssen aus den Daten stammen)
+- Abwärtstrend-Linie: verbindet 2 aufeinanderfolgende Swing-Highs
+- Die 2 gewählten Punkte müssen MINDESTENS 10 Kerzen auseinander liegen
+- p1_price MUSS dem Low (bei Aufwärtstrend) oder High (bei Abwärtstrend) der Kerze an p1_idx entsprechen
+- Liefere KEINE Trendlinie wenn die letzten 30 Kerzen seitwärts laufen
+
+STRIKTE REGELN für Support/Resistanz:
+- Horizontale Linie an einem Preis-Niveau, das MINDESTENS 2x getestet wurde
+- Support = UNTER dem aktuellen Preis (${lastC.toFixed(2)})
+- Resistanz = ÜBER dem aktuellen Preis
+- Preis muss im aktuellen Range (${minPrice.toFixed(2)}-${maxPrice.toFixed(2)}) liegen
+
+STRIKTE REGELN für Fibonacci:
+- Wähle den letzten STARKEN Swing (min. 10% Bewegung)
+- p1 = Start (Swing-High bei Retracement in Abwärtsbewegung, Swing-Low bei Aufwärtsbewegung)
+- p2 = Ende (genau umgekehrt)
+- Indizes müssen aus den gelieferten Daten stammen
+
+OHLC-Daten:
 ${JSON.stringify(ohlcData)}
 
-Antworte NUR mit validem JSON, KEIN Text, KEINE Erklärung:
-{"trendlines":[{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>,"label":"<Aufwärtstrend|Abwärtstrend>"}],"support_resistance":[{"price":<float>,"label":"<Support|Resistanz> $<preis>","type":"<support|resistance>"}],"fibonacci":{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>}}`;
+Antworte ausschließlich mit validem JSON in diesem Format:
+{"trendlines":[{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>,"label":"<Aufwärtstrend|Abwärtstrend>"}],"support_resistance":[{"price":<float>,"label":"<Support|Resistanz> $<preis>","type":"<support|resistance>"}],"fibonacci":{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>}}
+
+Maximum 2 Trendlinien, 3 S/R-Linien, 1 Fibonacci. Lieber weniger aber präzise.`;
 
   try{
     let raw='';
@@ -1513,7 +1543,7 @@ Antworte NUR mit validem JSON, KEIN Text, KEINE Erklärung:
         try{
           const url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
           const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({contents:[{parts:[{text:aiPrompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:8000,responseMimeType:'application/json',thinkingConfig:{thinkingBudget:0}}})});
+            body:JSON.stringify({contents:[{parts:[{text:aiPrompt}]}],generationConfig:{temperature:0.2,maxOutputTokens:16000,responseMimeType:'application/json'}})});
           if(resp.ok){
             const data=await resp.json();
             raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
@@ -1579,15 +1609,45 @@ Antworte NUR mit validem JSON, KEIN Text, KEINE Erklärung:
       catch{throw new Error('KI-Antwort nicht parsbar. Siehe F12-Konsole.');}
     }
     aiDrawings=[];
+    const minDataIdx=firstIdx,maxDataIdx=lastIdx;
+    // Validate & snap trendline points to nearest actual swing-extremes
+    function snapToSwing(idx,price,wantHigh){
+      // Clamp to valid range
+      if(idx<minDataIdx||idx>maxDataIdx)return null;
+      // Search ±3 candles for best match
+      const center=idx-firstIdx;
+      let bestIdx=idx,bestPrice=price,bestDist=Infinity;
+      for(let j=Math.max(0,center-3);j<=Math.min(N-1,center+3);j++){
+        const c=slice[j];
+        const actualPrice=wantHigh?c.h:c.l;
+        const dist=Math.abs(actualPrice-price);
+        if(dist<bestDist){bestDist=dist;bestIdx=firstIdx+j;bestPrice=actualPrice;}
+      }
+      return{idx:bestIdx,price:bestPrice,time:candles[bestIdx].t.getTime()};
+    }
     (result.trendlines||[]).forEach(t=>{
-      aiDrawings.push({type:'trendline',p1:{idx:t.p1_idx,price:t.p1_price},p2:{idx:t.p2_idx,price:t.p2_price},label:t.label,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
+      const isUp=String(t.label||'').toLowerCase().includes('auf')||String(t.label||'').toLowerCase().includes('up');
+      const p1=snapToSwing(t.p1_idx,t.p1_price,!isUp);
+      const p2=snapToSwing(t.p2_idx,t.p2_price,!isUp);
+      if(!p1||!p2)return;
+      // Require min distance
+      if(Math.abs(p2.idx-p1.idx)<5)return;
+      aiDrawings.push({type:'trendline',p1,p2,label:t.label,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
     (result.support_resistance||[]).forEach(s=>{
-      aiDrawings.push({type:'support',price:s.price,label:s.label,full:true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
+      const p=parseFloat(s.price);
+      if(isNaN(p)||p<minPrice*0.8||p>maxPrice*1.2)return; // sanity check
+      aiDrawings.push({type:'support',price:p,label:s.label,full:true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
     if(result.fibonacci){
       const f=result.fibonacci;
-      aiDrawings.push({type:'fib',p1:{idx:f.p1_idx,price:f.p1_price},p2:{idx:f.p2_idx,price:f.p2_price},ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
+      // Fib needs real swing extremes
+      const isDownRetrace=f.p1_price>f.p2_price; // from high down to low
+      const p1=snapToSwing(f.p1_idx,f.p1_price,isDownRetrace);
+      const p2=snapToSwing(f.p2_idx,f.p2_price,!isDownRetrace);
+      if(p1&&p2&&Math.abs(p2.idx-p1.idx)>=5){
+        aiDrawings.push({type:'fib',p1,p2,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
+      }
     }
     redrawOC();
     const hint=document.getElementById('ai-hint');
