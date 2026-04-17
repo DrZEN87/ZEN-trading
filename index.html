@@ -402,7 +402,7 @@ function getCurrency(sym){
   if(/\.(T|TYO)$/i.test(sym))return'¥';
   return'$';
 }
-function fmtPrice(v){const c=getCurrency(currentSymbol);return v>=1000?c+v.toFixed(0):v>=100?c+v.toFixed(1):c+v.toFixed(2);}
+function fmtPrice(v){const c=getCurrency(currentSymbol);return (v>=1000?v.toFixed(0):v>=100?v.toFixed(1):v.toFixed(2))+' '+c;}
 
 // Multiple CORS proxies — tried in order until one works
 // ── Data fetching ────────────────────────────────────────────
@@ -982,7 +982,8 @@ function renderAll(){
   document.getElementById('sym-lbl').textContent=currentSymbol+(symName?' · '+symName:'');
   document.getElementById('cur-price').textContent=fmtPrice(last.c);
   const ce=document.getElementById('price-chg');
-  ce.textContent=(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chg>=0?'+':'')+pct.toFixed(2)+'%)';
+  const curMain=getCurrency(currentSymbol);
+  ce.textContent=(chg>=0?'+':'')+chg.toFixed(2)+' '+curMain+' ('+(chg>=0?'+':'')+pct.toFixed(2)+'%)';
   ce.className=chg>=0?'up':'dn';
   document.getElementById('ohlc').textContent='O:'+last.o?.toFixed(2)+' H:'+last.h?.toFixed(2)+' L:'+last.l?.toFixed(2)+' C:'+last.c?.toFixed(2);
   document.getElementById('al-sym').textContent=currentSymbol;
@@ -2364,10 +2365,10 @@ async function updateWLPrices(){
       const col=pct>=0?'var(--up)':'var(--dn)';
       const sign=pct>=0?'+':'';
       const cur=getCurrency(sym);
-      const pTxt=cur+lastPrice.toFixed(2),cTxt=sign+dollarChg.toFixed(2)+' ('+sign+pct.toFixed(2)+'%)';
+      const pTxt=lastPrice.toFixed(2)+' '+cur,cTxt=sign+dollarChg.toFixed(2)+' '+cur+' ('+sign+pct.toFixed(2)+'%)';
       wlResults[sym]={p:pTxt,c:cTxt,col};
       setWLChg(sym,pTxt,cTxt,col);
-      if(sym===currentSymbol)document.getElementById('cur-price').textContent=cur+lastPrice.toFixed(2);
+      if(sym===currentSymbol)document.getElementById('cur-price').textContent=lastPrice.toFixed(2)+' '+cur;
     }catch{wlResults[sym]={p:'—',c:'—',col:'var(--text3)'};}
     await new Promise(r=>setTimeout(r,400));
   }
@@ -2442,7 +2443,8 @@ function startLiveRefresh(){
         document.getElementById('cur-price').textContent=fmtPrice(last.c);
         const chg=last.c-prev.c,pct=prev.c>0?chg/prev.c*100:0;
         const ce=document.getElementById('price-chg');
-        ce.textContent=(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chg>=0?'+':'')+pct.toFixed(2)+'%)';
+        const curLive=getCurrency(currentSymbol);
+        ce.textContent=(chg>=0?'+':'')+chg.toFixed(2)+' '+curLive+' ('+(chg>=0?'+':'')+pct.toFixed(2)+'%)';
         ce.className=chg>=0?'up':'dn';
         // Flash effect on price change
         if(Math.abs(newPrice-oldPrice)>0.001){
