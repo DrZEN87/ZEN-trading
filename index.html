@@ -1513,7 +1513,7 @@ Antworte NUR mit validem JSON, KEIN Text, KEINE Erklärung:
         try{
           const url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
           const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({contents:[{parts:[{text:aiPrompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:800}})});
+            body:JSON.stringify({contents:[{parts:[{text:aiPrompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:2000,responseMimeType:'application/json'}})});
           if(resp.ok){
             const data=await resp.json();
             raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
@@ -1552,8 +1552,32 @@ Antworte NUR mit validem JSON, KEIN Text, KEINE Erklärung:
       }
       const data=await resp.json();raw=data.content?.[0]?.text||'';
     }
-    const jsonStr=raw.replace(/```json|```/g,'').trim();
-    const result=JSON.parse(jsonStr);
+    // Robustes JSON-Parsing: Markdown-Blöcke, Kommentare, und abgeschnittene Antworten behandeln
+    let jsonStr=raw.replace(/```json|```/g,'').trim();
+    // Kommentare entfernen (// und /* */)
+    jsonStr=jsonStr.replace(/\/\/[^\n]*/g,'').replace(/\/\*[\s\S]*?\*\//g,'');
+    // Nur JSON-Block extrahieren (von erster { bis letzter passender })
+    const firstBrace=jsonStr.indexOf('{');
+    const lastBrace=jsonStr.lastIndexOf('}');
+    if(firstBrace>=0&&lastBrace>firstBrace){
+      jsonStr=jsonStr.substring(firstBrace,lastBrace+1);
+    }
+    let result;
+    try{
+      result=JSON.parse(jsonStr);
+    }catch(parseErr){
+      console.error('JSON-Parse-Fehler. Antwort war:',raw);
+      // Versuche zu reparieren: Trailing commas + unvollständige Strings
+      let fixed=jsonStr
+        .replace(/,(\s*[}\]])/g,'$1')  // trailing commas
+        .replace(/"[^"]*$/,'""');      // unterminated string am Ende
+      // Letzter Versuch: Arrays und Objekte schließen
+      const openBraces=(fixed.match(/\{/g)||[]).length-(fixed.match(/\}/g)||[]).length;
+      const openBrackets=(fixed.match(/\[/g)||[]).length-(fixed.match(/\]/g)||[]).length;
+      fixed=fixed+']'.repeat(Math.max(0,openBrackets))+'}'.repeat(Math.max(0,openBraces));
+      try{result=JSON.parse(fixed);}
+      catch{throw new Error('KI-Antwort nicht parsbar. Siehe F12-Konsole.');}
+    }
     aiDrawings=[];
     (result.trendlines||[]).forEach(t=>{
       aiDrawings.push({type:'trendline',p1:{idx:t.p1_idx,price:t.p1_price},p2:{idx:t.p2_idx,price:t.p2_price},label:t.label,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
