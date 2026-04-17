@@ -190,7 +190,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button id="autofit-btn" class="on" title="Auto-Fit Y">A</button>
   <button class="btn" id="fs-btn" title="Vollbild (F)">⛶</button>
   <div class="sep"></div>
-  <button id="ai-btn" title="KI analysiert Chart automatisch — setzt Trendlinien, S/R, Fibonacci">✦ KI-Analyse</button>
+  <button id="ai-btn" title="Linksklick: KI-Analyse starten · Rechtsklick: API-Key verwalten">✦ KI-Analyse</button>
   <div class="sep"></div>
   <span style="font-size:10px;color:var(--text3);margin-left:6px">📧</span>
   <input id="al-email" type="email" placeholder="email@beispiel.de" style="width:160px;font-size:11px;padding:4px 7px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
@@ -1506,8 +1506,8 @@ Antworte NUR mit validem JSON, KEIN Text, KEINE Erklärung:
   try{
     let raw='';
     if(provider==='gemini'){
-      // Google Gemini API (free) — try flash-lite first (higher quota), then flash
-      const models=['gemini-2.5-flash-preview-04-17','gemini-2.0-flash-lite','gemini-2.0-flash','gemini-1.5-flash-8b','gemini-1.5-flash'];
+      // Google Gemini API (free) — aktuelle Modelle (1.5-Serie ist abgeschaltet)
+      const models=['gemini-2.5-flash','gemini-2.5-flash-lite','gemini-3-flash-preview','gemini-2.0-flash','gemini-2.0-flash-lite'];
       let lastErr='';
       for(const model of models){
         try{
@@ -1517,20 +1517,27 @@ Antworte NUR mit validem JSON, KEIN Text, KEINE Erklärung:
           if(resp.ok){
             const data=await resp.json();
             raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
-            if(raw)break;
+            if(raw){console.log('Gemini Modell erfolgreich:',model);break;}
           }else{
             lastErr=resp.status+' '+model;
-            if(resp.status===401||resp.status===403){
-              localStorage.removeItem('chartpro_gemini_key');
-              const newKey=prompt('Gemini Key ungültig ('+resp.status+').\n\nNeuen API-Key eingeben:');
-              if(newKey&&newKey.trim().length>=10){setApiKey('gemini',newKey.trim());setStatus('Neuer Key gespeichert — nochmal versuchen.','ok');}
-              throw new Error('Key ungültig');
+            if(resp.status===400||resp.status===401||resp.status===403){
+              const errText=await resp.text();
+              console.warn('Gemini Fehler',resp.status,model,errText);
+              if(resp.status===401||resp.status===403){
+                localStorage.removeItem('chartpro_gemini_key');
+                const newKey=prompt('Gemini API-Key ungültig ('+resp.status+').\n\nNeuen API-Key von aistudio.google.com/apikey eingeben:\n(Kostenlos, Link: https://aistudio.google.com/apikey)');
+                if(newKey&&newKey.trim().length>=10){setApiKey('gemini',newKey.trim());setStatus('Neuer Key gespeichert — nochmal auf KI-Analyse klicken.','ok');}
+                throw new Error('Key ungültig');
+              }
+              // 400 = wahrscheinlich Modell nicht verfügbar → nächstes Modell
+              continue;
             }
-            if(resp.status===429){continue;} // Try next model
+            if(resp.status===404){continue;} // Modell nicht gefunden → nächstes
+            if(resp.status===429){continue;} // Quota → nächstes
           }
         }catch(e){if(e.message==='Key ungültig')throw e;}
       }
-      if(!raw)throw new Error('Gemini Quota erschöpft ('+lastErr+'). Warte 1 Min oder nutze neuen Google-Account.');
+      if(!raw)throw new Error('Alle Gemini-Modelle fehlgeschlagen. Letzter Fehler: '+lastErr+'. Prüfe API-Key unter aistudio.google.com/apikey');
     }else{
       // Anthropic Claude API (needs CORS proxy from browser)
       const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
@@ -1572,6 +1579,26 @@ Antworte NUR mit validem JSON, KEIN Text, KEINE Erklärung:
   }
 }
 document.getElementById('ai-btn').addEventListener('click',runAIAnalysis);
+// Right-click on AI button → manage API key
+document.getElementById('ai-btn').addEventListener('contextmenu',e=>{
+  e.preventDefault();
+  const current=getApiKey('gemini');
+  const hasKey=current&&current.length>=10;
+  const msg=hasKey?'Aktueller Gemini-Key: '+current.substring(0,8)+'...\n\nNeuen Key eingeben (oder leer lassen zum Löschen):':'Gemini API-Key eingeben (kostenlos von aistudio.google.com/apikey):';
+  const newKey=prompt(msg,hasKey?'':'');
+  if(newKey===null)return; // Abbrechen
+  if(newKey.trim()===''){
+    localStorage.removeItem('chartpro_gemini_key');
+    setStatus('Gemini-Key gelöscht','ok');
+  }else if(newKey.trim().length>=10){
+    setApiKey('gemini',newKey.trim());
+    setAIProvider('gemini');
+    setStatus('✓ Gemini-Key gespeichert','ok');
+  }else{
+    setStatus('⚠ Ungültiger Key','err');
+  }
+  setTimeout(()=>setStatus('Bereit','idle'),3000);
+});
 
 // ── Panel indicator overlays ──────────────────────────────────
 function getPanelChart(k){return{vol:volChart,rsi:rsiChart,srsi:srsiChart,macd:macdChart,atr:atrChart}[k];}
