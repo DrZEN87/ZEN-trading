@@ -1306,6 +1306,10 @@ function hitTestDrawing(d,rx,ry,ca){
     if(!rp1||!rp2)return false;
     const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);
     if(!p1||!p2)return false;
+    if(d.segment===true){
+      // Segment: only test between p1 and p2
+      return ptLineDist(rx,ry,p1.x,p1.y,p2.x,p2.y)<HIT;
+    }
     const ext=extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);
     return ptLineDist(rx,ry,ext.x1,ext.y1,ext.x2,ext.y2)<HIT;
   }
@@ -1402,7 +1406,10 @@ function drawObj(ctx,d,ca){
     if(!rp1||!rp2)return;
     const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);if(!p1||!p2)return;
     const col=isAI?C.aiTrend:C.trend;
-    const ext=extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);
+    // Segment mode: don't extend beyond endpoints (for short/local trendlines)
+    const isSeg=d.segment===true;
+    const x1=isSeg?p1.x:ca.left,x2=isSeg?p2.x:ca.right;
+    const ext=isSeg?{x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y}:extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);
     if(isSel){ctx.save();ctx.strokeStyle='rgba(255,255,100,.25)';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(ext.x1,ext.y1);ctx.lineTo(ext.x2,ext.y2);ctx.stroke();ctx.restore();}
     dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,isSel?'#ffe066':col,isSel?2:isAI?1.2:1.5,isAI&&!isSel?[6,3]:[]);
     dpt(ctx,p1.x,p1.y,isSel?'#ffe066':col);dpt(ctx,p2.x,p2.y,isSel?'#ffe066':col);
@@ -1549,11 +1556,28 @@ async function runAIAnalysis(){
   const aiStartTime=Date.now();
   const provLabel=provider==='gemini'?'Gemini':'Claude';
   setStatus('✦ KI-Analyse via '+provLabel+' — '+currentSymbol+'…','ai');
-  const N=Math.min(120,candles.length);
-  const slice=candles.slice(candles.length-N);
-  const firstIdx=candles.length-N;
-  const lastIdx=candles.length-1;
-  const ohlcData=slice.map((c,i)=>({i:firstIdx+i,o:+c.o.toFixed(2),h:+c.h.toFixed(2),l:+c.l.toFixed(2),c:+c.c.toFixed(2)}));
+  // Use VISIBLE candles (what user sees) instead of just last 120
+  const visStart=Math.max(0,viewStart);
+  const visEnd=Math.min(candles.length-1,viewEnd);
+  const slice=candles.slice(visStart,visEnd+1);
+  const N=slice.length;
+  const firstIdx=visStart;
+  const lastIdx=visEnd;
+  // Downsample if too many candles (Gemini prompt limit)
+  const maxSend=150;
+  const step=Math.max(1,Math.floor(N/maxSend));
+  const ohlcData=[];
+  for(let i=0;i<slice.length;i+=step){
+    const c=slice[i];
+    ohlcData.push({i:firstIdx+i,o:+c.o.toFixed(2),h:+c.h.toFixed(2),l:+c.l.toFixed(2),c:+c.c.toFixed(2)});
+  }
+  // Always include the last candle
+  if(slice.length>0){
+    const lastC=slice[slice.length-1];
+    if(ohlcData[ohlcData.length-1].i!==lastIdx){
+      ohlcData.push({i:lastIdx,o:+lastC.o.toFixed(2),h:+lastC.h.toFixed(2),l:+lastC.l.toFixed(2),c:+lastC.c.toFixed(2)});
+    }
+  }
   // Current price context
   const lastC=candles[lastIdx].c;
   const minPrice=Math.min(...slice.map(c=>c.l));
@@ -1573,11 +1597,13 @@ STRIKTE REGELN für Trendlinien:
 - Verbinde NUR echte Swing-Highs oder Swing-Lows die du im Chart SIEHST
 - Swing-High = Kerze deren High höher ist als die 2 Kerzen davor UND 2 Kerzen danach
 - Swing-Low = umgekehrt
-- Aufwärtstrend: 2 aufeinanderfolgende höhere Swing-Lows verbinden
-- Abwärtstrend: 2 aufeinanderfolgende niedrigere Swing-Highs verbinden
+- Aufwärtstrend: 2+ aufeinanderfolgende höhere Swing-Lows verbinden (je mehr Berührungen, desto besser)
+- Abwärtstrend: 2+ aufeinanderfolgende niedrigere Swing-Highs verbinden
 - Punkte müssen MINDESTENS 10 Kerzen auseinander liegen
 - p1_price MUSS dem Low (Aufwärtstrend) oder High (Abwärtstrend) der Kerze an p1_idx entsprechen
-- Liefere KEINE Trendlinie wenn der Markt seitwärts läuft
+- Setze "segment":true wenn die Linie nur LOKAL gültig ist (Seitwärtsphase, kurzer Trend, endet bei einem Breakout) — sie wird dann NICHT über die Endpunkte hinaus verlängert
+- Setze "segment":false für Haupttrendlinien die den ganzen Chart definieren
+- Liefere KEINE Trendlinie wenn der Markt seitwärts läuft ohne klaren Trend
 
 STRIKTE REGELN für Support/Resistanz:
 - Horizontale Niveaus die im Chart MEHRFACH getestet wurden
@@ -1588,9 +1614,9 @@ OHLC-Daten:
 ${JSON.stringify(ohlcData)}
 
 Antworte ausschließlich mit validem JSON:
-{"trendlines":[{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>,"label":"<Aufwärtstrend|Abwärtstrend>"}],"support_resistance":[{"price":<float>,"label":"<Support|Resistanz> $<preis>","type":"<support|resistance>"}]}
+{"trendlines":[{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>,"label":"<Aufwärtstrend|Abwärtstrend>","segment":<true|false>}],"support_resistance":[{"price":<float>,"label":"<Support|Resistanz> $<preis>","type":"<support|resistance>"}]}
 
-Maximum 2 Trendlinien und 3 S/R-Linien. Fibonacci wird automatisch berechnet.`;
+Maximum 3 Trendlinien (gerne 1-2 Haupttrendlinien + 1-2 lokale Segment-Trendlinien) und 3 S/R-Linien. Fibonacci wird automatisch berechnet.`;
 
   try{
     let raw='';
@@ -1719,37 +1745,44 @@ Maximum 2 Trendlinien und 3 S/R-Linien. Fibonacci wird automatisch berechnet.`;
       const p1=snapToSwing(t.p1_idx,t.p1_price,!isUp);
       const p2=snapToSwing(t.p2_idx,t.p2_price,!isUp);
       if(!p1||!p2)return;
-      // Require min distance
       if(Math.abs(p2.idx-p1.idx)<5)return;
-      aiDrawings.push({type:'trendline',p1,p2,label:t.label,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
+      aiDrawings.push({type:'trendline',p1,p2,label:t.label,segment:t.segment===true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
     (result.support_resistance||[]).forEach(s=>{
       const p=parseFloat(s.price);
       if(isNaN(p)||p<minPrice*0.8||p>maxPrice*1.2)return; // sanity check
       aiDrawings.push({type:'support',price:p,label:s.label,full:true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
-    // Fibonacci: Auto-calculate from actual swing extremes in the data.
-    // Gemini's fib is often inaccurate — we find the real highest high and lowest low.
+    // Fibonacci: Auto-calculate from actual swing extremes.
+    // Use VISIBLE range (what user sees) for better accuracy
     {
-      // Find absolute high and low in the slice
-      let maxH=-Infinity,maxIdx=0,minL=Infinity,minIdx=0;
-      slice.forEach((c,i)=>{
-        if(c.h>maxH){maxH=c.h;maxIdx=i;}
-        if(c.l<minL){minL=c.l;minIdx=i;}
-      });
-      // The fib goes from the FIRST extreme to the SECOND (chronologically)
-      let p1,p2;
-      if(maxIdx<minIdx){
-        // High came first → downtrend retracement (100% = low, 0% = high)
-        p1={idx:firstIdx+maxIdx,price:maxH,time:candles[firstIdx+maxIdx].t.getTime()};
-        p2={idx:firstIdx+minIdx,price:minL,time:candles[firstIdx+minIdx].t.getTime()};
-      }else{
-        // Low came first → uptrend retracement
-        p1={idx:firstIdx+minIdx,price:minL,time:candles[firstIdx+minIdx].t.getTime()};
-        p2={idx:firstIdx+maxIdx,price:maxH,time:candles[firstIdx+maxIdx].t.getTime()};
-      }
-      if(Math.abs(p2.idx-p1.idx)>=5){
-        aiDrawings.push({type:'fib',p1,p2,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
+      const visStart=Math.max(0,viewStart);
+      const visEnd=Math.min(candles.length-1,viewEnd);
+      const visible=candles.slice(visStart,visEnd+1);
+      if(visible.length>=20){
+        // Find the most significant swing: largest price move between any high and low
+        let maxH=-Infinity,maxRelIdx=0,minL=Infinity,minRelIdx=0;
+        visible.forEach((c,i)=>{
+          if(c.h>maxH){maxH=c.h;maxRelIdx=i;}
+          if(c.l<minL){minL=c.l;minRelIdx=i;}
+        });
+        const maxIdx=visStart+maxRelIdx,minIdx=visStart+minRelIdx;
+        // Fib direction: 0% should be the extreme that came LAST (retracement target), 100% the start
+        // Convention: in downtrend retracement, 0%=low, 100%=high. In uptrend: 0%=high, 100%=low
+        // Simpler: chronological order — first extreme is p1 (start of move), second is p2 (end)
+        let p1,p2;
+        if(maxIdx<minIdx){
+          // Price went from HIGH to LOW (downtrend) → fib measures retracement up from low
+          p1={idx:maxIdx,price:maxH,time:candles[maxIdx].t.getTime()};
+          p2={idx:minIdx,price:minL,time:candles[minIdx].t.getTime()};
+        }else{
+          // Price went from LOW to HIGH (uptrend) → fib measures retracement down from high
+          p1={idx:minIdx,price:minL,time:candles[minIdx].t.getTime()};
+          p2={idx:maxIdx,price:maxH,time:candles[maxIdx].t.getTime()};
+        }
+        if(Math.abs(p2.idx-p1.idx)>=5){
+          aiDrawings.push({type:'fib',p1,p2,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
+        }
       }
     }
     redrawOC();
