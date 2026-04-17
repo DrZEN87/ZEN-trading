@@ -150,6 +150,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <div id="logo">🌅 ZEN<span>-Trading</span></div>
   <input id="sym-in" type="text" value="SAP.DE" autocomplete="off" spellcheck="false"/>
   <button class="btn" id="load-btn">Laden</button>
+  <button class="btn ag" id="add-wl-btn">+ Watchlist</button>
   <div class="sep"></div>
   <span class="tlbl">Zeit</span>
   <button class="btn" data-tf="5m">5m</button>
@@ -172,6 +173,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button class="btn" data-draw="fib" title="Fibonacci (2 Klicks)">φ Fib</button>
   <button class="btn ar" id="undo-btn" title="Rückgängig (Strg+Z)">↩</button>
   <button class="btn ar" id="clear-btn" title="Alle löschen">✕ Alle</button>
+  <button class="btn ar" id="del-selected-btn" title="Ausgewähltes Objekt löschen" style="display:none">🗑 Löschen</button>
   <div class="sep"></div>
   <span class="tlbl">Indikatoren</span>
   <button class="btn ab" data-ind="vol">Vol</button>
@@ -190,7 +192,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <div class="sep"></div>
   <button id="ai-btn" title="KI analysiert Chart automatisch — setzt Trendlinien, S/R, Fibonacci">✦ KI-Analyse</button>
   <div class="sep"></div>
-  <button class="btn ag" id="add-wl-btn">+ Watchlist</button>
   <span style="font-size:10px;color:var(--text3);margin-left:6px">📧</span>
   <input id="al-email" type="email" placeholder="email@beispiel.de" style="width:160px;font-size:11px;padding:4px 7px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
   <button id="al-email-save" style="font-size:10px;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">💾</button>
@@ -1162,8 +1163,8 @@ function redrawOC(){
   ctx.clearRect(0,0,oc.width,oc.height);
   const{chartArea:ca,scales:{x,y}}=mainChart;if(!ca)return;
   ctx.save();ctx.beginPath();ctx.rect(ca.left,ca.top,ca.right-ca.left,ca.bottom-ca.top);ctx.clip();
-  // All drawings (manual + AI)
-  [...drawings,...aiDrawings].forEach(d=>drawObj(ctx,d,ca));
+  // All drawings (manual + AI) — nur für aktuelles Symbol
+  [...drawings,...aiDrawings].filter(d=>!d.sym||d.sym===currentSymbol).forEach(d=>drawObj(ctx,d,ca));
   // Preview
   if(mousePos){
     const mp=mousePos,sp=snapPoint;
@@ -1269,12 +1270,16 @@ function findDrawingAtPoint(rx,ry,ca){
       }
     }
   }
-  // Check manual drawings
+  // Check manual drawings — nur für aktuelles Symbol
   for(let i=drawings.length-1;i>=0;i--){
-    if(hitTestDrawing(drawings[i],rx,ry,ca))return{pool:'drawings',idx:i,id:drawings[i].id};
+    const d=drawings[i];
+    if(d.sym&&d.sym!==currentSymbol)continue;
+    if(hitTestDrawing(d,rx,ry,ca))return{pool:'drawings',idx:i,id:d.id};
   }
   for(let i=aiDrawings.length-1;i>=0;i--){
-    if(hitTestDrawing(aiDrawings[i],rx,ry,ca))return{pool:'aiDrawings',idx:i,id:aiDrawings[i].id};
+    const d=aiDrawings[i];
+    if(d.sym&&d.sym!==currentSymbol)continue;
+    if(hitTestDrawing(d,rx,ry,ca))return{pool:'aiDrawings',idx:i,id:d.id};
   }
   return null;
 }
@@ -1288,10 +1293,11 @@ function deleteSelectedDrawing(){
     if(a&&localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
     alarms.splice(idx,1);
     renderAlarmTags();
-    // Alarm is drawn by main chart plugin — need to update it
     if(mainChart)mainChart.update('none');
   }
   selectedDrawing=null;
+  const delBtn=document.getElementById('del-selected-btn');
+  if(delBtn)delBtn.style.display='none';
   redrawOC();
   setStatus('Gelöscht','idle');
 }
@@ -1425,14 +1431,14 @@ Antworte NUR mit validem JSON, KEIN Text, KEINE Erklärung:
     const result=JSON.parse(jsonStr);
     aiDrawings=[];
     (result.trendlines||[]).forEach(t=>{
-      aiDrawings.push({type:'trendline',p1:{idx:t.p1_idx,price:t.p1_price},p2:{idx:t.p2_idx,price:t.p2_price},label:t.label,ai:true,id:Date.now()+Math.random()});
+      aiDrawings.push({type:'trendline',p1:{idx:t.p1_idx,price:t.p1_price},p2:{idx:t.p2_idx,price:t.p2_price},label:t.label,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
     (result.support_resistance||[]).forEach(s=>{
-      aiDrawings.push({type:'support',price:s.price,label:s.label,full:true,ai:true,id:Date.now()+Math.random()});
+      aiDrawings.push({type:'support',price:s.price,label:s.label,full:true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
     if(result.fibonacci){
       const f=result.fibonacci;
-      aiDrawings.push({type:'fib',p1:{idx:f.p1_idx,price:f.p1_price},p2:{idx:f.p2_idx,price:f.p2_price},ai:true,id:Date.now()+Math.random()});
+      aiDrawings.push({type:'fib',p1:{idx:f.p1_idx,price:f.p1_price},p2:{idx:f.p2_idx,price:f.p2_price},ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     }
     redrawOC();
     const hint=document.getElementById('ai-hint');
@@ -1680,11 +1686,14 @@ ovCanvas.addEventListener('click',e=>{
     const ca=mainChart?.chartArea;
     if(!ca)return;
     const hit=findDrawingAtPoint(pos.rx,pos.ry,ca);
+    const delBtn=document.getElementById('del-selected-btn');
     if(hit){
       selectedDrawing=hit;
-      setStatus('Zeichnung ausgewählt — Entf oder Strg+Z zum Löschen | Klick woanders: Auswahl aufheben','idle');
+      if(delBtn)delBtn.style.display='';
+      setStatus('Ausgewählt — 🗑 klicken oder Entf drücken','idle');
     }else{
       selectedDrawing=null;
+      if(delBtn)delBtn.style.display='none';
     }
     redrawOC();
     return;
@@ -1698,10 +1707,10 @@ ovCanvas.addEventListener('click',e=>{
     renderAll();
     return;
   }
-  if(drawMode==='support'||drawMode==='supportfull'){drawings.push({type:'support',price:usePrice,startIdx:useIdx,full:drawMode==='supportfull',id:Date.now()});redrawOC();return;}
-  if(drawMode==='trendline'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else{drawings.push({type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice},id:Date.now()});drawTemp=null;drawStep=0;redrawOC();}return;}
-  if(drawMode==='channel'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else if(drawStep===1){drawTemp.push({idx:useIdx,price:usePrice});drawStep=2;}else{const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2)drawings.push({type:'channel',p1:drawTemp[0],p2:drawTemp[1],offsetPx:usePx.y-(p1.y+p2.y)/2,id:Date.now()});drawTemp=null;drawStep=0;redrawOC();}return;}
-  if(drawMode==='fib'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else{drawings.push({type:'fib',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice},id:Date.now()});drawTemp=null;drawStep=0;redrawOC();}return;}
+  if(drawMode==='support'||drawMode==='supportfull'){drawings.push({type:'support',price:usePrice,startIdx:useIdx,full:drawMode==='supportfull',id:Date.now(),sym:currentSymbol});redrawOC();return;}
+  if(drawMode==='trendline'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else{drawings.push({type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice},id:Date.now(),sym:currentSymbol});drawTemp=null;drawStep=0;redrawOC();}return;}
+  if(drawMode==='channel'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else if(drawStep===1){drawTemp.push({idx:useIdx,price:usePrice});drawStep=2;}else{const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2)drawings.push({type:'channel',p1:drawTemp[0],p2:drawTemp[1],offsetPx:usePx.y-(p1.y+p2.y)/2,id:Date.now(),sym:currentSymbol});drawTemp=null;drawStep=0;redrawOC();}return;}
+  if(drawMode==='fib'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice}];drawStep=1;}else{drawings.push({type:'fib',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice},id:Date.now(),sym:currentSymbol});drawTemp=null;drawStep=0;redrawOC();}return;}
 });
 
 // ── Panel resize ──────────────────────────────────────────────
@@ -1799,7 +1808,11 @@ document.getElementById('clear-btn').addEventListener('click',()=>{
   drawStep=0;drawTemp=null;
   PANEL_KEYS.forEach(k=>{panelStep[k]=0;panelTemp[k]=null;});
   document.getElementById('ai-hint').style.display='none';
+  const delBtn=document.getElementById('del-selected-btn');if(delBtn)delBtn.style.display='none';
   redrawOC();redrawAllPanelOCs();
+});
+document.getElementById('del-selected-btn').addEventListener('click',()=>{
+  if(selectedDrawing)deleteSelectedDrawing();
 });
 document.getElementById('load-btn').addEventListener('click',()=>{currentSymbol=document.getElementById('sym-in').value.trim().toUpperCase();fetchData(currentSymbol,currentTF);});
 document.getElementById('sym-in').addEventListener('keydown',e=>{if(e.key==='Enter'){currentSymbol=e.target.value.trim().toUpperCase();fetchData(currentSymbol,currentTF);}});
