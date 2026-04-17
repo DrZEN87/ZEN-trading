@@ -1513,7 +1513,7 @@ Antworte NUR mit validem JSON, KEIN Text, KEINE Erklärung:
         try{
           const url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
           const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({contents:[{parts:[{text:aiPrompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:2000,responseMimeType:'application/json'}})});
+            body:JSON.stringify({contents:[{parts:[{text:aiPrompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:8000,responseMimeType:'application/json',thinkingConfig:{thinkingBudget:0}}})});
           if(resp.ok){
             const data=await resp.json();
             raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
