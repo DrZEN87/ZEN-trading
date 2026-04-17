@@ -193,8 +193,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button class="btn" id="fs-btn" title="Vollbild (F)">⛶</button>
   <div class="sep"></div>
   <button id="ai-btn" title="Linksklick: KI-Analyse starten · Rechtsklick: API-Key verwalten">✦ KI-Analyse</button>
-  <button id="ai-key-btn" title="API-Key verwalten" style="padding:4px 8px;font-size:12px">🔑</button>
-  <span id="ai-time" style="font-size:10px;color:var(--text3);margin-left:4px"></span>
+  <button class="btn" id="ai-key-btn" title="API-Key verwalten">🔑</button>
   <div class="sep"></div>
   <span style="font-size:10px;color:var(--text3);margin-left:6px">📧</span>
   <input id="al-email" type="email" placeholder="email@beispiel.de" style="width:160px;font-size:11px;padding:4px 7px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
@@ -1548,7 +1547,6 @@ async function runAIAnalysis(){
   const btn=document.getElementById('ai-btn');
   btn.classList.add('loading');btn.textContent='⟳ Analysiere…';
   const aiStartTime=Date.now();
-  document.getElementById('ai-time').textContent='';
   const provLabel=provider==='gemini'?'Gemini':'Claude';
   setStatus('✦ KI-Analyse via '+provLabel+' — '+currentSymbol+'…','ai');
   const N=Math.min(120,candles.length);
@@ -1560,54 +1558,81 @@ async function runAIAnalysis(){
   const lastC=candles[lastIdx].c;
   const minPrice=Math.min(...slice.map(c=>c.l));
   const maxPrice=Math.max(...slice.map(c=>c.h));
-  const aiPrompt=`Du bist ein erfahrener Chart-Analyst. Analysiere ${currentSymbol} im ${currentTF.toUpperCase()}-Chart.
+  const aiPrompt=`Du bist ein erfahrener Chart-Analyst. Du siehst oben einen Chart von ${currentSymbol} im ${currentTF.toUpperCase()}-Zeitrahmen. Analysiere ihn visuell UND nutze die OHLC-Daten für präzise Koordinaten.
 
 KONTEXT:
 - Datenpunkte: Index ${firstIdx} bis ${lastIdx} (${N} Kerzen)
 - Preis-Range: ${minPrice.toFixed(2)} bis ${maxPrice.toFixed(2)}
 - Aktueller Preis: ${lastC.toFixed(2)}
 
+VORGEHEN:
+1. Schau dir den Chart an: Wo sind die offensichtlichen Hochs, Tiefs, Trends?
+2. Nutze die OHLC-Daten unten um EXAKTE Koordinaten (Index+Preis) zu liefern
+
 STRIKTE REGELN für Trendlinien:
-- Verbinde NUR echte Swing-Highs oder Swing-Lows (keine Eröffnungs-Hochs/Tiefs)
-- Swing-High = Kerze deren High höher ist als die 2 Kerzen davor UND die 2 Kerzen danach
+- Verbinde NUR echte Swing-Highs oder Swing-Lows die du im Chart SIEHST
+- Swing-High = Kerze deren High höher ist als die 2 Kerzen davor UND 2 Kerzen danach
 - Swing-Low = umgekehrt
-- Aufwärtstrend-Linie: verbindet 2 aufeinanderfolgende Swing-Lows (beide müssen aus den Daten stammen)
-- Abwärtstrend-Linie: verbindet 2 aufeinanderfolgende Swing-Highs
-- Die 2 gewählten Punkte müssen MINDESTENS 10 Kerzen auseinander liegen
-- p1_price MUSS dem Low (bei Aufwärtstrend) oder High (bei Abwärtstrend) der Kerze an p1_idx entsprechen
-- Liefere KEINE Trendlinie wenn die letzten 30 Kerzen seitwärts laufen
+- Aufwärtstrend: 2 aufeinanderfolgende höhere Swing-Lows verbinden
+- Abwärtstrend: 2 aufeinanderfolgende niedrigere Swing-Highs verbinden
+- Punkte müssen MINDESTENS 10 Kerzen auseinander liegen
+- p1_price MUSS dem Low (Aufwärtstrend) oder High (Abwärtstrend) der Kerze an p1_idx entsprechen
+- Liefere KEINE Trendlinie wenn der Markt seitwärts läuft
 
 STRIKTE REGELN für Support/Resistanz:
-- Horizontale Linie an einem Preis-Niveau, das MINDESTENS 2x getestet wurde
+- Horizontale Niveaus die im Chart MEHRFACH getestet wurden
 - Support = UNTER dem aktuellen Preis (${lastC.toFixed(2)})
 - Resistanz = ÜBER dem aktuellen Preis
-- Preis muss im aktuellen Range (${minPrice.toFixed(2)}-${maxPrice.toFixed(2)}) liegen
-
-STRIKTE REGELN für Fibonacci:
-- Wähle den letzten STARKEN Swing (min. 10% Bewegung)
-- p1 = Start (Swing-High bei Retracement in Abwärtsbewegung, Swing-Low bei Aufwärtsbewegung)
-- p2 = Ende (genau umgekehrt)
-- Indizes müssen aus den gelieferten Daten stammen
 
 OHLC-Daten:
 ${JSON.stringify(ohlcData)}
 
-Antworte ausschließlich mit validem JSON in diesem Format:
-{"trendlines":[{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>,"label":"<Aufwärtstrend|Abwärtstrend>"}],"support_resistance":[{"price":<float>,"label":"<Support|Resistanz> $<preis>","type":"<support|resistance>"}],"fibonacci":{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>}}
+Antworte ausschließlich mit validem JSON:
+{"trendlines":[{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>,"label":"<Aufwärtstrend|Abwärtstrend>"}],"support_resistance":[{"price":<float>,"label":"<Support|Resistanz> $<preis>","type":"<support|resistance>"}]}
 
-Maximum 2 Trendlinien, 3 S/R-Linien, 1 Fibonacci. Lieber weniger aber präzise.`;
+Maximum 2 Trendlinien und 3 S/R-Linien. Fibonacci wird automatisch berechnet.`;
 
   try{
     let raw='';
     if(provider==='gemini'){
+      // Capture chart as image for vision analysis
+      let chartImageB64=null;
+      try{
+        const mainCanvas=document.getElementById('main-canvas');
+        const ovCanvas=document.getElementById('ov-canvas');
+        // Combine main + overlay onto a new canvas
+        const combined=document.createElement('canvas');
+        combined.width=mainCanvas.width;combined.height=mainCanvas.height;
+        const cx=combined.getContext('2d');
+        cx.fillStyle='#0a0e1a';cx.fillRect(0,0,combined.width,combined.height);
+        cx.drawImage(mainCanvas,0,0);
+        cx.drawImage(ovCanvas,0,0);
+        // Scale down to max 1024px on long edge to save tokens
+        const maxDim=1024;
+        const scale=Math.min(1,maxDim/Math.max(combined.width,combined.height));
+        let finalCanvas=combined;
+        if(scale<1){
+          finalCanvas=document.createElement('canvas');
+          finalCanvas.width=Math.round(combined.width*scale);
+          finalCanvas.height=Math.round(combined.height*scale);
+          finalCanvas.getContext('2d').drawImage(combined,0,0,finalCanvas.width,finalCanvas.height);
+        }
+        chartImageB64=finalCanvas.toDataURL('image/jpeg',0.85).split(',')[1];
+      }catch(imgErr){console.warn('Chart capture failed:',imgErr);}
       // Google Gemini API (free) — aktuelle Modelle (1.5-Serie ist abgeschaltet)
       const models=['gemini-2.5-flash','gemini-2.5-flash-lite','gemini-3-flash-preview','gemini-2.0-flash','gemini-2.0-flash-lite'];
       let lastErr='';
       for(const model of models){
         try{
           const url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+          // Build parts with or without image
+          const parts=[];
+          if(chartImageB64){
+            parts.push({inline_data:{mime_type:'image/jpeg',data:chartImageB64}});
+          }
+          parts.push({text:aiPrompt});
           const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({contents:[{parts:[{text:aiPrompt}]}],generationConfig:{temperature:0.2,maxOutputTokens:16000,responseMimeType:'application/json'}})});
+            body:JSON.stringify({contents:[{parts}],generationConfig:{temperature:0.2,maxOutputTokens:16000,responseMimeType:'application/json'}})});
           if(resp.ok){
             const data=await resp.json();
             raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
@@ -1729,17 +1754,17 @@ Maximum 2 Trendlinien, 3 S/R-Linien, 1 Fibonacci. Lieber weniger aber präzise.`
     }
     redrawOC();
     const elapsed=((Date.now()-aiStartTime)/1000).toFixed(1);
-    document.getElementById('ai-time').textContent='⏱ '+elapsed+'s';
+    const summary='✦ '+provLabel+': '+(result.trendlines?.length||0)+' Trends · '+(result.support_resistance?.length||0)+' S/R · Fib · '+elapsed+'s';
+    setStatus(summary,'ok');
+    // Hide old header hint if still used
     const hint=document.getElementById('ai-hint');
-    hint.textContent='✦ '+provLabel+': '+(result.trendlines?.length||0)+' Trends · '+(result.support_resistance?.length||0)+' S/R · Fib · '+elapsed+'s';
-    hint.style.display='inline';
-    setStatus('✦ KI-Analyse abgeschlossen in '+elapsed+'s — '+aiDrawings.length+' Zeichnungen','ok');
-    setTimeout(()=>setStatus('Bereit','idle'),3000);
+    if(hint)hint.style.display='none';
+    // Keep summary in status bar longer so user can read it
+    setTimeout(()=>setStatus('Bereit','idle'),10000);
   }catch(e){
     const elapsed=((Date.now()-aiStartTime)/1000).toFixed(1);
-    document.getElementById('ai-time').textContent='⚠ '+elapsed+'s';
-    setStatus('KI-Fehler: '+e.message,'err');console.error(e);
-    setTimeout(()=>setStatus('Bereit','idle'),5000);
+    setStatus('⚠ KI-Fehler ('+elapsed+'s): '+e.message,'err');console.error(e);
+    setTimeout(()=>setStatus('Bereit','idle'),8000);
   }finally{
     btn.classList.remove('loading');btn.textContent='✦ KI-Analyse';
   }
