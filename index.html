@@ -166,7 +166,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <div class="sep"></div>
   <span class="tlbl">Zeichnen</span>
   <button class="btn ab" data-draw="pointer">↖</button>
-  <button class="btn" data-draw="trendline" title="Trendlinie (2 Klicks)">╱ Trend</button>
+  <button class="btn" data-draw="trendline" title="Trendlinie (2 Klicks) — wird nach rechts verlängert">╱ Trend</button>
+  <button class="btn" data-draw="trendseg" title="Trend-Segment (2 Klicks) — nur zwischen den Punkten">╱ Segment</button>
   <button class="btn" data-draw="channel" title="Kanal (3 Klicks)">⫶ Kanal</button>
   <button class="btn" data-draw="support" title="S/R-Strahl — geht von der Kerze nach rechts">─▶ S/R Ray</button>
   <button class="btn" data-draw="supportfull" title="S/R volle Breite — ganzer Bildschirm">─── S/R Full</button>
@@ -1244,6 +1245,8 @@ function redrawOC(){
     const useP=sp?{x:sp.px,y:sp.py}:{x:mp.rx,y:mp.ry};
     const usePrice=sp?sp.price:mp.price;
     if(drawMode==='trendline'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){dline(ctx,p1.x,p1.y,useP.x,useP.y,C.trend,1.5,[]);dpt(ctx,p1.x,p1.y,C.trend);}}
+    if(drawMode==='trendseg'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){dline(ctx,p1.x,p1.y,useP.x,useP.y,C.trend,1.5,[4,3]);dpt(ctx,p1.x,p1.y,C.trend);}}
+    if(drawMode==='measure'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){const col=usePrice>=drawTemp[0].price?'#26a69a':'#ef5350';ctx.save();ctx.strokeStyle=col;ctx.lineWidth=1;ctx.setLineDash([4,3]);ctx.strokeRect(Math.min(p1.x,useP.x),Math.min(p1.y,useP.y),Math.abs(useP.x-p1.x),Math.abs(useP.y-p1.y));ctx.setLineDash([]);ctx.restore();}}
     if(drawMode==='channel'){if(drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1)dline(ctx,p1.x,p1.y,useP.x,useP.y,C.chan,1.5,[]);}if(drawStep===2&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){dline(ctx,p1.x,p1.y,p2.x,p2.y,C.chan,1.5,[]);const mid=(p1.y+p2.y)/2;ctx.save();ctx.globalAlpha=.5;dline(ctx,p1.x,p1.y+(mp.ry-mid),p2.x,p2.y+(mp.ry-mid),C.chan,1,[5,3]);ctx.restore();}}}
     if(drawMode==='fib'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1)drawFibLevels(ctx,ca,drawTemp[0].price,usePrice,p1.x,useP.x,p=>y.getPixelForValue(p));}
     if(drawMode==='support'||drawMode==='supportfull'){const last=candles[candles.length-1];const col=usePrice>=last.c?C.resist:C.support;const xFrom=drawMode==='support'?useP.x:ca.left;ctx.save();ctx.globalAlpha=.55;dline(ctx,xFrom,useP.y,ca.right,useP.y,col,1.5,[]);ctx.fillStyle=col;ctx.font='10px system-ui';ctx.fillText((usePrice>=last.c?'R':'S')+' $'+usePrice.toFixed(2),xFrom+6,useP.y-4);ctx.restore();}
@@ -1307,10 +1310,9 @@ function hitTestDrawing(d,rx,ry,ca){
     const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);
     if(!p1||!p2)return false;
     if(d.segment===true){
-      // Segment: only test between p1 and p2
       return ptLineDist(rx,ry,p1.x,p1.y,p2.x,p2.y)<HIT;
     }
-    const ext=extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);
+    const ext=extLineRight(p1.x,p1.y,p2.x,p2.y,ca.right);
     return ptLineDist(rx,ry,ext.x1,ext.y1,ext.x2,ext.y2)<HIT;
   }
   if(d.type==='support'){
@@ -1422,14 +1424,13 @@ function drawObj(ctx,d,ca){
     if(!rp1||!rp2)return;
     const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);if(!p1||!p2)return;
     const col=isAI?C.aiTrend:C.trend;
-    // Segment mode: don't extend beyond endpoints (for short/local trendlines)
+    // Segment mode: only between p1 and p2. Standard: from p1, extended right past p2.
     const isSeg=d.segment===true;
-    const x1=isSeg?p1.x:ca.left,x2=isSeg?p2.x:ca.right;
-    const ext=isSeg?{x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y}:extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);
+    const ext=isSeg?{x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y}:extLineRight(p1.x,p1.y,p2.x,p2.y,ca.right);
     if(isSel){ctx.save();ctx.strokeStyle='rgba(255,255,100,.25)';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(ext.x1,ext.y1);ctx.lineTo(ext.x2,ext.y2);ctx.stroke();ctx.restore();}
     dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,isSel?'#ffe066':col,isSel?2:isAI?1.2:1.5,isAI&&!isSel?[6,3]:[]);
     dpt(ctx,p1.x,p1.y,isSel?'#ffe066':col);dpt(ctx,p2.x,p2.y,isSel?'#ffe066':col);
-    if(isAI&&d.label){ctx.save();ctx.fillStyle=col;ctx.font='10px system-ui';ctx.fillText(d.label,ext.x1+8,ext.y1-5);ctx.restore();}
+    if(isAI&&d.label){ctx.save();ctx.fillStyle=col;ctx.font='10px system-ui';ctx.fillText(d.label,p1.x+8,p1.y-5);ctx.restore();}
     if(isSel){trashX=p2.x;trashY=p2.y;}
   }else if(d.type==='channel'){
     if(!rp1||!rp2)return;
@@ -1543,6 +1544,7 @@ function drawTrashIcon(ctx,cx,cy,id){
 function dline(ctx,x1,y1,x2,y2,col,w,dash){ctx.save();ctx.strokeStyle=col;ctx.lineWidth=w;ctx.setLineDash(dash||[]);ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.restore();}
 function dpt(ctx,x,y,col){ctx.save();ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();ctx.restore();}
 function extLine(x1,y1,x2,y2,xL,xR){if(x1===x2)return{x1,y1:y1-9999,x2,y2:y2+9999};const s=(y2-y1)/(x2-x1);return{x1:xL,y1:y1+s*(xL-x1),x2:xR,y2:y1+s*(xR-x1)};}
+function extLineRight(x1,y1,x2,y2,xR){if(x1===x2)return{x1,y1,x2,y2:y1-9999};const s=(y2-y1)/(x2-x1);return{x1,y1,x2:xR,y2:y1+s*(xR-x1)};}
 
 // ════════════════════════════════════════════════════════════
 // ✦ KI-ANALYSE
@@ -1769,34 +1771,58 @@ Maximum 3 Trendlinien (gerne 1-2 Haupttrendlinien + 1-2 lokale Segment-Trendlini
       if(isNaN(p)||p<minPrice*0.8||p>maxPrice*1.2)return; // sanity check
       aiDrawings.push({type:'support',price:p,label:s.label,full:true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
-    // Fibonacci: Auto-calculate from actual swing extremes.
-    // Use VISIBLE range (what user sees) for better accuracy
+    // Fibonacci: Find the LAST major swing (not absolute min/max).
+    // Strategy: find the highest HIGH in visible range, then find the lowest LOW AFTER it.
+    // If the low AFTER the high is meaningful (bigger move than prior), use it.
+    // Otherwise find the lowest LOW, then the highest HIGH after it (uptrend retracement).
     {
       const visStart=Math.max(0,viewStart);
       const visEnd=Math.min(candles.length-1,viewEnd);
       const visible=candles.slice(visStart,visEnd+1);
       if(visible.length>=20){
-        // Find the most significant swing: largest price move between any high and low
+        // Find absolute high and low in visible
         let maxH=-Infinity,maxRelIdx=0,minL=Infinity,minRelIdx=0;
         visible.forEach((c,i)=>{
           if(c.h>maxH){maxH=c.h;maxRelIdx=i;}
           if(c.l<minL){minL=c.l;minRelIdx=i;}
         });
-        const maxIdx=visStart+maxRelIdx,minIdx=visStart+minRelIdx;
-        // Fib direction: 0% should be the extreme that came LAST (retracement target), 100% the start
-        // Convention: in downtrend retracement, 0%=low, 100%=high. In uptrend: 0%=high, 100%=low
-        // Simpler: chronological order — first extreme is p1 (start of move), second is p2 (end)
-        let p1,p2;
-        if(maxIdx<minIdx){
-          // Price went from HIGH to LOW (downtrend) → fib measures retracement up from low
-          p1={idx:maxIdx,price:maxH,time:candles[maxIdx].t.getTime()};
-          p2={idx:minIdx,price:minL,time:candles[minIdx].t.getTime()};
-        }else{
-          // Price went from LOW to HIGH (uptrend) → fib measures retracement down from high
-          p1={idx:minIdx,price:minL,time:candles[minIdx].t.getTime()};
-          p2={idx:maxIdx,price:maxH,time:candles[maxIdx].t.getTime()};
+        // Option A: high came before low → downtrend fib (high → low)
+        // Option B: low came before high → uptrend fib (low → high)
+        // But we want the LAST significant move:
+        //   - After max high, what's the lowest low?
+        //   - After min low, what's the highest high?
+        // Pick the direction with the LARGER % move
+        let highToLowRange=0,lowToHighRange=0;
+        let hlMaxIdx=maxRelIdx,hlMinIdx=maxRelIdx,lhMinIdx=minRelIdx,lhMaxIdx=minRelIdx;
+        // After the high, lowest low
+        let lowAfterHigh=Infinity,lowAfterHighIdx=maxRelIdx;
+        for(let i=maxRelIdx+1;i<visible.length;i++){
+          if(visible[i].l<lowAfterHigh){lowAfterHigh=visible[i].l;lowAfterHighIdx=i;}
         }
-        if(Math.abs(p2.idx-p1.idx)>=5){
+        if(lowAfterHigh!==Infinity){
+          highToLowRange=maxH-lowAfterHigh;
+          hlMinIdx=lowAfterHighIdx;
+        }
+        // After the low, highest high
+        let highAfterLow=-Infinity,highAfterLowIdx=minRelIdx;
+        for(let i=minRelIdx+1;i<visible.length;i++){
+          if(visible[i].h>highAfterLow){highAfterLow=visible[i].h;highAfterLowIdx=i;}
+        }
+        if(highAfterLow!==-Infinity){
+          lowToHighRange=highAfterLow-minL;
+          lhMaxIdx=highAfterLowIdx;
+        }
+        let p1,p2;
+        if(highToLowRange>=lowToHighRange&&highToLowRange>0){
+          // Downtrend: high → low (fib retracement from below)
+          p1={idx:visStart+maxRelIdx,price:maxH,time:candles[visStart+maxRelIdx].t.getTime()};
+          p2={idx:visStart+hlMinIdx,price:lowAfterHigh,time:candles[visStart+hlMinIdx].t.getTime()};
+        }else if(lowToHighRange>0){
+          // Uptrend: low → high
+          p1={idx:visStart+minRelIdx,price:minL,time:candles[visStart+minRelIdx].t.getTime()};
+          p2={idx:visStart+lhMaxIdx,price:highAfterLow,time:candles[visStart+lhMaxIdx].t.getTime()};
+        }
+        if(p1&&p2&&Math.abs(p2.idx-p1.idx)>=5){
           aiDrawings.push({type:'fib',p1,p2,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
         }
       }
@@ -2120,6 +2146,7 @@ ovCanvas.addEventListener('click',e=>{
   }
   if(drawMode==='support'||drawMode==='supportfull'){const d={type:'support',price:usePrice,startIdx:useIdx,time:idxToTime(useIdx),full:drawMode==='supportfull',id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);redrawOC();return;}
   if(drawMode==='trendline'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();}return;}
+  if(drawMode==='trendseg'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},segment:true,id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();}return;}
   if(drawMode==='channel'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else if(drawStep===1){drawTemp.push({idx:useIdx,price:usePrice,time:idxToTime(useIdx)});drawStep=2;}else{const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){const d={type:'channel',p1:drawTemp[0],p2:drawTemp[1],offsetPx:usePx.y-(p1.y+p2.y)/2,offsetPrice:usePrice-((drawTemp[0].price+drawTemp[1].price)/2),id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);}drawTemp=null;drawStep=0;redrawOC();}return;}
   if(drawMode==='fib'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'fib',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();}return;}
   if(drawMode==='measure'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'measure',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();}return;}
