@@ -1453,23 +1453,48 @@ function drawEventIcons(ctx,ca){
   const y0=ca.bottom-12;
   // Hilfsfunktion: timestamp → x-Pixel
   function tsToX(ts){
-    // Finde die Kerze die zeitlich am nächsten ist
-    let bestIdx=-1,bestDist=Infinity;
+    // Sichtbarer Zeitbereich: anhand der ersten und letzten sichtbaren Kerze
+    const viewFirstT=candles[Math.max(0,viewStart)]?.t.getTime();
+    const viewLastT=candles[Math.min(candles.length-1,viewEnd)]?.t.getTime();
+    if(viewFirstT==null||viewLastT==null)return null;
+    // TF-spezifischer Puffer (erlaubt Events nahe dem Rand)
+    const tfMs={'5m':300000,'1h':3600000,'4h':14400000,d1:86400000,m1:2592000000}[currentTF]||86400000;
+    if(ts<viewFirstT-tfMs*2||ts>viewLastT+tfMs*5)return null;
+    // Interpoliere Pixel-Position linear zwischen den nächsten Kerzen
+    // Finde Kerzen die vor/nach ts liegen
+    let loIdx=-1,hiIdx=-1;
     for(let i=0;i<candles.length;i++){
-      const d=Math.abs(candles[i].t.getTime()-ts);
-      if(d<bestDist){bestDist=d;bestIdx=i;}
+      const ct=candles[i].t.getTime();
+      if(ct<=ts)loIdx=i;
+      if(ct>=ts&&hiIdx<0){hiIdx=i;break;}
     }
-    if(bestIdx<0)return null;
-    if(bestIdx<viewStart||bestIdx>viewEnd)return null;
-    return mainChart.scales.x.getPixelForValue(bestIdx);
+    let idx;
+    if(loIdx<0)idx=hiIdx;
+    else if(hiIdx<0){
+      // Event nach letzter Kerze → extrapolieren
+      const lastIdx=candles.length-1;
+      const dt=ts-candles[lastIdx].t.getTime();
+      idx=lastIdx+dt/tfMs;
+    }else if(loIdx===hiIdx)idx=loIdx;
+    else{
+      const tLo=candles[loIdx].t.getTime(),tHi=candles[hiIdx].t.getTime();
+      idx=loIdx+(ts-tLo)/(tHi-tLo)*(hiIdx-loIdx);
+    }
+    return mainChart.scales.x.getPixelForValue(idx);
   }
   ctx.save();
   // Wirtschaftskalender: Vertikale Linien über die gesamte Chart-Höhe
-  // Wirtschaftskalender NUR auf kurzen TFs anzeigen (auf M1 würden sich alle Monate überlappen)
+  // Nur wenn: (a) Timeframe passt, (b) Zoom nicht zu weit rausgezogen
   const showMacro=(currentTF==='d1'||currentTF==='4h'||currentTF==='1h'||currentTF==='5m');
+  // Maximale sichtbare Zeitspanne: auf D1 max 2 Jahre, sonst proportional
+  const maxSpanMs={'5m':90*86400000,'1h':180*86400000,'4h':365*86400000,d1:730*86400000}[currentTF]||730*86400000;
+  const viewFirst=candles[Math.max(0,viewStart)]?.t.getTime()||0;
+  const viewLast=candles[Math.min(candles.length-1,viewEnd)]?.t.getTime()||0;
+  const viewSpan=viewLast-viewFirst;
+  const macroVisible=showMacro&&viewSpan<=maxSpanMs;
   const macroLabelMinSpacing=30; // px
   let lastMacroX=-999;
-  if(showMacro)MACRO_EVENTS.forEach(m=>{
+  if(macroVisible)MACRO_EVENTS.forEach(m=>{
     if(m.timestamp<firstT-86400000||m.timestamp>lastT+86400000)return;
     const px=tsToX(m.timestamp);
     if(px==null||px<ca.left||px>ca.right)return;
