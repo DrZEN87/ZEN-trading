@@ -1426,24 +1426,36 @@ function drawEventIcons(ctx,ca){
   }
   ctx.save();
   // Wirtschaftskalender: Vertikale Linien über die gesamte Chart-Höhe
-  MACRO_EVENTS.forEach(m=>{
+  // Wirtschaftskalender NUR auf kurzen TFs anzeigen (auf M1 würden sich alle Monate überlappen)
+  const showMacro=(currentTF==='d1'||currentTF==='4h'||currentTF==='1h'||currentTF==='5m');
+  const macroLabelMinSpacing=30; // px
+  let lastMacroX=-999;
+  if(showMacro)MACRO_EVENTS.forEach(m=>{
     if(m.timestamp<firstT-86400000||m.timestamp>lastT+86400000)return;
     const px=tsToX(m.timestamp);
     if(px==null||px<ca.left||px>ca.right)return;
     const isFuture=m.timestamp>Date.now();
     const col={FOMC:'rgba(59,130,246,0.8)',NFP:'rgba(245,158,11,0.8)',CPI:'rgba(236,72,153,0.8)',ECB:'rgba(34,197,94,0.8)'}[m.type]||'rgba(148,163,184,0.8)';
+    // Label nur wenn genug Platz zum vorherigen Marker
+    const showLabel=(px-lastMacroX)>macroLabelMinSpacing;
+    if(showLabel)lastMacroX=px;
     // Vertikale Linie
     ctx.save();
-    ctx.strokeStyle=col.replace('0.8',isFuture?'0.35':'0.45');
+    ctx.strokeStyle=col.replace('0.8',isFuture?'0.3':'0.4');
     ctx.lineWidth=1;
     ctx.setLineDash(isFuture?[3,3]:[]);
-    ctx.beginPath();ctx.moveTo(px,ca.top);ctx.lineTo(px,ca.bottom-18);ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(px,showLabel?ca.top+14:ca.top);
+    ctx.lineTo(px,ca.bottom-18);
+    ctx.stroke();
     ctx.setLineDash([]);
-    // Label oben
-    ctx.fillStyle=col;
-    ctx.font='bold 9px system-ui';
-    ctx.textAlign='center';ctx.textBaseline='top';
-    ctx.fillText(m.type,px,ca.top+2);
+    // Label oben nur wenn Platz
+    if(showLabel){
+      ctx.fillStyle=col;
+      ctx.font='bold 9px system-ui';
+      ctx.textAlign='center';ctx.textBaseline='top';
+      ctx.fillText(m.type,px,ca.top+2);
+    }
     ctx.restore();
     eventIconZones.push({x:px,y:ca.top+8,r:10,type:'macro',data:m,color:col});
   });
