@@ -1771,56 +1771,39 @@ Maximum 3 Trendlinien (gerne 1-2 Haupttrendlinien + 1-2 lokale Segment-Trendlini
       if(isNaN(p)||p<minPrice*0.8||p>maxPrice*1.2)return; // sanity check
       aiDrawings.push({type:'support',price:p,label:s.label,full:true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
-    // Fibonacci: Find the LAST major swing (not absolute min/max).
-    // Strategy: find the highest HIGH in visible range, then find the lowest LOW AFTER it.
-    // If the low AFTER the high is meaningful (bigger move than prior), use it.
-    // Otherwise find the lowest LOW, then the highest HIGH after it (uptrend retracement).
+    // Fibonacci: Finde die ZEITLICH LETZTE große Bewegung (nicht die größte in absoluter Range).
+    // Vergleiche: 1) Hoch→Tief-danach (Downmove) und 2) Tief→Hoch-danach (Upmove)
+    // → Pick die, die ZEITLICH SPÄTER endet
     {
       const visStart=Math.max(0,viewStart);
       const visEnd=Math.min(candles.length-1,viewEnd);
       const visible=candles.slice(visStart,visEnd+1);
       if(visible.length>=20){
-        // Find absolute high and low in visible
         let maxH=-Infinity,maxRelIdx=0,minL=Infinity,minRelIdx=0;
         visible.forEach((c,i)=>{
           if(c.h>maxH){maxH=c.h;maxRelIdx=i;}
           if(c.l<minL){minL=c.l;minRelIdx=i;}
         });
-        // Option A: high came before low → downtrend fib (high → low)
-        // Option B: low came before high → uptrend fib (low → high)
-        // But we want the LAST significant move:
-        //   - After max high, what's the lowest low?
-        //   - After min low, what's the highest high?
-        // Pick the direction with the LARGER % move
-        let highToLowRange=0,lowToHighRange=0;
-        let hlMaxIdx=maxRelIdx,hlMinIdx=maxRelIdx,lhMinIdx=minRelIdx,lhMaxIdx=minRelIdx;
-        // After the high, lowest low
+        // Down-move: vom absoluten Max bis zum Tief danach
         let lowAfterHigh=Infinity,lowAfterHighIdx=maxRelIdx;
         for(let i=maxRelIdx+1;i<visible.length;i++){
           if(visible[i].l<lowAfterHigh){lowAfterHigh=visible[i].l;lowAfterHighIdx=i;}
         }
-        if(lowAfterHigh!==Infinity){
-          highToLowRange=maxH-lowAfterHigh;
-          hlMinIdx=lowAfterHighIdx;
-        }
-        // After the low, highest high
+        // Up-move: vom absoluten Min bis zum Hoch danach
         let highAfterLow=-Infinity,highAfterLowIdx=minRelIdx;
         for(let i=minRelIdx+1;i<visible.length;i++){
           if(visible[i].h>highAfterLow){highAfterLow=visible[i].h;highAfterLowIdx=i;}
         }
-        if(highAfterLow!==-Infinity){
-          lowToHighRange=highAfterLow-minL;
-          lhMaxIdx=highAfterLowIdx;
-        }
+        const downEnd=(lowAfterHigh!==Infinity)?lowAfterHighIdx:-1;
+        const upEnd=(highAfterLow!==-Infinity)?highAfterLowIdx:-1;
         let p1,p2;
-        if(highToLowRange>=lowToHighRange&&highToLowRange>0){
-          // Downtrend: high → low (fib retracement from below)
+        // Der Move der ZEITLICH SPÄTER endet, ist der relevante "letzte" Move
+        if(downEnd>upEnd&&downEnd>0){
           p1={idx:visStart+maxRelIdx,price:maxH,time:candles[visStart+maxRelIdx].t.getTime()};
-          p2={idx:visStart+hlMinIdx,price:lowAfterHigh,time:candles[visStart+hlMinIdx].t.getTime()};
-        }else if(lowToHighRange>0){
-          // Uptrend: low → high
+          p2={idx:visStart+lowAfterHighIdx,price:lowAfterHigh,time:candles[visStart+lowAfterHighIdx].t.getTime()};
+        }else if(upEnd>0){
           p1={idx:visStart+minRelIdx,price:minL,time:candles[visStart+minRelIdx].t.getTime()};
-          p2={idx:visStart+lhMaxIdx,price:highAfterLow,time:candles[visStart+lhMaxIdx].t.getTime()};
+          p2={idx:visStart+highAfterLowIdx,price:highAfterLow,time:candles[visStart+highAfterLowIdx].t.getTime()};
         }
         if(p1&&p2&&Math.abs(p2.idx-p1.idx)>=5){
           aiDrawings.push({type:'fib',p1,p2,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
@@ -2904,7 +2887,133 @@ setTimeout(()=>{
     syncCloudDrawings();
     setInterval(syncCloudAlarms,120000); // alle 2 Min
   }
+  // SMA-Touch-Check: alle 5 Min für alle Watchlist-Symbole
+  checkSMATouchesAll();
+  setInterval(checkSMATouchesAll,5*60*1000);
 },3000);
+
+// ═══════════════════════════════════════════════════════════
+// SMA-Touch-Alarm-System
+// Prüft für alle Watchlist-Symbole auf D1 und M1 ob Preis SMA50/SMA200 berührt
+// Trigger nur 1x pro Tag pro Symbol/TF/SMA
+// ═══════════════════════════════════════════════════════════
+function getSMATouchState(){
+  try{return JSON.parse(localStorage.getItem('zen_sma_alarms')||'{}');}catch{return{};}
+}
+function saveSMATouchState(s){
+  try{localStorage.setItem('zen_sma_alarms',JSON.stringify(s));}catch{}
+}
+function ddKey(sym,tf,sma){return sym+'_'+tf+'_'+sma;}
+function alreadyTriggeredToday(key){
+  const state=getSMATouchState();
+  const last=state[key];
+  if(!last)return false;
+  const lastDate=new Date(last).toDateString();
+  return lastDate===new Date().toDateString();
+}
+function markTriggered(key){
+  const state=getSMATouchState();
+  state[key]=Date.now();
+  saveSMATouchState(state);
+}
+async function fetchDataForSMA(sym,tf){
+  // Kleine Data-Fetch-Funktion nur für SMA-Berechnung
+  // Reuse CORS-Proxy Logik vom Haupt-Fetcher aber ohne UI-Updates
+  try{
+    const interval=tf==='m1'?'1mo':'1d';
+    const range=tf==='m1'?'max':'2y';
+    const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`;
+    const proxies=[
+      'https://corsproxy.io/?',
+      'https://api.allorigins.win/raw?url=',
+      'https://api.codetabs.com/v1/proxy?quest=',
+    ];
+    for(const p of proxies){
+      try{
+        const resp=await fetch(p+encodeURIComponent(url));
+        if(!resp.ok)continue;
+        const data=await resp.json();
+        const res=data.chart?.result?.[0];
+        if(!res||!res.indicators?.quote?.[0])continue;
+        const ts=res.timestamp||[];
+        const q=res.indicators.quote[0];
+        const candles=[];
+        for(let i=0;i<ts.length;i++){
+          if(q.close[i]==null)continue;
+          candles.push({c:+q.close[i]});
+        }
+        return candles;
+      }catch{}
+    }
+  }catch(e){console.warn('SMA-fetch:',sym,tf,e);}
+  return null;
+}
+function sma(closes,n){
+  if(closes.length<n)return null;
+  let sum=0;
+  for(let i=closes.length-n;i<closes.length;i++)sum+=closes[i];
+  return sum/n;
+}
+async function checkSMATouchesAll(){
+  if(!watchlist||!watchlist.length)return;
+  const touchThreshold=0.005; // 0.5%
+  for(const sym of watchlist){
+    for(const tf of ['d1','m1']){
+      try{
+        const closes=await fetchDataForSMA(sym,tf);
+        if(!closes||closes.length<50)continue;
+        const price=closes[closes.length-1].c;
+        const arr=closes.map(c=>c.c);
+        const sma50=sma(arr,50);
+        const sma200=sma(arr,200);
+        const tfLabel=tf==='d1'?'D1':'M1';
+        if(sma50){
+          const dist=Math.abs(price-sma50)/sma50;
+          if(dist<=touchThreshold){
+            const key=ddKey(sym,tf,'SMA50');
+            if(!alreadyTriggeredToday(key)){
+              triggerSMAAlarm(sym,tfLabel,'SMA50',price,sma50);
+              markTriggered(key);
+            }
+          }
+        }
+        if(sma200){
+          const dist=Math.abs(price-sma200)/sma200;
+          if(dist<=touchThreshold){
+            const key=ddKey(sym,tf,'SMA200');
+            if(!alreadyTriggeredToday(key)){
+              triggerSMAAlarm(sym,tfLabel,'SMA200',price,sma200);
+              markTriggered(key);
+            }
+          }
+        }
+      }catch(e){console.warn('SMA check',sym,tf,e);}
+      await new Promise(r=>setTimeout(r,300)); // rate-limit
+    }
+  }
+}
+function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
+  // Popup + Sound wie bei normalen Alarmen
+  const msg=sym+' ('+tf+') berührt '+smaType+' @ '+smaValue.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
+  console.log('SMA-Alarm:',msg);
+  setStatus('⚡ SMA-Alarm: '+msg,'ok');
+  // Sound via existierenden Alarm-Sound
+  try{playAlarmSound();}catch{}
+  // Popup anzeigen
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){
+      body.textContent=msg;
+      pop.style.display='flex';
+    }
+  }catch{}
+  // Cloud-Email wenn Email gespeichert
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf,smaType,price,smaValue,message:msg});
+  }
+}
 </script>
 </body>
 </html>
