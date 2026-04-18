@@ -196,7 +196,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button id="ai-btn" title="Linksklick: KI-Analyse starten · Rechtsklick: API-Key verwalten">✦ KI-Analyse</button>
   <button class="btn" id="ai-key-btn" title="API-Key verwalten">🔑</button>
   <button class="btn" id="tts-btn" title="Sprachausgabe an/aus (liest Alarm-Meldungen vor)">🔊</button>
-  <button class="btn" id="screenshot-btn" title="Chart als PNG speichern">📷</button>
+  <button class="btn" id="screenshot-btn" title="Chart in Zwischenablage kopieren (Strg+V zum Einfügen)">📷</button>
   <button class="btn" id="news-btn" title="News zu diesem Symbol anzeigen">📰</button>
   <div class="sep"></div>
   <span style="font-size:10px;color:var(--text3);margin-left:6px">📧</span>
@@ -646,7 +646,7 @@ async function fetchYahooEvents(sym){
     }
     return null;
   }
-  // 1. Dividenden + Splits aus Chart-Endpoint (funktioniert)
+  // 1. Dividenden + Splits aus Yahoo Chart-Endpoint (funktioniert ohne Auth)
   const chartUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=10y&events=div,split`;
   const chartResp=await proxyFetch(chartUrl);
   if(chartResp){
@@ -661,54 +661,58 @@ async function fetchYahooEvents(sym){
       }
     }catch{}
   }
-  // 2. Earnings: Yahoo Finance HTML-Seite parsen (quoteSummary ist durch Crumb blockiert)
-  // Die "earnings" Tab-Seite enthält die Historie als eingebettetes JSON
-  const htmlUrl=`https://finance.yahoo.com/calendar/earnings?symbol=${encodeURIComponent(sym)}`;
-  const htmlResp=await proxyFetch(htmlUrl);
-  if(htmlResp){
+  // 2. Earnings: NASDAQ API (frei, ohne Auth, gleiche Quelle wie nasdaq.com)
+  // Für internationale Symbole (SAP.DE, etc.) → Basis-Kürzel nutzen (SAP)
+  const baseSym=sym.split('.')[0].split('-')[0].toUpperCase();
+  // Earnings-Historie der letzten 4 Jahre
+  const histUrl=`https://api.nasdaq.com/api/company/${encodeURIComponent(baseSym)}/earnings-surprise`;
+  const histResp=await proxyFetch(histUrl);
+  if(histResp){
     try{
-      const html=await htmlResp.text();
-      // Yahoo embeds a root.App.main JSON blob with all the data
-      // Suche nach dem earningsChart-Block mit historischen UND zukünftigen Earnings
-      const jsonMatch=html.match(/root\.App\.main\s*=\s*(\{[\s\S]+?\});\s*\n?\(function/);
-      if(jsonMatch){
-        try{
-          const appData=JSON.parse(jsonMatch[1]);
-          const stores=appData?.context?.dispatcher?.stores;
-          const screenerStore=stores?.ScreenerResultsStore?.results?.rows;
-          if(Array.isArray(screenerStore)){
-            screenerStore.forEach(row=>{
-              const ts=row.startdatetime?Date.parse(row.startdatetime):0;
-              if(ts>0){
-                events.earnings.push({
-                  timestamp:ts,
-                  epsActual:row.epsactual,
-                  epsEstimate:row.epsestimate,
-                  surprise:row.epssurprisepct,
-                  future:ts>Date.now()
-                });
-              }
-            });
-          }
-        }catch(e){console.log('[Events] '+sym+' JSON parse failed:',e.message);}
-      }
-      // Alternative: Direktes Regex-Suchen nach Earnings-Daten im HTML
-      if(events.earnings.length===0){
-        const rowMatches=[...html.matchAll(/"ticker":"[^"]+","startdatetime":"([^"]+)","startdatetimetype":"[^"]*","epsestimate":([-\d.null]+),"epsactual":([-\d.null]+),"epssurprisepct":([-\d.null]+)/g)];
-        rowMatches.forEach(m=>{
-          const ts=Date.parse(m[1]);
-          if(ts>0){
-            events.earnings.push({
-              timestamp:ts,
-              epsEstimate:m[2]==='null'?null:parseFloat(m[2]),
-              epsActual:m[3]==='null'?null:parseFloat(m[3]),
-              surprise:m[4]==='null'?null:parseFloat(m[4]),
-              future:ts>Date.now()
-            });
-          }
+      const data=await histResp.json();
+      const rows=data?.data?.earningsSurpriseTable?.rows;
+      if(Array.isArray(rows)){
+        rows.forEach(r=>{
+          // Datum-Format: "9/30/2024"
+          const dateParts=(r.dateReported||'').split('/');
+          if(dateParts.length!==3)return;
+          const [m,d,y]=dateParts.map(x=>parseInt(x));
+          const ts=new Date(y,m-1,d).getTime();
+          const toNum=s=>{if(!s||s==='N/A')return null;const v=parseFloat(String(s).replace(/[$,()%]/g,''));return isNaN(v)?null:v;};
+          const epsActual=toNum(r.eps);
+          const epsEstimate=toNum(r.consensusForecast);
+          const surprisePct=toNum(r.percentageSurprise);
+          events.earnings.push({
+            timestamp:ts,
+            epsActual,epsEstimate,
+            surprise:surprisePct,
+            future:false
+          });
         });
       }
-    }catch(e){console.log('[Events] '+sym+' HTML fetch failed:',e.message);}
+    }catch(e){console.log('[Events] '+sym+' NASDAQ history failed:',e.message);}
+  }
+  // Zukünftiger Earnings-Termin aus NASDAQ "earnings-date"
+  const futureUrl=`https://api.nasdaq.com/api/company/${encodeURIComponent(baseSym)}/earnings-date`;
+  const futureResp=await proxyFetch(futureUrl);
+  if(futureResp){
+    try{
+      const data=await futureResp.json();
+      const rows=data?.data?.earningsDateTable?.rows;
+      if(Array.isArray(rows)){
+        rows.forEach(r=>{
+          const raw=r.date||r.reportDate;
+          if(!raw)return;
+          const ts=Date.parse(raw);
+          if(!ts||isNaN(ts))return;
+          events.earnings.push({
+            timestamp:ts,
+            epsEstimate:parseFloat(String(r.consensusEps||'').replace(/[$,]/g,''))||null,
+            future:ts>Date.now()
+          });
+        });
+      }
+    }catch{}
   }
   // Deduplizieren
   const earningsMap=new Map();
