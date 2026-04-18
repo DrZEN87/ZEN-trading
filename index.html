@@ -1609,14 +1609,19 @@ function redrawOC(){
 // ── Fibonacci / Drawing helpers ───────────────────────────────
 function drawFibLevels(ctx,ca,price1,price2,x1,x2,yScale){
   const cur=getCurrency(currentSymbol);
+  // TradingView-Konvention: p1 (erster Klick) = 100%, p2 (zweiter Klick) = 0%
+  // Formel: priceAtLvl = p2 + (p1 - p2) * lvl
+  //   lvl=0 → p2 (0%)
+  //   lvl=1 → p1 (100%)
+  //   lvl>1 → Extension über p1 hinaus (Kursziel in Richtung Start-Bewegung)
   FIB_LEVELS.forEach((lvl,i)=>{
-    const p=price1+(price2-price1)*lvl,yp=yScale(p);
+    const p=price2+(price1-price2)*lvl;
+    const yp=yScale(p);
     const isExtension=lvl>1.0;
-    const isKeyExt=Math.abs(lvl-1.618)<0.001; // 161.8% = Hauptziel
+    const isKeyExt=Math.abs(lvl-1.618)<0.001;
     ctx.save();
     ctx.strokeStyle=FIB_COLORS[i];
     ctx.lineWidth=isKeyExt?1.5:1;
-    // Retracement: gestrichelt, Extension: gepunktet (visuell anders)
     ctx.setLineDash(isExtension?[2,4]:[4,3]);
     ctx.beginPath();ctx.moveTo(ca.left,yp);ctx.lineTo(ca.right,yp);ctx.stroke();
     ctx.setLineDash([]);
@@ -1632,8 +1637,10 @@ function drawFibLevels(ctx,ca,price1,price2,x1,x2,yScale){
   ctx.save();ctx.strokeStyle='rgba(255,255,255,.18)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
   [x1,x2].forEach(xv=>{ctx.beginPath();ctx.moveTo(xv,ca.top);ctx.lineTo(xv,ca.bottom);ctx.stroke();});
   // Goldene Zone (38.2% – 61.8%) hervorheben
-  const y382=yScale(price1+(price2-price1)*0.382),y618=yScale(price1+(price2-price1)*0.618);
-  ctx.setLineDash([]);ctx.fillStyle=C.fibFill;ctx.fillRect(ca.left,Math.min(y382,y618),ca.right-ca.left,Math.abs(y618-y382));
+  const y382=yScale(price2+(price1-price2)*0.382);
+  const y618=yScale(price2+(price1-price2)*0.618);
+  ctx.setLineDash([]);ctx.fillStyle=C.fibFill;
+  ctx.fillRect(ca.left,Math.min(y382,y618),ca.right-ca.left,Math.abs(y618-y382));
   ctx.restore();
 }
 // ── Drawing hit-test ──────────────────────────────────────────
@@ -1683,8 +1690,9 @@ function hitTestDrawing(d,rx,ry,ca){
     if(!rp1||!rp2)return false;
     const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);
     if(!p1||!p2)return false;
+    const low=Math.min(rp1.price,rp2.price),high=Math.max(rp1.price,rp2.price);
     return FIB_LEVELS.some(lvl=>{
-      const price=rp1.price+(rp2.price-rp1.price)*lvl;
+      const price=low+(high-low)*lvl;
       return Math.abs(ry-y.getPixelForValue(price))<HIT;
     });
   }
@@ -2165,9 +2173,8 @@ Maximum: 2 Trendlinien, 3 S/R-Linien, 2 Chartmuster. Fibonacci wird automatisch 
       if(isNaN(p)||p<minPrice*0.8||p>maxPrice*1.2)return; // sanity check
       aiDrawings.push({type:'support',price:p,label:s.label,full:true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
-    // Fibonacci: Finde die ZEITLICH LETZTE große Bewegung.
-    // User-Konvention: p1 = Tief (0%, unten), p2 = Hoch (100%, oben) — immer.
-    // Das zeigt Retracement-Levels egal ob Up- oder Downtrend.
+    // Auto-Fib: zeitlich LETZTE große Bewegung, TradingView-Konvention
+    // Erster Punkt (chronologisch) = 100%, zweiter Punkt = 0%
     {
       const visStart=Math.max(0,viewStart);
       const visEnd=Math.min(candles.length-1,viewEnd);
@@ -2190,21 +2197,33 @@ Maximum: 2 Trendlinien, 3 S/R-Linien, 2 Chartmuster. Fibonacci wird automatisch 
         }
         const downEnd=(lowAfterHigh!==Infinity)?lowAfterHighIdx:-1;
         const upEnd=(highAfterLow!==-Infinity)?highAfterLowIdx:-1;
-        // Wähle Move der zeitlich später endet (die "letzte Bewegung")
-        let lowIdx,lowPrice,highIdx,highPrice;
+        // TradingView-Konvention: p1 = erster Punkt (100%), p2 = zweiter Punkt (0%)
+        // fibLevel = p1.price + (p2.price - p1.price) * lvl
+        // → lvl=0 ergibt p1.price (100% der Bewegung = Start)
+        // → lvl=1 ergibt p2.price (0% der Bewegung = Ende, Retracement-Target)
+        // WARTE: Das ist die alte Zeichen-Logik. TradingView rendert:
+        //   - Bei down-move: p1=Hoch (100%), p2=Tief (0%) → Retracement nach oben prüft 38.2/61.8
+        //   - Bei up-move: p1=Tief (100%), p2=Hoch (0%) → Retracement nach unten prüft 38.2/61.8
+        // In drawFibLevels: lvl=0 → price1, lvl=1 → price2
+        // Also p1 zeigt Label "100%", p2 zeigt "0%" im Code unten
+        // Aktuell falsch herum — Labels müssen auch umgedreht werden
+        let p1Idx,p1Price,p2Idx,p2Price;
         if(downEnd>upEnd&&downEnd>0){
-          // Letzte Bewegung: Hoch → Tief
-          highIdx=visStart+maxRelIdx;highPrice=maxH;
-          lowIdx=visStart+lowAfterHighIdx;lowPrice=lowAfterHigh;
+          // Letzte Bewegung: Hoch → Tief (down-move)
+          // p1 = Hoch (erster chronologisch, Start der Bewegung) = 100%
+          // p2 = Tief (zweiter chronologisch, Ende) = 0%
+          p1Idx=visStart+maxRelIdx;p1Price=maxH;
+          p2Idx=visStart+lowAfterHighIdx;p2Price=lowAfterHigh;
         }else if(upEnd>0){
-          // Letzte Bewegung: Tief → Hoch
-          lowIdx=visStart+minRelIdx;lowPrice=minL;
-          highIdx=visStart+highAfterLowIdx;highPrice=highAfterLow;
+          // Letzte Bewegung: Tief → Hoch (up-move)
+          // p1 = Tief (erster chronologisch) = 100%
+          // p2 = Hoch (zweiter chronologisch) = 0%
+          p1Idx=visStart+minRelIdx;p1Price=minL;
+          p2Idx=visStart+highAfterLowIdx;p2Price=highAfterLow;
         }
-        // User-Konvention: p1 = Tief (0%), p2 = Hoch (100%) — egal wer zuerst kam
-        if(lowIdx!=null&&highIdx!=null&&Math.abs(highIdx-lowIdx)>=5){
-          const p1={idx:lowIdx,price:lowPrice,time:candles[lowIdx].t.getTime()};
-          const p2={idx:highIdx,price:highPrice,time:candles[highIdx].t.getTime()};
+        if(p1Idx!=null&&p2Idx!=null&&Math.abs(p2Idx-p1Idx)>=5){
+          const p1={idx:p1Idx,price:p1Price,time:candles[p1Idx].t.getTime()};
+          const p2={idx:p2Idx,price:p2Price,time:candles[p2Idx].t.getTime()};
           aiDrawings.push({type:'fib',p1,p2,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
         }
       }
