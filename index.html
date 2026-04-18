@@ -581,7 +581,7 @@ async function fetchYahooEvents(sym){
     'https://api.codetabs.com/v1/proxy?quest=',
   ];
   // 1. Dividenden + Splits aus dem Chart-Endpoint (inkl. Historie)
-  const chartUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=5y&events=div,splits`;
+  const chartUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=10y&events=div|split|earn`;
   for(const p of proxies){
     try{
       const resp=await fetch(p+encodeURIComponent(chartUrl));
@@ -596,49 +596,37 @@ async function fetchYahooEvents(sym){
         }
         if(evs.splits){
           Object.values(evs.splits).forEach(s=>{
-            events.splits.push({timestamp:s.date*1000,ratio:s.splitRatio});
+            events.splits.push({timestamp:s.date*1000,ratio:s.splitRatio||((s.numerator+':'+s.denominator))});
           });
         }
       }
       break;
     }catch{}
   }
-  // 2. Earnings-Termine aus quoteSummary
-  const qsUrl=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=earnings,calendarEvents`;
+  // 2. Earnings aus quoteSummary (zukünftig + kürzlich)
+  const qsUrl=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=calendarEvents,earningsHistory,earnings`;
   for(const p of proxies){
     try{
       const resp=await fetch(p+encodeURIComponent(qsUrl));
       if(!resp.ok)continue;
       const data=await resp.json();
       const qs=data.quoteSummary?.result?.[0];
-      // Historische Earnings aus earnings.earningsChart.quarterly
-      const hist=qs?.earnings?.earningsChart?.quarterly;
-      if(Array.isArray(hist)){
-        hist.forEach(q=>{
-          // date is like "2Q2024" — wir nutzen den Chart-Zeitraum nicht direkt
-        });
-      }
-      // earnings.financialsChart.quarterly hat Revenue-Zahlen — egal
-      // calendarEvents.earnings.earningsDate[] sind zukünftige Earnings
+      // Zukünftige Earnings aus calendarEvents
       const cal=qs?.calendarEvents?.earnings;
-      if(cal?.earningsDate){
+      if(cal?.earningsDate&&Array.isArray(cal.earningsDate)){
         cal.earningsDate.forEach(ed=>{
-          const ts=(ed.raw||ed)*1000;
-          events.earnings.push({timestamp:ts,future:true});
+          const ts=(ed?.raw||ed)*1000;
+          if(ts>0){
+            events.earnings.push({
+              timestamp:ts,
+              epsEstimate:cal.earningsAverage?.raw,
+              future:ts>Date.now()
+            });
+          }
         });
       }
-      // Historische earnings-Daten aus earningsHistory
-      break;
-    }catch{}
-  }
-  // 3. Historische Earnings zusätzlich aus earningsHistory
-  const ehUrl=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=earningsHistory`;
-  for(const p of proxies){
-    try{
-      const resp=await fetch(p+encodeURIComponent(ehUrl));
-      if(!resp.ok)continue;
-      const data=await resp.json();
-      const hist=data.quoteSummary?.result?.[0]?.earningsHistory?.history;
+      // Historische Earnings aus earningsHistory
+      const hist=qs?.earningsHistory?.history;
       if(Array.isArray(hist)){
         hist.forEach(h=>{
           const ts=(h.quarter?.raw||0)*1000;
@@ -656,6 +644,22 @@ async function fetchYahooEvents(sym){
       break;
     }catch{}
   }
+  // Deduplizieren (Earnings können aus beiden Quellen kommen)
+  const earningsMap=new Map();
+  events.earnings.forEach(e=>{
+    const key=Math.floor(e.timestamp/86400000); // gleichen Tag gruppieren
+    const existing=earningsMap.get(key);
+    if(!existing)earningsMap.set(key,e);
+    else{
+      // Merge: alle Felder übernehmen, das vollständigere gewinnt
+      earningsMap.set(key,{...existing,...e,future:existing.future||e.future});
+    }
+  });
+  events.earnings=Array.from(earningsMap.values()).sort((a,b)=>a.timestamp-b.timestamp);
+  console.log('[Events '+sym+']',
+    events.dividends.length,'Dividenden,',
+    events.earnings.length,'Earnings,',
+    events.splits.length,'Splits');
   return events;
 }
 async function fetchData(sym,tf,silent=false,_retries=3){
@@ -1343,7 +1347,7 @@ function drawEventIcons(ctx,ca){
   if(!mainChart||!candles.length)return;
   const firstT=candles[0].t.getTime();
   const lastT=candles[candles.length-1].t.getTime();
-  const y0=ca.bottom-6;
+  const y0=ca.bottom-12;
   // Hilfsfunktion: timestamp → x-Pixel
   function tsToX(ts){
     // Finde die Kerze die zeitlich am nächsten ist
@@ -2141,8 +2145,8 @@ function manageApiKey(){
   setTimeout(()=>setStatus('Bereit','idle'),3000);
 }
 document.getElementById('ai-btn').addEventListener('contextmenu',e=>{e.preventDefault();manageApiKey();});
-// Screenshot-Button: Chart als PNG herunterladen
-document.getElementById('screenshot-btn').addEventListener('click',()=>{
+// Screenshot-Button: Chart in die Zwischenablage (Strg+V zum Einfügen)
+document.getElementById('screenshot-btn').addEventListener('click',async()=>{
   try{
     const mainCanvas=document.getElementById('main-canvas');
     const ovCanvas=document.getElementById('ov-canvas');
@@ -2156,15 +2160,22 @@ document.getElementById('screenshot-btn').addEventListener('click',()=>{
     cx.fillStyle='rgba(0,0,0,.6)';cx.fillRect(0,0,combined.width,32);
     cx.fillStyle='#fff';cx.font='bold 14px system-ui';cx.textBaseline='middle';
     cx.fillText('ZEN-Trading · '+currentSymbol+' · '+currentTF.toUpperCase()+' · '+new Date().toLocaleString('de-DE'),12,16);
-    combined.toBlob(blob=>{
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');
-      a.href=url;
-      a.download='ZEN_'+currentSymbol+'_'+currentTF+'_'+new Date().toISOString().slice(0,10)+'.png';
-      document.body.appendChild(a);a.click();
-      setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},200);
-      setStatus('📷 Screenshot gespeichert','ok');
-      setTimeout(()=>setStatus('Bereit','idle'),2000);
+    // In Zwischenablage kopieren
+    combined.toBlob(async blob=>{
+      try{
+        await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+        setStatus('📷 In Zwischenablage kopiert — mit Strg+V einfügen','ok');
+      }catch(err){
+        // Fallback: Download wenn Clipboard-API nicht verfügbar
+        console.warn('Clipboard-API nicht verfügbar, Fallback auf Download:',err);
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        a.href=url;a.download='ZEN_'+currentSymbol+'_'+currentTF+'.png';
+        document.body.appendChild(a);a.click();
+        setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},200);
+        setStatus('📷 Screenshot heruntergeladen (Zwischenablage nicht verfügbar)','ok');
+      }
+      setTimeout(()=>setStatus('Bereit','idle'),3000);
     },'image/png');
   }catch(e){setStatus('Screenshot fehlgeschlagen: '+e.message,'err');}
 });
@@ -2196,13 +2207,49 @@ document.getElementById('news-btn').addEventListener('click',async()=>{
     panel.querySelector('div:last-child').innerHTML='<div style="color:var(--dn)">Fehler beim Laden der News.</div>';
   }
 });
-// News-Fetcher
+// News-Fetcher: Google News (deutsche Ausgabe)
 async function fetchYahooNews(sym){
   const proxies=['https://corsproxy.io/?','https://api.allorigins.win/raw?url=','https://api.codetabs.com/v1/proxy?quest='];
-  const url=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sym)}&newsCount=10`;
+  // Namen für bessere Suche ziehen (z.B. "Apple" statt "AAPL")
+  const companyName=getSymName(sym)||sym;
+  const query=encodeURIComponent(companyName+' Aktie');
+  // Google News RSS in deutsch
+  const gnUrl=`https://news.google.com/rss/search?q=${query}&hl=de&gl=DE&ceid=DE:de`;
   for(const p of proxies){
     try{
-      const resp=await fetch(p+encodeURIComponent(url));
+      const resp=await fetch(p+encodeURIComponent(gnUrl));
+      if(!resp.ok)continue;
+      const xml=await resp.text();
+      // RSS-Feed parsen
+      const parser=new DOMParser();
+      const doc=parser.parseFromString(xml,'text/xml');
+      const items=doc.querySelectorAll('item');
+      if(!items.length)continue;
+      const news=[];
+      items.forEach(item=>{
+        const titleRaw=item.querySelector('title')?.textContent||'';
+        const link=item.querySelector('link')?.textContent||'';
+        const pubDate=item.querySelector('pubDate')?.textContent||'';
+        const source=item.querySelector('source')?.textContent||'';
+        // Google News hängt " - Quelle" an den Titel an — trennen wir ab
+        const parts=titleRaw.split(' - ');
+        const publisher=source||(parts.length>1?parts[parts.length-1]:'');
+        const title=parts.length>1?parts.slice(0,-1).join(' - '):titleRaw;
+        news.push({
+          title:title.trim(),
+          link,
+          publisher,
+          providerPublishTime:pubDate?Math.floor(new Date(pubDate).getTime()/1000):0
+        });
+      });
+      return news;
+    }catch(e){console.warn('Google News error:',e);}
+  }
+  // Fallback: Yahoo-News (englisch)
+  const yUrl=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sym)}&newsCount=10`;
+  for(const p of proxies){
+    try{
+      const resp=await fetch(p+encodeURIComponent(yUrl));
       if(!resp.ok)continue;
       const data=await resp.json();
       return data.news||[];
