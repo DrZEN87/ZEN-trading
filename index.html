@@ -1050,6 +1050,40 @@ const cpPlugin={
     const{ctx,scales:{x,y},chartArea:ca}=chart;if(!x||!y||!ca)return;
     const vc=visCandles();
     const bw=getCandleWidth(x);
+    // Inline-Volumen: Säulen am unteren Rand des Haupt-Charts (unterste 20%)
+    if(showVol&&vc.length){
+      const maxV=Math.max(...vc.map(c=>c.v||0));
+      if(maxV>0){
+        const volH=(ca.bottom-ca.top)*0.18; // 18% der Chart-Höhe
+        const volTop=ca.bottom-volH;
+        ctx.save();
+        ctx.globalAlpha=0.45;
+        vc.forEach((c,vi)=>{
+          if(!c.v)return;
+          const xp=x.getPixelForValue(vi);
+          const h=(c.v/maxV)*volH;
+          const isUp=c.c>=c.o;
+          ctx.fillStyle=isUp?C.volUp:C.volDn;
+          ctx.fillRect(xp-bw/2,ca.bottom-h,bw,h);
+        });
+        ctx.restore();
+        // Dezente Trennlinie
+        ctx.save();
+        ctx.strokeStyle='rgba(148,163,184,.15)';
+        ctx.lineWidth=1;
+        ctx.setLineDash([2,4]);
+        ctx.beginPath();ctx.moveTo(ca.left,volTop);ctx.lineTo(ca.right,volTop);ctx.stroke();
+        ctx.restore();
+        // Max-Label oben-links
+        ctx.save();
+        ctx.fillStyle='rgba(148,163,184,.6)';
+        ctx.font='10px system-ui';
+        ctx.textAlign='left';ctx.textBaseline='top';
+        const maxLabel='Vol '+(maxV>=1e9?(maxV/1e9).toFixed(1)+'B':maxV>=1e6?(maxV/1e6).toFixed(1)+'M':maxV>=1e3?(maxV/1e3).toFixed(0)+'K':''+maxV);
+        ctx.fillText(maxLabel,ca.left+6,volTop+2);
+        ctx.restore();
+      }
+    }
     // Vol Profile
     if(showVolProfile&&vc.length){
       const{profile,maxVol}=buildVolProfile(vc,y.min,y.max);
@@ -1224,17 +1258,10 @@ function createCharts(){
       scales:{x:{ticks:{color:C.txt,maxTicksLimit:12,font:{size:9},maxRotation:45,minRotation:0},grid:{color:C.grid}},
               y:{position:'right',min,max,ticks:{color:C.txt,font:{size:10},callback:v=>fmtPrice(v),padding:4},grid:{color:C.grid}}}
     },plugins:[cpPlugin]});
-  // Vol
-  if(volChart)volChart.destroy();
-  document.getElementById('vol-wrap').classList.toggle('show',showVol);
-  if(showVol){
-    volChart=new Chart(document.getElementById('vol-canvas'),{
-      type:'bar',
-      data:{labels,datasets:[{data:[...vc.map(c=>c.v),...Array(pads).fill(null)],backgroundColor:[...vc.map(c=>c.c>=c.o?C.volUp:C.volDn),...Array(pads).fill('transparent')]}]},
-      options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>{const v=ctx.raw;if(!v)return'';return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'K':''+v;}}}},
-        scales:{x:{display:false},y:{position:'right',ticks:{color:C.txt,font:{size:9},maxTicksLimit:3,callback:v=>v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'K':''+v},grid:{color:C.grid}}}
-      }});
-  }
+  // Vol — jetzt inline im Haupt-Chart gezeichnet, separates Panel nicht mehr nötig
+  if(volChart){volChart.destroy();volChart=null;}
+  document.getElementById('vol-wrap').classList.remove('show');
+  document.getElementById('vol-wrap').style.display='none';
   createRSI(labels);createSRSI(labels);createMACD(labels);createATR(labels);
   setTimeout(()=>{initPanelOverlays();syncPanelOCs();redrawAllPanelOCs();},50);
 }
