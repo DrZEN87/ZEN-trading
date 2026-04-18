@@ -195,6 +195,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <div class="sep"></div>
   <button id="ai-btn" title="Linksklick: KI-Analyse starten · Rechtsklick: API-Key verwalten">✦ KI-Analyse</button>
   <button class="btn" id="ai-key-btn" title="API-Key verwalten">🔑</button>
+  <button class="btn" id="tts-btn" title="Sprachausgabe an/aus (liest Alarm-Meldungen vor)">🔊</button>
+  <button class="btn" id="screenshot-btn" title="Chart als PNG speichern">📷</button>
+  <button class="btn" id="news-btn" title="News zu diesem Symbol anzeigen">📰</button>
   <div class="sep"></div>
   <span style="font-size:10px;color:var(--text3);margin-left:6px">📧</span>
   <input id="al-email" type="email" placeholder="email@beispiel.de" style="width:160px;font-size:11px;padding:4px 7px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
@@ -315,6 +318,7 @@ function setAIProvider(p){localStorage.setItem('chartpro_ai_provider',p);}
 
 // ── State ─────────────────────────────────────────────────────
 let candles=[],alarms=[],alarmType='above',watchlist=[];
+let chartEvents={dividends:[],earnings:[],splits:[]}; // {timestamp, amount, type}
 let showSMA200=true,showSMA50=true,showEMA21=true,showBB=false;
 let showRSI=true,showSRSI=true,showMACD=true,showATR=true;
 let showVol=true,showVolProfile=true,autoFit=true;
@@ -568,6 +572,92 @@ function setStatus(msg,type){
   if(el){el.textContent=msg;el.className='st-'+type;}
 }
 
+// Lädt Dividenden + Earnings-Events für ein Symbol
+async function fetchYahooEvents(sym){
+  const events={dividends:[],earnings:[],splits:[]};
+  const proxies=[
+    'https://corsproxy.io/?',
+    'https://api.allorigins.win/raw?url=',
+    'https://api.codetabs.com/v1/proxy?quest=',
+  ];
+  // 1. Dividenden + Splits aus dem Chart-Endpoint (inkl. Historie)
+  const chartUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=5y&events=div,splits`;
+  for(const p of proxies){
+    try{
+      const resp=await fetch(p+encodeURIComponent(chartUrl));
+      if(!resp.ok)continue;
+      const data=await resp.json();
+      const evs=data.chart?.result?.[0]?.events;
+      if(evs){
+        if(evs.dividends){
+          Object.values(evs.dividends).forEach(d=>{
+            events.dividends.push({timestamp:d.date*1000,amount:d.amount});
+          });
+        }
+        if(evs.splits){
+          Object.values(evs.splits).forEach(s=>{
+            events.splits.push({timestamp:s.date*1000,ratio:s.splitRatio});
+          });
+        }
+      }
+      break;
+    }catch{}
+  }
+  // 2. Earnings-Termine aus quoteSummary
+  const qsUrl=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=earnings,calendarEvents`;
+  for(const p of proxies){
+    try{
+      const resp=await fetch(p+encodeURIComponent(qsUrl));
+      if(!resp.ok)continue;
+      const data=await resp.json();
+      const qs=data.quoteSummary?.result?.[0];
+      // Historische Earnings aus earnings.earningsChart.quarterly
+      const hist=qs?.earnings?.earningsChart?.quarterly;
+      if(Array.isArray(hist)){
+        hist.forEach(q=>{
+          // date is like "2Q2024" — wir nutzen den Chart-Zeitraum nicht direkt
+        });
+      }
+      // earnings.financialsChart.quarterly hat Revenue-Zahlen — egal
+      // calendarEvents.earnings.earningsDate[] sind zukünftige Earnings
+      const cal=qs?.calendarEvents?.earnings;
+      if(cal?.earningsDate){
+        cal.earningsDate.forEach(ed=>{
+          const ts=(ed.raw||ed)*1000;
+          events.earnings.push({timestamp:ts,future:true});
+        });
+      }
+      // Historische earnings-Daten aus earningsHistory
+      break;
+    }catch{}
+  }
+  // 3. Historische Earnings zusätzlich aus earningsHistory
+  const ehUrl=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=earningsHistory`;
+  for(const p of proxies){
+    try{
+      const resp=await fetch(p+encodeURIComponent(ehUrl));
+      if(!resp.ok)continue;
+      const data=await resp.json();
+      const hist=data.quoteSummary?.result?.[0]?.earningsHistory?.history;
+      if(Array.isArray(hist)){
+        hist.forEach(h=>{
+          const ts=(h.quarter?.raw||0)*1000;
+          if(ts>0){
+            events.earnings.push({
+              timestamp:ts,
+              epsActual:h.epsActual?.raw,
+              epsEstimate:h.epsEstimate?.raw,
+              surprise:h.surprisePercent?.raw,
+              future:false
+            });
+          }
+        });
+      }
+      break;
+    }catch{}
+  }
+  return events;
+}
 async function fetchData(sym,tf,silent=false,_retries=3){
   if(!silent)setStatus('Lade '+sym+'…','loading');
 
@@ -593,6 +683,11 @@ async function fetchData(sym,tf,silent=false,_retries=3){
     }
     candles=result.candles;
     const n=candles.length;
+    // Events (Earnings, Dividenden) im Hintergrund laden
+    chartEvents={dividends:[],earnings:[],splits:[]};
+    fetchYahooEvents(sym).then(ev=>{
+      if(currentSymbol===sym){chartEvents=ev;redrawOC();}
+    }).catch(()=>{});
     // Restore saved view for this symbol, or default to last 120
     const saved=symbolViews[sym+'_'+tf];
     if(saved&&saved.viewEnd<=n-1){
@@ -770,6 +865,36 @@ function playAlarmSound(){
       osc.start(ctx.currentTime+i*0.15);osc.stop(ctx.currentTime+i*0.15+0.25);
     });
   }catch(e){console.warn('Audio not available',e);}
+}
+// ── Text-to-Speech Sprachausgabe ─────────────────────────────
+function speak(text,opts){
+  if(localStorage.getItem('zen_tts_enabled')==='0')return;
+  if(!('speechSynthesis'in window))return;
+  try{
+    // Laufende Ausgabe abbrechen wenn gewünscht
+    if(opts&&opts.cancel)window.speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang='de-DE';
+    u.rate=(opts&&opts.rate)||1.0;
+    u.volume=(opts&&opts.volume)||1.0;
+    u.pitch=(opts&&opts.pitch)||1.0;
+    // Deutsche Stimme bevorzugen falls vorhanden
+    const voices=window.speechSynthesis.getVoices();
+    const deVoice=voices.find(v=>v.lang.startsWith('de'));
+    if(deVoice)u.voice=deVoice;
+    window.speechSynthesis.speak(u);
+  }catch(e){console.warn('TTS error:',e);}
+}
+// Währungs-Namen für Sprachausgabe
+function currencyName(cur){
+  return{'$':'Dollar','€':'Euro','£':'Pfund','¥':'Yen','C$':'Kanadische Dollar'}[cur]||'Dollar';
+}
+// Symbol nett aussprechen — bevorzugt Firmennamen, sonst Symbol-Buchstaben
+function speakableSymbol(sym){
+  const name=getSymName(sym);
+  if(name&&name.length<40)return name;
+  // Fallback: Buchstaben einzeln
+  return sym.replace(/\W/g,'').split('').join(' ');
 }
 
 // ── View helpers ─────────────────────────────────────────────
@@ -1211,6 +1336,86 @@ function findSnap(rx,ry){
   return best;
 }
 
+// Event-Icons (Earnings, Dividenden, Splits) am unteren Chart-Rand
+let eventIconZones=[]; // für Hover-Tooltip
+function drawEventIcons(ctx,ca){
+  eventIconZones=[];
+  if(!mainChart||!candles.length)return;
+  const firstT=candles[0].t.getTime();
+  const lastT=candles[candles.length-1].t.getTime();
+  const y0=ca.bottom-6;
+  // Hilfsfunktion: timestamp → x-Pixel
+  function tsToX(ts){
+    // Finde die Kerze die zeitlich am nächsten ist
+    let bestIdx=-1,bestDist=Infinity;
+    for(let i=0;i<candles.length;i++){
+      const d=Math.abs(candles[i].t.getTime()-ts);
+      if(d<bestDist){bestDist=d;bestIdx=i;}
+    }
+    if(bestIdx<0)return null;
+    if(bestIdx<viewStart||bestIdx>viewEnd)return null;
+    return mainChart.scales.x.getPixelForValue(bestIdx);
+  }
+  ctx.save();
+  ctx.font='12px system-ui';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  // Dividenden (D blau — wie bei TradingView)
+  (chartEvents.dividends||[]).forEach(d=>{
+    if(d.timestamp<firstT-86400000||d.timestamp>lastT+86400000)return;
+    const px=tsToX(d.timestamp);
+    if(px==null||px<ca.left||px>ca.right)return;
+    ctx.fillStyle='rgba(59,130,246,.95)'; // blau
+    ctx.beginPath();ctx.arc(px,y0,7,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';ctx.font='bold 9px system-ui';
+    ctx.fillText('D',px,y0);
+    eventIconZones.push({x:px,y:y0,r:9,type:'div',data:d});
+  });
+  // Splits (S violett)
+  (chartEvents.splits||[]).forEach(s=>{
+    if(s.timestamp<firstT-86400000||s.timestamp>lastT+86400000)return;
+    const px=tsToX(s.timestamp);
+    if(px==null||px<ca.left||px>ca.right)return;
+    ctx.fillStyle='rgba(139,92,246,.9)';
+    ctx.beginPath();ctx.arc(px,y0,7,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';ctx.font='bold 9px system-ui';
+    ctx.fillText('S',px,y0);
+    eventIconZones.push({x:px,y:y0,r:9,type:'split',data:s});
+  });
+  // Earnings — Farbe nach Surprise (grün = besser, rot = schlechter, pink = zukünftig)
+  (chartEvents.earnings||[]).forEach(e=>{
+    if(e.timestamp<firstT-86400000)return;
+    const px=tsToX(e.timestamp);
+    if(px==null||px<ca.left||px>ca.right)return;
+    let col;
+    if(e.future||e.timestamp>Date.now()){
+      col='rgba(236,72,153,.95)'; // pink für zukünftige
+    }else if(e.surprise!=null){
+      col=e.surprise>=0?'rgba(34,197,94,.95)':'rgba(239,68,68,.95)'; // grün besser, rot schlechter
+    }else{
+      col='rgba(148,163,184,.9)'; // grau wenn unbekannt
+    }
+    ctx.fillStyle=col;
+    ctx.beginPath();ctx.arc(px,y0,7,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';ctx.font='bold 9px system-ui';
+    ctx.fillText('E',px,y0);
+    eventIconZones.push({x:px,y:y0,r:9,type:'earnings',data:e,color:col});
+  });
+  // Zukünftiges Earnings-Event als Badge rechts oben
+  const futureEarning=(chartEvents.earnings||[]).find(e=>e.future&&e.timestamp>lastT);
+  if(futureEarning){
+    const days=Math.round((futureEarning.timestamp-Date.now())/86400000);
+    if(days>=0&&days<=60){
+      const badgeText='📊 Earnings in '+days+' Tagen';
+      ctx.font='bold 11px system-ui';
+      const w=ctx.measureText(badgeText).width+14;
+      ctx.fillStyle=days<=7?'rgba(239,68,68,.9)':'rgba(251,191,36,.85)';
+      ctx.fillRect(ca.right-w-10,ca.top+6,w,22);
+      ctx.fillStyle='#fff';ctx.textAlign='center';
+      ctx.fillText(badgeText,ca.right-10-w/2,ca.top+18);
+    }
+  }
+  ctx.restore();
+}
 function redrawOC(){
   const oc=document.getElementById('ov-canvas');
   if(!oc||!mainChart||!candles.length)return;
@@ -1235,6 +1440,8 @@ function redrawOC(){
     return true;
   }
   [...drawings,...aiDrawings].filter(d=>(!d.sym||d.sym===currentSymbol)&&drawingInRange(d)).forEach(d=>drawObj(ctx,d,ca));
+  // Event-Icons (Earnings 📊, Dividenden 💰, Splits 🔀) am unteren Chartrand
+  drawEventIcons(ctx,ca);
   // Info: some drawings hidden due to timeframe history limit
   const totalForSym=[...drawings,...aiDrawings].filter(d=>!d.sym||d.sym===currentSymbol).length;
   const visibleForSym=[...drawings,...aiDrawings].filter(d=>(!d.sym||d.sym===currentSymbol)&&drawingInRange(d)).length;
@@ -1934,7 +2141,101 @@ function manageApiKey(){
   setTimeout(()=>setStatus('Bereit','idle'),3000);
 }
 document.getElementById('ai-btn').addEventListener('contextmenu',e=>{e.preventDefault();manageApiKey();});
+// Screenshot-Button: Chart als PNG herunterladen
+document.getElementById('screenshot-btn').addEventListener('click',()=>{
+  try{
+    const mainCanvas=document.getElementById('main-canvas');
+    const ovCanvas=document.getElementById('ov-canvas');
+    const combined=document.createElement('canvas');
+    combined.width=mainCanvas.width;combined.height=mainCanvas.height;
+    const cx=combined.getContext('2d');
+    cx.fillStyle='#0a0e1a';cx.fillRect(0,0,combined.width,combined.height);
+    cx.drawImage(mainCanvas,0,0);
+    cx.drawImage(ovCanvas,0,0);
+    // Header-Leiste mit Symbol + Zeit
+    cx.fillStyle='rgba(0,0,0,.6)';cx.fillRect(0,0,combined.width,32);
+    cx.fillStyle='#fff';cx.font='bold 14px system-ui';cx.textBaseline='middle';
+    cx.fillText('ZEN-Trading · '+currentSymbol+' · '+currentTF.toUpperCase()+' · '+new Date().toLocaleString('de-DE'),12,16);
+    combined.toBlob(blob=>{
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download='ZEN_'+currentSymbol+'_'+currentTF+'_'+new Date().toISOString().slice(0,10)+'.png';
+      document.body.appendChild(a);a.click();
+      setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},200);
+      setStatus('📷 Screenshot gespeichert','ok');
+      setTimeout(()=>setStatus('Bereit','idle'),2000);
+    },'image/png');
+  }catch(e){setStatus('Screenshot fehlgeschlagen: '+e.message,'err');}
+});
+
+// News-Button: Panel öffnen mit Yahoo News für aktuelles Symbol
+document.getElementById('news-btn').addEventListener('click',async()=>{
+  let panel=document.getElementById('news-panel');
+  if(panel&&panel.style.display!=='none'){panel.style.display='none';return;}
+  if(!panel){
+    panel=document.createElement('div');
+    panel.id='news-panel';
+    panel.style.cssText='position:absolute;top:50px;right:10px;width:400px;max-height:70vh;overflow-y:auto;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px;z-index:80;box-shadow:0 4px 20px rgba(0,0,0,.5);font-size:13px';
+    document.body.appendChild(panel);
+  }
+  panel.style.display='block';
+  panel.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:8px"><b>📰 News: '+currentSymbol+'</b><span style="cursor:pointer;opacity:.6" onclick="document.getElementById(\'news-panel\').style.display=\'none\'">✕</span></div><div style="color:var(--text3)">⟳ Laden…</div>';
+  try{
+    const news=await fetchYahooNews(currentSymbol);
+    if(!news||!news.length){
+      panel.querySelector('div:last-child').innerHTML='<div style="color:var(--text3);padding:20px;text-align:center">Keine News gefunden.</div>';
+      return;
+    }
+    const html=news.slice(0,10).map(n=>{
+      const date=n.providerPublishTime?new Date(n.providerPublishTime*1000).toLocaleString('de-DE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+      return '<div style="border-bottom:1px solid var(--border);padding:8px 0"><a href="'+n.link+'" target="_blank" style="color:var(--text);text-decoration:none;display:block"><div style="font-weight:500;line-height:1.3">'+(n.title||'')+'</div><div style="font-size:11px;color:var(--text3);margin-top:3px">'+(n.publisher||'')+' · '+date+'</div></a></div>';
+    }).join('');
+    panel.querySelector('div:last-child').innerHTML=html;
+  }catch(e){
+    panel.querySelector('div:last-child').innerHTML='<div style="color:var(--dn)">Fehler beim Laden der News.</div>';
+  }
+});
+// News-Fetcher
+async function fetchYahooNews(sym){
+  const proxies=['https://corsproxy.io/?','https://api.allorigins.win/raw?url=','https://api.codetabs.com/v1/proxy?quest='];
+  const url=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sym)}&newsCount=10`;
+  for(const p of proxies){
+    try{
+      const resp=await fetch(p+encodeURIComponent(url));
+      if(!resp.ok)continue;
+      const data=await resp.json();
+      return data.news||[];
+    }catch{}
+  }
+  return [];
+}
 document.getElementById('ai-key-btn').addEventListener('click',manageApiKey);
+// TTS-Toggle
+(function(){
+  const btn=document.getElementById('tts-btn');
+  const refresh=()=>{
+    const on=localStorage.getItem('zen_tts_enabled')!=='0';
+    btn.textContent=on?'🔊':'🔇';
+    btn.title=on?'Sprachausgabe aktiv — zum Abschalten klicken':'Sprachausgabe stumm — zum Einschalten klicken';
+  };
+  refresh();
+  btn.addEventListener('click',()=>{
+    const on=localStorage.getItem('zen_tts_enabled')!=='0';
+    localStorage.setItem('zen_tts_enabled',on?'0':'1');
+    refresh();
+    if(!on){
+      // Test-Ausgabe nach Einschalten
+      setTimeout(()=>speak('Sprachausgabe aktiviert',{cancel:true}),100);
+    }else{
+      window.speechSynthesis.cancel();
+    }
+  });
+  // Voices evtl. erst nach Event geladen
+  if('speechSynthesis'in window){
+    window.speechSynthesis.onvoiceschanged=()=>{};
+  }
+})();
 
 // ── Panel indicator overlays ──────────────────────────────────
 function getPanelChart(k){return{vol:volChart,rsi:rsiChart,srsi:srsiChart,macd:macdChart,atr:atrChart}[k];}
@@ -2134,19 +2435,76 @@ mainWrap.addEventListener('dblclick',e=>{
 
 // ── Overlay ───────────────────────────────────────────────────
 const ovCanvas=document.getElementById('ov-canvas');
+// Event-Tooltip (wie TradingView) für Dividenden/Earnings-Icons
+function showEventTooltip(zone,mouseX,mouseY){
+  let tip=document.getElementById('event-tooltip');
+  if(!zone){
+    if(tip)tip.style.display='none';
+    return;
+  }
+  if(!tip){
+    tip=document.createElement('div');
+    tip.id='event-tooltip';
+    tip.style.cssText='position:fixed;background:rgba(15,23,42,.97);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:12px;color:#fff;pointer-events:none;z-index:1000;min-width:200px;box-shadow:0 4px 20px rgba(0,0,0,.5)';
+    document.body.appendChild(tip);
+  }
+  const d=zone.data;
+  const cur=getCurrency(currentSymbol);
+  const date=new Date(d.timestamp).toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'short',year:'2-digit'});
+  let html='';
+  if(zone.type==='div'){
+    html='<div style="color:'+zone.color+';font-weight:bold;margin-bottom:6px">💰 Dividende</div>'+
+      '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Datum:</span><b>'+date+'</b></div>'+
+      '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Betrag:</span><b>'+d.amount.toFixed(4)+' '+cur+'</b></div>';
+  }else if(zone.type==='split'){
+    html='<div style="color:'+zone.color+';font-weight:bold;margin-bottom:6px">🔀 Aktien-Split</div>'+
+      '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Datum:</span><b>'+date+'</b></div>'+
+      '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Verhältnis:</span><b>'+(d.ratio||'?')+'</b></div>';
+  }else if(zone.type==='earnings'){
+    const isFuture=d.future||d.timestamp>Date.now();
+    const col=isFuture?'rgba(236,72,153,1)':(d.surprise!=null?(d.surprise>=0?'rgba(34,197,94,1)':'rgba(239,68,68,1)'):'rgba(148,163,184,1)');
+    html='<div style="color:'+col+';font-weight:bold;margin-bottom:6px">📊 Erträge'+(isFuture?' (erwartet)':'')+'</div>'+
+      '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Datum:</span><b>'+date+'</b></div>';
+    if(d.epsActual!=null){
+      html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">EPS gemeldet:</span><b>'+d.epsActual.toFixed(3)+'</b></div>';
+    }
+    if(d.epsEstimate!=null){
+      html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">EPS geschätzt:</span><b>'+d.epsEstimate.toFixed(3)+'</b></div>';
+    }
+    if(d.surprise!=null){
+      const sCol=d.surprise>=0?'rgba(34,197,94,1)':'rgba(239,68,68,1)';
+      html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Überraschung:</span><b style="color:'+sCol+'">'+(d.surprise>=0?'+':'')+d.surprise.toFixed(2)+'%</b></div>';
+    }
+    if(isFuture){
+      const days=Math.round((d.timestamp-Date.now())/86400000);
+      html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">In:</span><b>'+days+' Tagen</b></div>';
+    }
+  }
+  tip.innerHTML=html;
+  tip.style.display='block';
+  // Position neben Maus, nicht über den Chartrand hinaus
+  const tipW=tip.offsetWidth,tipH=tip.offsetHeight;
+  let x=mouseX+15,y=mouseY-tipH-10;
+  if(x+tipW>window.innerWidth)x=mouseX-tipW-15;
+  if(y<10)y=mouseY+15;
+  tip.style.left=x+'px';tip.style.top=y+'px';
+}
 ovCanvas.addEventListener('mousemove',e=>{
   const rect=ovCanvas.getBoundingClientRect();const rx=e.clientX-rect.left,ry=e.clientY-rect.top;
   mousePos=rawToChart(rx,ry);
   snapPoint=(drawMode!=='pointer'&&drawMode!=='alarm')?findSnap(rx,ry):null;
+  // Hover über Event-Icon → Tooltip anzeigen
+  const hitEvent=eventIconZones.find(z=>Math.hypot(rx-z.x,ry-z.y)<=z.r+2);
+  showEventTooltip(hitEvent,e.clientX,e.clientY);
   // Cursor: pointer when hovering a drawing, crosshair when drawing
   if(drawMode==='pointer'&&mousePos?.inChart&&mainChart?.chartArea){
-    ovCanvas.style.cursor=findDrawingAtPoint(rx,ry,mainChart.chartArea)?'pointer':'default';
+    ovCanvas.style.cursor=(hitEvent||findDrawingAtPoint(rx,ry,mainChart.chartArea))?'pointer':'default';
   }else{
     ovCanvas.style.cursor=drawMode==='pointer'?'default':'crosshair';
   }
   redrawOC();
 });
-ovCanvas.addEventListener('mouseleave',()=>{mousePos=null;snapPoint=null;redrawOC();});
+ovCanvas.addEventListener('mouseleave',()=>{mousePos=null;snapPoint=null;showEventTooltip(null);redrawOC();});
 ovCanvas.addEventListener('contextmenu',e=>{
   e.preventDefault();
   const rect=ovCanvas.getBoundingClientRect();
@@ -2405,6 +2763,9 @@ function checkAlarms(){
         setStatus('⚡ Alarm: '+a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2),'err');
         if(Notification.permission==='granted')new Notification(a.sym+' Alarm',{body:(a.dir==='above'?'Über':'Unter')+' '+cur2+a.price.toFixed(2)});
         else if(Notification.permission!=='denied')Notification.requestPermission();
+        // Sprachausgabe: "Apple Alarm: 100 Dollar überschritten"
+        const richtung=a.dir==='above'?'überschritten':'unterschritten';
+        speak(speakableSymbol(a.sym)+' Alarm: '+a.price.toFixed(2)+' '+currencyName(cur2)+' '+richtung,{cancel:true});
         sendAlarmEmail(a);
         // Cloud: mark as triggered (will be auto-removed on next check)
         if(localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
@@ -3026,7 +3387,7 @@ async function fetchDataForSMA(sym,tf){
         const candles=[];
         for(let i=0;i<ts.length;i++){
           if(q.close[i]==null)continue;
-          candles.push({c:+q.close[i]});
+          candles.push({c:+q.close[i],o:+q.open[i]||q.close[i],h:+q.high[i]||q.close[i],l:+q.low[i]||q.close[i],v:+q.volume[i]||0});
         }
         return candles;
       }catch{}
@@ -3073,9 +3434,74 @@ async function checkSMATouchesAll(){
             }
           }
         }
-      }catch(e){console.warn('SMA check',sym,tf,e);}
+        // Zusätzliche Checks nur auf D1 (nicht M1)
+        if(tf==='d1'&&closes.length>=21){
+          const last=closes[closes.length-1];
+          const prev=closes[closes.length-2];
+          // 5% Tages-Bewegungs-Alarm
+          const dayChange=(last.c-prev.c)/prev.c;
+          if(Math.abs(dayChange)>=0.05){
+            const dir=dayChange>=0?'up':'down';
+            const key=ddKey(sym,'d1','DAY_'+dir);
+            if(!alreadyTriggeredToday(key)){
+              triggerDailyMoveAlarm(sym,dayChange,last.c);
+              markTriggered(key);
+            }
+          }
+          // Volumen-Alarm: Volumen heute >200% des 20-Tage-Durchschnitts
+          if(last.v>0){
+            const volArr=closes.slice(-21,-1).map(c=>c.v).filter(v=>v>0);
+            if(volArr.length>=10){
+              const avgVol=volArr.reduce((a,b)=>a+b,0)/volArr.length;
+              if(last.v>=avgVol*2){
+                const key=ddKey(sym,'d1','VOL');
+                if(!alreadyTriggeredToday(key)){
+                  triggerVolumeAlarm(sym,last.v,avgVol);
+                  markTriggered(key);
+                }
+              }
+            }
+          }
+        }
+      }catch(e){console.warn('Check error',sym,tf,e);}
       await new Promise(r=>setTimeout(r,300)); // rate-limit
     }
+  }
+}
+function triggerDailyMoveAlarm(sym,change,price){
+  const pct=(change*100).toFixed(2);
+  const dir=change>=0?'gestiegen':'gefallen';
+  const emoji=change>=0?'📈':'📉';
+  const msg=sym+' heute '+emoji+' '+pct+'% '+dir+' — Preis: '+price.toFixed(2);
+  console.log('Tages-Alarm:',msg);
+  setStatus('⚡ '+msg,change>=0?'ok':'err');
+  try{playAlarmSound();}catch{}
+  speak(speakableSymbol(sym)+' heute '+Math.abs(pct)+' Prozent '+dir,{cancel:true});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf:'D1',smaType:'Tages-Move '+pct+'%',price,smaValue:0,message:msg});
+  }
+}
+function triggerVolumeAlarm(sym,currentVol,avgVol){
+  const ratio=(currentVol/avgVol).toFixed(1);
+  const msg=sym+' ungewöhnlich hohes Volumen: '+ratio+'x Durchschnitt';
+  console.log('Volumen-Alarm:',msg);
+  setStatus('⚡ '+msg,'ok');
+  try{playAlarmSound();}catch{}
+  speak(speakableSymbol(sym)+' ungewöhnlich hohes Volumen, '+ratio+' mal Durchschnitt',{cancel:true});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf:'D1',smaType:'Volumen '+ratio+'x',price:0,smaValue:currentVol,message:msg});
   }
 }
 function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
@@ -3085,6 +3511,10 @@ function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
   setStatus('⚡ SMA-Alarm: '+msg,'ok');
   // Sound via existierenden Alarm-Sound
   try{playAlarmSound();}catch{}
+  // Sprachausgabe: "Apple: SMA zweihundert auf Tagesbasis erreicht"
+  const tfSpeech=tf==='D1'?'Tagesbasis':tf==='M1'?'Monatsbasis':tf;
+  const smaSpeech=smaType.replace('SMA','SMA ');
+  speak(speakableSymbol(sym)+': '+smaSpeech+' auf '+tfSpeech+' erreicht',{cancel:true});
   // Popup anzeigen
   try{
     const pop=document.getElementById('alarm-popup');
