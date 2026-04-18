@@ -637,87 +637,80 @@ async function fetchYahooEvents(sym){
     'https://api.allorigins.win/raw?url=',
     'https://api.codetabs.com/v1/proxy?quest=',
   ];
-  // 1. Dividenden + Splits + Earnings aus dem Chart-Endpoint
-  // Yahoo will Komma-getrennte Liste, URL-encoded
-  const chartUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=10y&events=div,split,earn`;
-  let eventsFetched=false;
-  for(const p of proxies){
-    try{
-      const resp=await fetch(p+encodeURIComponent(chartUrl));
-      if(!resp.ok){console.log('[Events] '+sym+' proxy '+p+': HTTP '+resp.status);continue;}
-      const data=await resp.json();
-      const evs=data.chart?.result?.[0]?.events;
-      console.log('[Events] '+sym+' raw response keys:',evs?Object.keys(evs):'no events field');
-      if(evs){
-        if(evs.dividends){
-          Object.values(evs.dividends).forEach(d=>{
-            events.dividends.push({timestamp:d.date*1000,amount:d.amount});
-          });
-        }
-        if(evs.splits){
-          Object.values(evs.splits).forEach(s=>{
-            events.splits.push({timestamp:s.date*1000,ratio:s.splitRatio||(s.numerator+':'+s.denominator)});
-          });
-        }
-        if(evs.earnings){
-          Object.values(evs.earnings).forEach(e=>{
-            events.earnings.push({
-              timestamp:e.date*1000,
-              epsActual:e.epsActual,
-              epsEstimate:e.epsEstimate,
-              surprise:e.epsActual&&e.epsEstimate?((e.epsActual-e.epsEstimate)/Math.abs(e.epsEstimate)*100):null,
-              future:e.date*1000>Date.now()
-            });
-          });
-        }
-        eventsFetched=true;
-      }
-      break;
-    }catch(err){console.log('[Events] '+sym+' proxy error:',err.message);}
+  async function proxyFetch(targetUrl){
+    for(const p of proxies){
+      try{
+        const resp=await fetch(p+encodeURIComponent(targetUrl));
+        if(resp.ok)return resp;
+      }catch{}
+    }
+    return null;
   }
-  // 2. Zusätzlich: Earnings aus quoteSummary (detaillierter — mit Surprise %)
-  const qsUrl=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=calendarEvents,earningsHistory`;
-  for(const p of proxies){
+  // 1. Dividenden + Splits aus Chart-Endpoint (funktioniert)
+  const chartUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=10y&events=div,split`;
+  const chartResp=await proxyFetch(chartUrl);
+  if(chartResp){
     try{
-      const resp=await fetch(p+encodeURIComponent(qsUrl));
-      if(!resp.ok)continue;
-      const data=await resp.json();
-      const qs=data.quoteSummary?.result?.[0];
-      if(!qs)continue;
-      // Zukünftige Earnings
-      const cal=qs.calendarEvents?.earnings;
-      if(cal?.earningsDate&&Array.isArray(cal.earningsDate)){
-        cal.earningsDate.forEach(ed=>{
-          const ts=(ed?.raw||ed)*1000;
+      const data=await chartResp.json();
+      const evs=data.chart?.result?.[0]?.events;
+      if(evs?.dividends){
+        Object.values(evs.dividends).forEach(d=>events.dividends.push({timestamp:d.date*1000,amount:d.amount}));
+      }
+      if(evs?.splits){
+        Object.values(evs.splits).forEach(s=>events.splits.push({timestamp:s.date*1000,ratio:s.splitRatio||(s.numerator+':'+s.denominator)}));
+      }
+    }catch{}
+  }
+  // 2. Earnings: Yahoo Finance HTML-Seite parsen (quoteSummary ist durch Crumb blockiert)
+  // Die "earnings" Tab-Seite enthält die Historie als eingebettetes JSON
+  const htmlUrl=`https://finance.yahoo.com/calendar/earnings?symbol=${encodeURIComponent(sym)}`;
+  const htmlResp=await proxyFetch(htmlUrl);
+  if(htmlResp){
+    try{
+      const html=await htmlResp.text();
+      // Yahoo embeds a root.App.main JSON blob with all the data
+      // Suche nach dem earningsChart-Block mit historischen UND zukünftigen Earnings
+      const jsonMatch=html.match(/root\.App\.main\s*=\s*(\{[\s\S]+?\});\s*\n?\(function/);
+      if(jsonMatch){
+        try{
+          const appData=JSON.parse(jsonMatch[1]);
+          const stores=appData?.context?.dispatcher?.stores;
+          const screenerStore=stores?.ScreenerResultsStore?.results?.rows;
+          if(Array.isArray(screenerStore)){
+            screenerStore.forEach(row=>{
+              const ts=row.startdatetime?Date.parse(row.startdatetime):0;
+              if(ts>0){
+                events.earnings.push({
+                  timestamp:ts,
+                  epsActual:row.epsactual,
+                  epsEstimate:row.epsestimate,
+                  surprise:row.epssurprisepct,
+                  future:ts>Date.now()
+                });
+              }
+            });
+          }
+        }catch(e){console.log('[Events] '+sym+' JSON parse failed:',e.message);}
+      }
+      // Alternative: Direktes Regex-Suchen nach Earnings-Daten im HTML
+      if(events.earnings.length===0){
+        const rowMatches=[...html.matchAll(/"ticker":"[^"]+","startdatetime":"([^"]+)","startdatetimetype":"[^"]*","epsestimate":([-\d.null]+),"epsactual":([-\d.null]+),"epssurprisepct":([-\d.null]+)/g)];
+        rowMatches.forEach(m=>{
+          const ts=Date.parse(m[1]);
           if(ts>0){
             events.earnings.push({
               timestamp:ts,
-              epsEstimate:cal.earningsAverage?.raw,
+              epsEstimate:m[2]==='null'?null:parseFloat(m[2]),
+              epsActual:m[3]==='null'?null:parseFloat(m[3]),
+              surprise:m[4]==='null'?null:parseFloat(m[4]),
               future:ts>Date.now()
             });
           }
         });
       }
-      // Historische Earnings mit Surprise
-      const hist=qs.earningsHistory?.history;
-      if(Array.isArray(hist)){
-        hist.forEach(h=>{
-          const ts=(h.quarter?.raw||0)*1000;
-          if(ts>0){
-            events.earnings.push({
-              timestamp:ts,
-              epsActual:h.epsActual?.raw,
-              epsEstimate:h.epsEstimate?.raw,
-              surprise:h.surprisePercent?.raw,
-              future:false
-            });
-          }
-        });
-      }
-      break;
-    }catch{}
+    }catch(e){console.log('[Events] '+sym+' HTML fetch failed:',e.message);}
   }
-  // Deduplizieren (gleiche Tage zusammenführen)
+  // Deduplizieren
   const earningsMap=new Map();
   events.earnings.forEach(e=>{
     const key=Math.floor(e.timestamp/86400000);
