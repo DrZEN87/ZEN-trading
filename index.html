@@ -374,8 +374,22 @@ let crossSignals=[];
 let aiDrawings=[];
 const RIGHT_PAD=0.10;
 const TF={'5m':{i:'5m',r:'5d'},'1h':{i:'1h',r:'1mo'},'4h':{i:'4h',r:'6mo'},d1:{i:'1d',r:'max'},w1:{i:'1wk',r:'max'},m1:{i:'1mo',r:'max'}};
-const FIB_LEVELS=[0,0.236,0.382,0.5,0.618,0.786,1.0];
-const FIB_COLORS=['rgba(239,68,68,.8)','rgba(245,158,11,.8)','rgba(34,197,94,.8)','rgba(59,130,246,.8)','rgba(139,92,246,.8)','rgba(20,184,166,.8)','rgba(239,68,68,.8)'];
+// Fibonacci-Levels: Retracement (0-100%) + Extensions (über 100% für Kursziele nach Ausbruch)
+// Nach Murphy "Technical Analysis of the Financial Markets" und Elliott Wave Theory
+const FIB_LEVELS=[0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618, 2.0, 2.618];
+const FIB_COLORS=[
+  'rgba(239,68,68,.8)',    // 0% rot
+  'rgba(245,158,11,.8)',   // 23.6% orange
+  'rgba(34,197,94,.8)',    // 38.2% grün
+  'rgba(59,130,246,.8)',   // 50% blau
+  'rgba(139,92,246,.8)',   // 61.8% violett
+  'rgba(20,184,166,.8)',   // 78.6% türkis
+  'rgba(239,68,68,.8)',    // 100% rot
+  'rgba(255,200,100,.9)',  // 127.2% hellgelb (Extension)
+  'rgba(255,215,0,.9)',    // 161.8% gold (Hauptziel)
+  'rgba(255,100,255,.85)', // 200% magenta
+  'rgba(255,50,200,.85)'   // 261.8% pink
+];
 
 // ── Color constants ──────────────────────────────────────────
 const C={
@@ -1279,15 +1293,30 @@ function redrawOC(){
 
 // ── Fibonacci / Drawing helpers ───────────────────────────────
 function drawFibLevels(ctx,ca,price1,price2,x1,x2,yScale){
+  const cur=getCurrency(currentSymbol);
   FIB_LEVELS.forEach((lvl,i)=>{
     const p=price1+(price2-price1)*lvl,yp=yScale(p);
-    ctx.save();ctx.strokeStyle=FIB_COLORS[i];ctx.lineWidth=1;ctx.setLineDash([4,3]);
+    const isExtension=lvl>1.0;
+    const isKeyExt=Math.abs(lvl-1.618)<0.001; // 161.8% = Hauptziel
+    ctx.save();
+    ctx.strokeStyle=FIB_COLORS[i];
+    ctx.lineWidth=isKeyExt?1.5:1;
+    // Retracement: gestrichelt, Extension: gepunktet (visuell anders)
+    ctx.setLineDash(isExtension?[2,4]:[4,3]);
     ctx.beginPath();ctx.moveTo(ca.left,yp);ctx.lineTo(ca.right,yp);ctx.stroke();
-    ctx.setLineDash([]);ctx.fillStyle=FIB_COLORS[i];ctx.font='500 10px system-ui';
-    ctx.fillText((Math.round(lvl*1000)/10)+'% — $'+p.toFixed(2),ca.right-112,yp-3);ctx.restore();
+    ctx.setLineDash([]);
+    ctx.fillStyle=FIB_COLORS[i];
+    ctx.font=(isKeyExt?'700 ':'500 ')+'10px system-ui';
+    const pctStr=(Math.round(lvl*1000)/10)+'%';
+    const priceStr=p.toFixed(2)+' '+cur;
+    const label=isExtension?('🎯 '+pctStr+' — '+priceStr):(pctStr+' — '+priceStr);
+    ctx.fillText(label,ca.right-130,yp-3);
+    ctx.restore();
   });
+  // Vertikale Linien an p1 und p2
   ctx.save();ctx.strokeStyle='rgba(255,255,255,.18)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
   [x1,x2].forEach(xv=>{ctx.beginPath();ctx.moveTo(xv,ca.top);ctx.lineTo(xv,ca.bottom);ctx.stroke();});
+  // Goldene Zone (38.2% – 61.8%) hervorheben
   const y382=yScale(price1+(price2-price1)*0.382),y618=yScale(price1+(price2-price1)*0.618);
   ctx.setLineDash([]);ctx.fillStyle=C.fibFill;ctx.fillRect(ca.left,Math.min(y382,y618),ca.right-ca.left,Math.abs(y618-y382));
   ctx.restore();
@@ -1581,6 +1610,29 @@ async function runAIAnalysis(){
   const N=slice.length;
   const firstIdx=visStart;
   const lastIdx=visEnd;
+
+  // Lokale Swing-Erkennung (entlastet Gemini, liefert präzise Koordinaten)
+  function detectSwings(data,lookback){
+    const highs=[],lows=[];
+    for(let i=lookback;i<data.length-lookback;i++){
+      const c=data[i];
+      let isHigh=true,isLow=true;
+      for(let j=1;j<=lookback;j++){
+        if(data[i-j].h>=c.h||data[i+j].h>=c.h)isHigh=false;
+        if(data[i-j].l<=c.l||data[i+j].l<=c.l)isLow=false;
+        if(!isHigh&&!isLow)break;
+      }
+      if(isHigh)highs.push({idx:firstIdx+i,price:c.h,date:c.t.toISOString().slice(0,10)});
+      if(isLow)lows.push({idx:firstIdx+i,price:c.l,date:c.t.toISOString().slice(0,10)});
+    }
+    return{highs,lows};
+  }
+  // Dynamischer Lookback basierend auf TF
+  const lookback=currentTF==='5m'?3:currentTF==='1h'?4:currentTF==='4h'?4:5;
+  const{highs:swingHighs,lows:swingLows}=detectSwings(slice,lookback);
+  // Nur die signifikantesten Swings (Top-Level, sonst wird Prompt zu lang)
+  const topHighs=[...swingHighs].sort((a,b)=>b.price-a.price).slice(0,8).sort((a,b)=>a.idx-b.idx);
+  const topLows=[...swingLows].sort((a,b)=>a.price-b.price).slice(0,8).sort((a,b)=>a.idx-b.idx);
   // Downsample if too many candles (Gemini prompt limit)
   const maxSend=150;
   const step=Math.max(1,Math.floor(N/maxSend));
@@ -1600,41 +1652,68 @@ async function runAIAnalysis(){
   const lastC=candles[lastIdx].c;
   const minPrice=Math.min(...slice.map(c=>c.l));
   const maxPrice=Math.max(...slice.map(c=>c.h));
-  const aiPrompt=`Du bist ein erfahrener Chart-Analyst. Du siehst oben einen Chart von ${currentSymbol} im ${currentTF.toUpperCase()}-Zeitrahmen. Analysiere ihn visuell UND nutze die OHLC-Daten für präzise Koordinaten.
+  const aiPrompt=`Du bist ein erfahrener technischer Analyst, geschult in klassischer Charttechnik nach Edwards & Magee ("Technical Analysis of Stock Trends") und John Murphy ("Technical Analysis of the Financial Markets").
 
-KONTEXT:
-- Datenpunkte: Index ${firstIdx} bis ${lastIdx} (${N} Kerzen)
-- Preis-Range: ${minPrice.toFixed(2)} bis ${maxPrice.toFixed(2)}
-- Aktueller Preis: ${lastC.toFixed(2)}
+CHART: ${currentSymbol} im ${currentTF.toUpperCase()}-Zeitrahmen
+Aktueller Preis: ${lastC.toFixed(2)}
+Range im sichtbaren Bereich: ${minPrice.toFixed(2)} bis ${maxPrice.toFixed(2)}
+Index-Bereich: ${firstIdx} bis ${lastIdx}
 
-VORGEHEN:
-1. Schau dir den Chart an: Wo sind die offensichtlichen Hochs, Tiefs, Trends?
-2. Nutze die OHLC-Daten unten um EXAKTE Koordinaten (Index+Preis) zu liefern
+BEREITS IDENTIFIZIERTE SWING-PUNKTE (lokal berechnet — vertraue diesen Werten):
 
-STRIKTE REGELN für Trendlinien:
-- Verbinde NUR echte Swing-Highs oder Swing-Lows die du im Chart SIEHST
-- Swing-High = Kerze deren High höher ist als die 2 Kerzen davor UND 2 Kerzen danach
-- Swing-Low = umgekehrt
-- Aufwärtstrend: 2+ aufeinanderfolgende höhere Swing-Lows verbinden (je mehr Berührungen, desto besser)
-- Abwärtstrend: 2+ aufeinanderfolgende niedrigere Swing-Highs verbinden
-- Punkte müssen MINDESTENS 10 Kerzen auseinander liegen
-- p1_price MUSS dem Low (Aufwärtstrend) oder High (Abwärtstrend) der Kerze an p1_idx entsprechen
-- Setze "segment":true wenn die Linie nur LOKAL gültig ist (Seitwärtsphase, kurzer Trend, endet bei einem Breakout) — sie wird dann NICHT über die Endpunkte hinaus verlängert
-- Setze "segment":false für Haupttrendlinien die den ganzen Chart definieren
-- Liefere KEINE Trendlinie wenn der Markt seitwärts läuft ohne klaren Trend
+Swing-Hochs (signifikante Hochpunkte):
+${topHighs.map(h=>`  - idx=${h.idx}, price=${h.price.toFixed(2)}, date=${h.date}`).join('\n')}
 
-STRIKTE REGELN für Support/Resistanz:
-- Horizontale Niveaus die im Chart MEHRFACH getestet wurden
-- Support = UNTER dem aktuellen Preis (${lastC.toFixed(2)})
-- Resistanz = ÜBER dem aktuellen Preis
+Swing-Tiefs (signifikante Tiefpunkte):
+${topLows.map(l=>`  - idx=${l.idx}, price=${l.price.toFixed(2)}, date=${l.date}`).join('\n')}
 
-OHLC-Daten:
+DEINE AUFGABE: Identifiziere die AKTUELL RELEVANTEN Strukturen im Chart.
+
+NACH CHARTTECHNIK-LEHRE (Edwards & Magee, Murphy):
+
+1. TRENDLINIEN — STRIKTE Regeln:
+   - Eine Trendlinie ist NUR VALIDE wenn sie MINDESTENS 2-3 Swing-Punkte berührt
+   - Abwärtstrend: verbinde fallende Swing-Hochs (aus obiger Liste)
+   - Aufwärtstrend: verbinde steigende Swing-Tiefs (aus obiger Liste)
+   - Bevorzuge die JÜNGSTE Trendlinie (mit den letzten 3-4 Swings)
+   - Wähle p1_idx und p1_price GENAU aus den Swing-Listen oben
+   - "segment":true wenn die Linie gebrochen wurde (Preis darüber/darunter geschlossen) — zeichne dann nur bis zum Bruchpunkt
+
+2. SUPPORT/RESISTANZ — horizontale Niveaus:
+   - Level das MINDESTENS 2x getestet wurde (zeige nur starke Levels)
+   - Support: UNTER aktuellem Preis (${lastC.toFixed(2)}), meist nahe historischen Tiefs
+   - Resistanz: ÜBER aktuellem Preis, meist nahe historischen Hochs
+   - Ein vormaliger Support wird nach Bruch zur Resistanz und umgekehrt
+   - Runde Zahlen ($10, $25, $50...) sind oft psychologische Levels
+
+3. CHARTMUSTER — suche nach (nur nennen wenn KLAR sichtbar):
+   - Doppelter Boden / Doppeltes Top: 2 Tiefs/Hochs nahe gleichem Preis (Umkehr)
+   - Kopf-Schulter / inverse Kopf-Schulter: 3 Hochs/Tiefs, mittleres am extremsten (Umkehr)
+   - Aufsteigendes Dreieck: steigende Tiefs + horizontale Hochs (meist bullish)
+   - Absteigendes Dreieck: fallende Hochs + horizontale Tiefs (meist bearish)
+   - Symmetrisches Dreieck: Konvergenz von Hochs und Tiefs (Fortsetzung)
+   - Flagge/Wimpel: kurze Konsolidierung nach starkem Move (Fortsetzung)
+   - Tasse mit Henkel: U-Form + kleine Korrektur (bullish)
+
+FOKUS: Die JÜNGSTEN Strukturen (letzte 30-40% des Charts) sind am wichtigsten.
+Alte Muster die nicht mehr relevant sind → ignorieren.
+
+QUALITÄT > QUANTITÄT:
+- Lieber 0 Trendlinien als eine schlechte
+- Lieber 1 klares Chartmuster als 3 unklare
+- Nur Strukturen die im Bild TATSÄCHLICH sichtbar sind
+
+OHLC-Daten (für Referenz):
 ${JSON.stringify(ohlcData)}
 
 Antworte ausschließlich mit validem JSON:
-{"trendlines":[{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>,"label":"<Aufwärtstrend|Abwärtstrend>","segment":<true|false>}],"support_resistance":[{"price":<float>,"label":"<Support|Resistanz> $<preis>","type":"<support|resistance>"}]}
+{
+  "trendlines":[{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>,"label":"<Aufwärtstrend|Abwärtstrend>","segment":<true|false>}],
+  "support_resistance":[{"price":<float>,"label":"<Support|Resistanz> $<preis>","type":"<support|resistance>"}],
+  "patterns":[{"name":"<Musername>","description":"<kurze Erklärung>","bias":"<bullish|bearish|neutral>"}]
+}
 
-Maximum 3 Trendlinien (gerne 1-2 Haupttrendlinien + 1-2 lokale Segment-Trendlinien) und 3 S/R-Linien. Fibonacci wird automatisch berechnet.`;
+Maximum: 2 Trendlinien, 3 S/R-Linien, 2 Chartmuster. Fibonacci wird automatisch berechnet.`;
 
   try{
     let raw='';
@@ -1771,9 +1850,9 @@ Maximum 3 Trendlinien (gerne 1-2 Haupttrendlinien + 1-2 lokale Segment-Trendlini
       if(isNaN(p)||p<minPrice*0.8||p>maxPrice*1.2)return; // sanity check
       aiDrawings.push({type:'support',price:p,label:s.label,full:true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
-    // Fibonacci: Finde die ZEITLICH LETZTE große Bewegung (nicht die größte in absoluter Range).
-    // Vergleiche: 1) Hoch→Tief-danach (Downmove) und 2) Tief→Hoch-danach (Upmove)
-    // → Pick die, die ZEITLICH SPÄTER endet
+    // Fibonacci: Finde die ZEITLICH LETZTE große Bewegung.
+    // User-Konvention: p1 = Tief (0%, unten), p2 = Hoch (100%, oben) — immer.
+    // Das zeigt Retracement-Levels egal ob Up- oder Downtrend.
     {
       const visStart=Math.max(0,viewStart);
       const visEnd=Math.min(candles.length-1,viewEnd);
@@ -1796,23 +1875,30 @@ Maximum 3 Trendlinien (gerne 1-2 Haupttrendlinien + 1-2 lokale Segment-Trendlini
         }
         const downEnd=(lowAfterHigh!==Infinity)?lowAfterHighIdx:-1;
         const upEnd=(highAfterLow!==-Infinity)?highAfterLowIdx:-1;
-        let p1,p2;
-        // Der Move der ZEITLICH SPÄTER endet, ist der relevante "letzte" Move
+        // Wähle Move der zeitlich später endet (die "letzte Bewegung")
+        let lowIdx,lowPrice,highIdx,highPrice;
         if(downEnd>upEnd&&downEnd>0){
-          p1={idx:visStart+maxRelIdx,price:maxH,time:candles[visStart+maxRelIdx].t.getTime()};
-          p2={idx:visStart+lowAfterHighIdx,price:lowAfterHigh,time:candles[visStart+lowAfterHighIdx].t.getTime()};
+          // Letzte Bewegung: Hoch → Tief
+          highIdx=visStart+maxRelIdx;highPrice=maxH;
+          lowIdx=visStart+lowAfterHighIdx;lowPrice=lowAfterHigh;
         }else if(upEnd>0){
-          p1={idx:visStart+minRelIdx,price:minL,time:candles[visStart+minRelIdx].t.getTime()};
-          p2={idx:visStart+highAfterLowIdx,price:highAfterLow,time:candles[visStart+highAfterLowIdx].t.getTime()};
+          // Letzte Bewegung: Tief → Hoch
+          lowIdx=visStart+minRelIdx;lowPrice=minL;
+          highIdx=visStart+highAfterLowIdx;highPrice=highAfterLow;
         }
-        if(p1&&p2&&Math.abs(p2.idx-p1.idx)>=5){
+        // User-Konvention: p1 = Tief (0%), p2 = Hoch (100%) — egal wer zuerst kam
+        if(lowIdx!=null&&highIdx!=null&&Math.abs(highIdx-lowIdx)>=5){
+          const p1={idx:lowIdx,price:lowPrice,time:candles[lowIdx].t.getTime()};
+          const p2={idx:highIdx,price:highPrice,time:candles[highIdx].t.getTime()};
           aiDrawings.push({type:'fib',p1,p2,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
         }
       }
     }
     redrawOC();
     const elapsed=((Date.now()-aiStartTime)/1000).toFixed(1);
-    const summary='✦ '+provLabel+': '+(result.trendlines?.length||0)+' Trends · '+(result.support_resistance?.length||0)+' S/R · Fib · '+elapsed+'s';
+    const patterns=result.patterns||[];
+    const patternTxt=patterns.length?' · '+patterns.map(p=>p.name).join(', '):'';
+    const summary='✦ '+provLabel+': '+(result.trendlines?.length||0)+' Trends · '+(result.support_resistance?.length||0)+' S/R · Fib'+patternTxt+' · '+elapsed+'s';
     setStatus(summary,'ok');
     // Hide old header hint if still used
     const hint=document.getElementById('ai-hint');
