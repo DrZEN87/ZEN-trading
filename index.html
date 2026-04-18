@@ -71,6 +71,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 #cur-price{font-size:20px;font-weight:300;color:var(--text);letter-spacing:-.5px;transition:color .2s}
 .flash-up{color:#26a69a!important;font-weight:700!important}
 .flash-dn{color:#ef5350!important;font-weight:700!important}
+@keyframes live-pulse{0%{background:#26a69a;box-shadow:0 0 8px #26a69a}50%{background:#1a8a80}100%{background:#26a69a}}
+#live-dot.pulsing{background:#26a69a!important;animation:live-pulse .8s ease-out}
+#live-dot.bg{background:#64748b!important;animation:none}
 #price-chg{font-size:12px}
 .up{color:var(--up)}.dn{color:var(--dn)}
 #ohlc{font-size:11px;color:var(--text3);margin-left:auto}
@@ -211,6 +214,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
     <div id="price-bar">
       <span id="sym-lbl">—</span>
       <span id="cur-price">—</span>
+      <span id="live-dot" title="Live-Preis aktiv" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b;margin-left:4px;transition:background .2s"></span>
       <span id="price-chg"></span>
       <span id="ohlc"></span>
       <span id="candle-cd" style="font-size:11px;color:#e2e8f0;font-weight:500;margin-left:auto;padding:2px 8px;border-radius:3px"></span>
@@ -3387,39 +3391,114 @@ function hideLoading(){const el=document.getElementById('loading');el.classList.
 // ── Currency selector ────────────────────────────────────────
 // Currency auto-detected from symbol suffix (.DE=€, .L=£, default=$)
 
-// ── Live price refresh (every 30s for intraday) ──────────────
+// ── Live price refresh (aggressive polling, near-realtime) ──────
 let liveInterval=null;
+let lastQuoteFetch=0;
+// Quote-Endpunkt für nur den letzten Preis — viel schneller als Chart-Endpunkt
+async function fetchLiveQuote(sym){
+  const proxies=[
+    'https://corsproxy.io/?',
+    'https://api.allorigins.win/raw?url=',
+    'https://api.codetabs.com/v1/proxy?quest=',
+  ];
+  const url=`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(sym)}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketDayHigh,regularMarketDayLow,regularMarketOpen,regularMarketVolume,regularMarketTime`;
+  for(const p of proxies){
+    try{
+      const resp=await fetch(p+encodeURIComponent(url));
+      if(!resp.ok)continue;
+      const data=await resp.json();
+      const q=data?.quoteResponse?.result?.[0];
+      if(q&&q.regularMarketPrice!=null){
+        return{
+          price:q.regularMarketPrice,
+          prevClose:q.regularMarketPreviousClose,
+          high:q.regularMarketDayHigh,
+          low:q.regularMarketDayLow,
+          open:q.regularMarketOpen,
+          volume:q.regularMarketVolume,
+          time:q.regularMarketTime?q.regularMarketTime*1000:Date.now()
+        };
+      }
+    }catch{}
+  }
+  return null;
+}
 function startLiveRefresh(){
   if(liveInterval)clearInterval(liveInterval);
-  // 5m→15s, 1h→20s, 4h→30s, D1→60s, M1→5min
-  const intervals={'5m':15000,'1h':20000,'4h':30000,d1:60000,m1:300000};
-  const ms=intervals[currentTF]||60000;
+  // Tab im Hintergrund → langsamer pollen (Datenvolumen sparen)
+  const isHidden=document.hidden;
+  // Aktuelle Kerze-Intervalle (fast-polling) vs. Neu-Laden aller Kerzen (slow)
+  // Live-Quote: 2-5s sichtbar, 30s im Hintergrund
+  // Full-Refresh (komplette Kerzen): länger, nur zum Backup
+  const quoteIntervals={'5m':2000,'1h':3000,'4h':5000,d1:5000,m1:60000};
+  const fullIntervals={'5m':60000,'1h':120000,'4h':300000,d1:600000,m1:1800000};
+  const bgQuoteMs=30000; // Hintergrund: 30s egal welches TF
+  const quoteMs=isHidden?bgQuoteMs:(quoteIntervals[currentTF]||5000);
+  const fullMs=fullIntervals[currentTF]||600000;
   let refreshing=false;
   let lastKnownPrice=candles.length?candles[candles.length-1].c:0;
+  let lastFullRefresh=Date.now();
   liveInterval=setInterval(async()=>{
     if(refreshing)return;
     refreshing=true;
     try{
-      const res=await loadCandles(currentSymbol,currentTF);
-      if(res&&res.candles.length>0){
-        const oldPrice=lastKnownPrice;
-        candles=res.candles;
-        updateView();
-        const last=candles[candles.length-1],prev=candles.length>1?candles[candles.length-2]:last;
+      const sinceFullRefresh=Date.now()-lastFullRefresh;
+      // Alle fullMs: komplette Kerzen neu laden (für neue Kerze am Timeframe-Wechsel)
+      if(sinceFullRefresh>=fullMs){
+        const res=await loadCandles(currentSymbol,currentTF);
+        if(res&&res.candles.length>0){
+          candles=res.candles;
+          updateView();
+          lastFullRefresh=Date.now();
+        }
+      }else{
+        // Zwischendurch: Nur Live-Quote, aktuelle Kerze in-place updaten
+        const q=await fetchLiveQuote(currentSymbol);
+        if(q&&candles.length>0){
+          const last=candles[candles.length-1];
+          // Kerze aktualisieren: Close = neuer Preis, High/Low erweitern falls nötig
+          last.c=q.price;
+          if(q.high!=null&&q.high>last.h)last.h=q.high;
+          if(q.low!=null&&q.low<last.l)last.l=q.low;
+          if(q.volume!=null)last.v=q.volume;
+          // Chart-Update wenn mainChart existiert
+          if(mainChart&&mainChart.data.datasets[0]){
+            const ds=mainChart.data.datasets[0].data;
+            if(ds.length>0){
+              ds[ds.length-1]={x:ds[ds.length-1].x,o:last.o,h:last.h,l:last.l,c:last.c};
+              mainChart.update('none');
+            }
+          }
+          // Overlay (Zeichnungen, Fib, etc.) auch neu zeichnen
+          redrawOC();
+        }
+      }
+      // Price-Update UI
+      if(candles.length>0){
+        const last=candles[candles.length-1];
+        const prev=candles.length>1?candles[candles.length-2]:last;
         const newPrice=last.c;
+        const oldPrice=lastKnownPrice;
         document.getElementById('cur-price').textContent=fmtPrice(last.c);
+        // Live-Dot pulsen lassen (zeigt dass gerade ein Update kam)
+        const dot=document.getElementById('live-dot');
+        if(dot){
+          dot.classList.remove('bg');
+          dot.classList.remove('pulsing');
+          void dot.offsetWidth; // Force reflow für Animation-Restart
+          dot.classList.add('pulsing');
+        }
         const chg=last.c-prev.c,pct=prev.c>0?chg/prev.c*100:0;
         const ce=document.getElementById('price-chg');
         const curLive=getCurrency(currentSymbol);
         ce.textContent=(chg>=0?'+':'')+chg.toFixed(2)+' '+curLive+' ('+(chg>=0?'+':'')+pct.toFixed(2)+'%)';
         ce.className=chg>=0?'up':'dn';
-        // Flash effect on price change
+        // Flash-Animation bei Preis-Änderung
         if(Math.abs(newPrice-oldPrice)>0.001){
           const flashClass=newPrice>oldPrice?'flash-up':'flash-dn';
           const priceEl=document.getElementById('cur-price');
           const chgEl=document.getElementById('price-chg');
           priceEl.classList.add(flashClass);chgEl.classList.add(flashClass);
-          // Flash watchlist too
           const wlId=currentSymbol.replace(/\W/g,'_');
           const wlP=document.getElementById('wlp-'+wlId);
           const wlC=document.getElementById('wlc-'+wlId);
@@ -3429,13 +3508,23 @@ function startLiveRefresh(){
             priceEl.classList.remove(flashClass);chgEl.classList.remove(flashClass);
             if(wlP)wlP.classList.remove(flashClass);
             if(wlC)wlC.classList.remove(flashClass);
-          },5000);
+          },3000);
           lastKnownPrice=newPrice;
         }
       }
-    }catch{}finally{refreshing=false;}
-  },ms);
+    }catch(e){console.warn('Live-refresh error:',e);}
+    finally{refreshing=false;}
+  },quoteMs);
 }
+// Tab-Visibility: im Hintergrund langsamer pollen
+document.addEventListener('visibilitychange',()=>{
+  const dot=document.getElementById('live-dot');
+  if(dot){
+    if(document.hidden){dot.classList.add('bg');dot.title='Hintergrund-Modus (langsamer)';}
+    else{dot.classList.remove('bg');dot.title='Live-Preis aktiv';}
+  }
+  if(liveInterval)startLiveRefresh();
+});
 
 // ── Candle countdown ─────────────────────────────────────────
 function candleCountdown(){
