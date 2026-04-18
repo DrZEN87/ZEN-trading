@@ -319,6 +319,63 @@ function setAIProvider(p){localStorage.setItem('chartpro_ai_provider',p);}
 // ── State ─────────────────────────────────────────────────────
 let candles=[],alarms=[],alarmType='above',watchlist=[];
 let chartEvents={dividends:[],earnings:[],splits:[]}; // {timestamp, amount, type}
+// Wirtschaftskalender 2026 (Hardcoded für wichtige Termine)
+// Quelle: Federal Reserve, BLS, BEA, ECB offizielle Kalender
+const MACRO_EVENTS=[
+  // FOMC Sitzungen 2026 (offizieller Fed-Kalender)
+  {date:'2026-01-28',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2026-03-18',type:'FOMC',name:'FOMC Zinsentscheid + Projections',importance:'high'},
+  {date:'2026-04-29',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2026-06-17',type:'FOMC',name:'FOMC Zinsentscheid + Projections',importance:'high'},
+  {date:'2026-07-29',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2026-09-16',type:'FOMC',name:'FOMC Zinsentscheid + Projections',importance:'high'},
+  {date:'2026-10-28',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2026-12-09',type:'FOMC',name:'FOMC Zinsentscheid + Projections',importance:'high'},
+  // Non-Farm Payrolls — immer erster Freitag des Monats
+  {date:'2026-01-09',type:'NFP',name:'US Non-Farm Payrolls (Dezember)',importance:'high'},
+  {date:'2026-02-06',type:'NFP',name:'US Non-Farm Payrolls (Januar)',importance:'high'},
+  {date:'2026-03-06',type:'NFP',name:'US Non-Farm Payrolls (Februar)',importance:'high'},
+  {date:'2026-04-03',type:'NFP',name:'US Non-Farm Payrolls (März)',importance:'high'},
+  {date:'2026-05-01',type:'NFP',name:'US Non-Farm Payrolls (April)',importance:'high'},
+  {date:'2026-06-05',type:'NFP',name:'US Non-Farm Payrolls (Mai)',importance:'high'},
+  {date:'2026-07-03',type:'NFP',name:'US Non-Farm Payrolls (Juni)',importance:'high'},
+  {date:'2026-08-07',type:'NFP',name:'US Non-Farm Payrolls (Juli)',importance:'high'},
+  {date:'2026-09-04',type:'NFP',name:'US Non-Farm Payrolls (August)',importance:'high'},
+  {date:'2026-10-02',type:'NFP',name:'US Non-Farm Payrolls (September)',importance:'high'},
+  {date:'2026-11-06',type:'NFP',name:'US Non-Farm Payrolls (Oktober)',importance:'high'},
+  {date:'2026-12-04',type:'NFP',name:'US Non-Farm Payrolls (November)',importance:'high'},
+  // US CPI (Verbraucherpreise) — meist zweite/dritte Woche
+  {date:'2026-01-14',type:'CPI',name:'US CPI Inflation (Dezember)',importance:'high'},
+  {date:'2026-02-11',type:'CPI',name:'US CPI Inflation (Januar)',importance:'high'},
+  {date:'2026-03-11',type:'CPI',name:'US CPI Inflation (Februar)',importance:'high'},
+  {date:'2026-04-10',type:'CPI',name:'US CPI Inflation (März)',importance:'high'},
+  {date:'2026-05-13',type:'CPI',name:'US CPI Inflation (April)',importance:'high'},
+  {date:'2026-06-11',type:'CPI',name:'US CPI Inflation (Mai)',importance:'high'},
+  {date:'2026-07-15',type:'CPI',name:'US CPI Inflation (Juni)',importance:'high'},
+  {date:'2026-08-12',type:'CPI',name:'US CPI Inflation (Juli)',importance:'high'},
+  {date:'2026-09-10',type:'CPI',name:'US CPI Inflation (August)',importance:'high'},
+  {date:'2026-10-14',type:'CPI',name:'US CPI Inflation (September)',importance:'high'},
+  {date:'2026-11-12',type:'CPI',name:'US CPI Inflation (Oktober)',importance:'high'},
+  {date:'2026-12-10',type:'CPI',name:'US CPI Inflation (November)',importance:'high'},
+  // EZB Sitzungen 2026
+  {date:'2026-01-22',type:'ECB',name:'EZB Zinsentscheid',importance:'high'},
+  {date:'2026-03-05',type:'ECB',name:'EZB Zinsentscheid',importance:'high'},
+  {date:'2026-04-16',type:'ECB',name:'EZB Zinsentscheid',importance:'high'},
+  {date:'2026-06-04',type:'ECB',name:'EZB Zinsentscheid',importance:'high'},
+  {date:'2026-07-23',type:'ECB',name:'EZB Zinsentscheid',importance:'high'},
+  {date:'2026-09-10',type:'ECB',name:'EZB Zinsentscheid',importance:'high'},
+  {date:'2026-10-29',type:'ECB',name:'EZB Zinsentscheid',importance:'high'},
+  {date:'2026-12-17',type:'ECB',name:'EZB Zinsentscheid',importance:'high'},
+  // 2025 Rückblick (für ältere Charts sichtbar)
+  {date:'2025-12-10',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2025-10-29',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2025-09-17',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2025-07-30',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2025-06-18',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2025-05-07',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2025-03-19',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+  {date:'2025-01-29',type:'FOMC',name:'FOMC Zinsentscheid',importance:'high'},
+].map(e=>({...e,timestamp:new Date(e.date+'T14:00:00Z').getTime()}));
 let showSMA200=true,showSMA50=true,showEMA21=true,showBB=false;
 let showRSI=true,showSRSI=true,showMACD=true,showATR=true;
 let showVol=true,showVolProfile=true,autoFit=true;
@@ -580,14 +637,17 @@ async function fetchYahooEvents(sym){
     'https://api.allorigins.win/raw?url=',
     'https://api.codetabs.com/v1/proxy?quest=',
   ];
-  // 1. Dividenden + Splits aus dem Chart-Endpoint (inkl. Historie)
-  const chartUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=10y&events=div|split|earn`;
+  // 1. Dividenden + Splits + Earnings aus dem Chart-Endpoint
+  // Yahoo will Komma-getrennte Liste, URL-encoded
+  const chartUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=10y&events=div,split,earn`;
+  let eventsFetched=false;
   for(const p of proxies){
     try{
       const resp=await fetch(p+encodeURIComponent(chartUrl));
-      if(!resp.ok)continue;
+      if(!resp.ok){console.log('[Events] '+sym+' proxy '+p+': HTTP '+resp.status);continue;}
       const data=await resp.json();
       const evs=data.chart?.result?.[0]?.events;
+      console.log('[Events] '+sym+' raw response keys:',evs?Object.keys(evs):'no events field');
       if(evs){
         if(evs.dividends){
           Object.values(evs.dividends).forEach(d=>{
@@ -596,23 +656,36 @@ async function fetchYahooEvents(sym){
         }
         if(evs.splits){
           Object.values(evs.splits).forEach(s=>{
-            events.splits.push({timestamp:s.date*1000,ratio:s.splitRatio||((s.numerator+':'+s.denominator))});
+            events.splits.push({timestamp:s.date*1000,ratio:s.splitRatio||(s.numerator+':'+s.denominator)});
           });
         }
+        if(evs.earnings){
+          Object.values(evs.earnings).forEach(e=>{
+            events.earnings.push({
+              timestamp:e.date*1000,
+              epsActual:e.epsActual,
+              epsEstimate:e.epsEstimate,
+              surprise:e.epsActual&&e.epsEstimate?((e.epsActual-e.epsEstimate)/Math.abs(e.epsEstimate)*100):null,
+              future:e.date*1000>Date.now()
+            });
+          });
+        }
+        eventsFetched=true;
       }
       break;
-    }catch{}
+    }catch(err){console.log('[Events] '+sym+' proxy error:',err.message);}
   }
-  // 2. Earnings aus quoteSummary (zukünftig + kürzlich)
-  const qsUrl=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=calendarEvents,earningsHistory,earnings`;
+  // 2. Zusätzlich: Earnings aus quoteSummary (detaillierter — mit Surprise %)
+  const qsUrl=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=calendarEvents,earningsHistory`;
   for(const p of proxies){
     try{
       const resp=await fetch(p+encodeURIComponent(qsUrl));
       if(!resp.ok)continue;
       const data=await resp.json();
       const qs=data.quoteSummary?.result?.[0];
-      // Zukünftige Earnings aus calendarEvents
-      const cal=qs?.calendarEvents?.earnings;
+      if(!qs)continue;
+      // Zukünftige Earnings
+      const cal=qs.calendarEvents?.earnings;
       if(cal?.earningsDate&&Array.isArray(cal.earningsDate)){
         cal.earningsDate.forEach(ed=>{
           const ts=(ed?.raw||ed)*1000;
@@ -625,8 +698,8 @@ async function fetchYahooEvents(sym){
           }
         });
       }
-      // Historische Earnings aus earningsHistory
-      const hist=qs?.earningsHistory?.history;
+      // Historische Earnings mit Surprise
+      const hist=qs.earningsHistory?.history;
       if(Array.isArray(hist)){
         hist.forEach(h=>{
           const ts=(h.quarter?.raw||0)*1000;
@@ -644,22 +717,16 @@ async function fetchYahooEvents(sym){
       break;
     }catch{}
   }
-  // Deduplizieren (Earnings können aus beiden Quellen kommen)
+  // Deduplizieren (gleiche Tage zusammenführen)
   const earningsMap=new Map();
   events.earnings.forEach(e=>{
-    const key=Math.floor(e.timestamp/86400000); // gleichen Tag gruppieren
+    const key=Math.floor(e.timestamp/86400000);
     const existing=earningsMap.get(key);
     if(!existing)earningsMap.set(key,e);
-    else{
-      // Merge: alle Felder übernehmen, das vollständigere gewinnt
-      earningsMap.set(key,{...existing,...e,future:existing.future||e.future});
-    }
+    else earningsMap.set(key,{...existing,...Object.fromEntries(Object.entries(e).filter(([k,v])=>v!=null))});
   });
   events.earnings=Array.from(earningsMap.values()).sort((a,b)=>a.timestamp-b.timestamp);
-  console.log('[Events '+sym+']',
-    events.dividends.length,'Dividenden,',
-    events.earnings.length,'Earnings,',
-    events.splits.length,'Splits');
+  console.log('[Events] '+sym+' → '+events.dividends.length+' Dividenden, '+events.earnings.length+' Earnings, '+events.splits.length+' Splits');
   return events;
 }
 async function fetchData(sym,tf,silent=false,_retries=3){
@@ -1361,8 +1428,31 @@ function drawEventIcons(ctx,ca){
     return mainChart.scales.x.getPixelForValue(bestIdx);
   }
   ctx.save();
+  // Wirtschaftskalender: Vertikale Linien über die gesamte Chart-Höhe
+  MACRO_EVENTS.forEach(m=>{
+    if(m.timestamp<firstT-86400000||m.timestamp>lastT+86400000)return;
+    const px=tsToX(m.timestamp);
+    if(px==null||px<ca.left||px>ca.right)return;
+    const isFuture=m.timestamp>Date.now();
+    const col={FOMC:'rgba(59,130,246,0.8)',NFP:'rgba(245,158,11,0.8)',CPI:'rgba(236,72,153,0.8)',ECB:'rgba(34,197,94,0.8)'}[m.type]||'rgba(148,163,184,0.8)';
+    // Vertikale Linie
+    ctx.save();
+    ctx.strokeStyle=col.replace('0.8',isFuture?'0.35':'0.45');
+    ctx.lineWidth=1;
+    ctx.setLineDash(isFuture?[3,3]:[]);
+    ctx.beginPath();ctx.moveTo(px,ca.top);ctx.lineTo(px,ca.bottom-18);ctx.stroke();
+    ctx.setLineDash([]);
+    // Label oben
+    ctx.fillStyle=col;
+    ctx.font='bold 9px system-ui';
+    ctx.textAlign='center';ctx.textBaseline='top';
+    ctx.fillText(m.type,px,ca.top+2);
+    ctx.restore();
+    eventIconZones.push({x:px,y:ca.top+8,r:10,type:'macro',data:m,color:col});
+  });
   ctx.font='12px system-ui';
   ctx.textAlign='center';ctx.textBaseline='middle';
+  // Event-Icons (Earnings, Dividenden, Splits) am unteren Rand
   // Dividenden (D blau — wie bei TradingView)
   (chartEvents.dividends||[]).forEach(d=>{
     if(d.timestamp<firstT-86400000||d.timestamp>lastT+86400000)return;
@@ -2522,6 +2612,16 @@ function showEventTooltip(zone,mouseX,mouseY){
       const sCol=d.surprise>=0?'rgba(34,197,94,1)':'rgba(239,68,68,1)';
       html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Überraschung:</span><b style="color:'+sCol+'">'+(d.surprise>=0?'+':'')+d.surprise.toFixed(2)+'%</b></div>';
     }
+    if(isFuture){
+      const days=Math.round((d.timestamp-Date.now())/86400000);
+      html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">In:</span><b>'+days+' Tagen</b></div>';
+    }
+  }else if(zone.type==='macro'){
+    const icon={FOMC:'🏛️',NFP:'👷',CPI:'📊',ECB:'🇪🇺'}[d.type]||'📅';
+    const isFuture=d.timestamp>Date.now();
+    html='<div style="color:'+zone.color+';font-weight:bold;margin-bottom:6px">'+icon+' '+d.type+'</div>'+
+      '<div style="margin-bottom:4px">'+d.name+'</div>'+
+      '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Datum:</span><b>'+date+'</b></div>';
     if(isFuture){
       const days=Math.round((d.timestamp-Date.now())/86400000);
       html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">In:</span><b>'+days+' Tagen</b></div>';
