@@ -89,8 +89,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 #main-wrap{position:relative;height:60vh;flex-shrink:0;user-select:none}
 #main-canvas{display:block;width:100%;height:100%}
 #ov-canvas{position:absolute;top:0;left:0}
-.ind-panel{border-top:1px solid var(--border);position:relative;flex-shrink:0;display:none;min-height:140px}
-.ind-panel.show{display:block;flex:1 1 140px}
+.ind-panel{border-top:1px solid var(--border);position:relative;display:none;min-height:0;overflow:hidden}
+.ind-panel.show{display:block;flex:1 1 0}
 .p-resize{position:absolute;bottom:0;left:0;right:0;height:8px;cursor:ns-resize;z-index:10;background:rgba(148,163,184,.15);border-bottom:2px solid rgba(148,163,184,.3);transition:background .15s}
 .p-resize:hover{background:rgba(59,130,246,.5);border-bottom-color:rgba(59,130,246,.8)}
 .p-resize::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:30px;height:2px;background:rgba(148,163,184,.4);border-radius:1px}
@@ -1269,7 +1269,7 @@ function createCharts(){
   document.getElementById('vol-wrap').classList.remove('show');
   document.getElementById('vol-wrap').style.display='none';
   createRSI(labels);createSRSI(labels);createMACD(labels);createATR(labels);
-  setTimeout(()=>{initPanelOverlays();syncPanelOCs();redrawAllPanelOCs();},50);
+  setTimeout(()=>{initPanelOverlays();syncPanelOCs();redrawAllPanelOCs();if(typeof layoutPanels==='function')layoutPanels();},50);
 }
 
 function createRSI(labels){
@@ -2897,6 +2897,33 @@ document.getElementById('autofit-btn').addEventListener('click',()=>{
   setStatus('Auto-Fit X+Y','ok');setTimeout(()=>setStatus('Bereit','idle'),1500);
 });
 
+// Panel-Höhen dynamisch: immer exakt 2 sichtbar, Rest scrollt weg
+function layoutPanels(){
+  const wrap=document.getElementById('panels-wrap');
+  if(!wrap)return;
+  const wrapH=wrap.clientHeight;
+  const halfH=Math.max(80,Math.floor(wrapH/2));
+  // Jedes sichtbare Panel bekommt halfH als Höhe — RSI+MACD füllen den Platz,
+  // Stoch RSI / ATR werden mit ihrer halfH-Höhe unter den sichtbaren Bereich geschoben
+  ['vol-wrap','rsi-wrap','macd-wrap','srsi-wrap','atr-wrap'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el)return;
+    if(el.classList.contains('show')){
+      el.style.height=halfH+'px';
+      el.style.minHeight=halfH+'px';
+      el.style.maxHeight=halfH+'px';
+      el.style.flex='none';
+    }else{
+      el.style.height='';el.style.minHeight='';el.style.maxHeight='';
+    }
+  });
+  // Charts dazu bringen sich neu zu vermessen
+  if(rsiChart)rsiChart.resize();
+  if(macdChart)macdChart.resize();
+  if(srsiChart)srsiChart.resize();
+  if(atrChart)atrChart.resize();
+}
+window.addEventListener('resize',()=>{setTimeout(layoutPanels,50);});
 // ── Indicators ───────────────────────────────────────────────
 document.querySelectorAll('[data-ind]').forEach(btn=>btn.addEventListener('click',()=>{
   const on=btn.classList.toggle('ab');const ind=btn.dataset.ind;
@@ -2910,6 +2937,7 @@ document.querySelectorAll('[data-ind]').forEach(btn=>btn.addEventListener('click
   if(ind==='macd'){showMACD=on;createMACD();updateView();}
   if(ind==='atr'){showATR=on;createATR();updateView();}
   if(ind==='volprofile'){showVolProfile=on;updateView();}
+  setTimeout(layoutPanels,100);
 }));
 document.querySelectorAll('[data-ctype]').forEach(btn=>btn.addEventListener('click',()=>{
   document.querySelectorAll('[data-ctype]').forEach(b=>b.className='btn');btn.className='btn ab';chartType=btn.dataset.ctype;createCharts();
