@@ -79,14 +79,18 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 #ohlc{font-size:11px;color:var(--text3);margin-left:auto}
 #draw-hint{font-size:11px;color:var(--amber);padding:0 6px;display:none}
 #ai-hint{font-size:11px;color:#c4b5fd;padding:0 6px;display:none}
-#charts-scroll{flex:1;display:flex;flex-direction:column;overflow-y:auto;min-height:0}
+#charts-scroll{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
 #charts-scroll::-webkit-scrollbar{width:3px}
 #charts-scroll::-webkit-scrollbar-thumb{background:var(--border2)}
+#main-wrap{flex:1;position:relative;min-height:200px;overflow:hidden}
+#panels-wrap{height:30vh;min-height:160px;overflow-y:auto;display:flex;flex-direction:column;flex-shrink:0;background:var(--bg2)}
+#panels-wrap::-webkit-scrollbar{width:4px}
+#panels-wrap::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 #main-wrap{position:relative;height:60vh;flex-shrink:0;user-select:none}
 #main-canvas{display:block;width:100%;height:100%}
 #ov-canvas{position:absolute;top:0;left:0}
-.ind-panel{border-top:1px solid var(--border);position:relative;flex-shrink:0;display:none}
-.ind-panel.show{display:block}
+.ind-panel{border-top:1px solid var(--border);position:relative;flex-shrink:0;display:none;min-height:140px}
+.ind-panel.show{display:block;flex:1 1 140px}
 .p-resize{position:absolute;bottom:0;left:0;right:0;height:8px;cursor:ns-resize;z-index:10;background:rgba(148,163,184,.15);border-bottom:2px solid rgba(148,163,184,.3);transition:background .15s}
 .p-resize:hover{background:rgba(59,130,246,.5);border-bottom-color:rgba(59,130,246,.8)}
 .p-resize::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:30px;height:2px;background:rgba(148,163,184,.4);border-radius:1px}
@@ -227,35 +231,37 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
         <canvas id="ov-canvas"></canvas>
       </div>
       <div id="main-ch-resize" title="Hauptchart-Höhe anpassen"></div>
-      <div class="ind-panel show" id="vol-wrap" style="height:8vh">
-        <div class="p-lbl">Volumen</div>
-        <canvas id="vol-canvas" role="img" aria-label="Volumen"></canvas>
-        <canvas class="panel-ov-canvas" id="vol-ov" data-panelkey="vol"></canvas>
-        <div class="p-resize" data-panel="vol-wrap"></div>
-      </div>
-      <div class="ind-panel" id="rsi-wrap" style="height:11vh">
-        <div class="p-lbl">RSI(14)</div>
-        <canvas id="rsi-canvas" role="img" aria-label="RSI"></canvas>
-        <canvas class="panel-ov-canvas" id="rsi-ov" data-panelkey="rsi"></canvas>
-        <div class="p-resize" data-panel="rsi-wrap"></div>
-      </div>
-      <div class="ind-panel" id="macd-wrap" style="height:12vh">
-        <div class="p-lbl">MACD(12,26,9)</div>
-        <canvas id="macd-canvas" role="img" aria-label="MACD"></canvas>
-        <canvas class="panel-ov-canvas" id="macd-ov" data-panelkey="macd"></canvas>
-        <div class="p-resize" data-panel="macd-wrap"></div>
-      </div>
-      <div class="ind-panel" id="srsi-wrap" style="height:11vh">
-        <div class="p-lbl">Stoch RSI(14)</div>
-        <canvas id="srsi-canvas" role="img" aria-label="Stoch RSI"></canvas>
-        <canvas class="panel-ov-canvas" id="srsi-ov" data-panelkey="srsi"></canvas>
-        <div class="p-resize" data-panel="srsi-wrap"></div>
-      </div>
-      <div class="ind-panel" id="atr-wrap" style="height:10vh">
-        <div class="p-lbl">ATR(14)</div>
-        <canvas id="atr-canvas" role="img" aria-label="ATR"></canvas>
-        <canvas class="panel-ov-canvas" id="atr-ov" data-panelkey="atr"></canvas>
-        <div class="p-resize" data-panel="atr-wrap"></div>
+      <div id="panels-wrap">
+        <div class="ind-panel" id="vol-wrap">
+          <div class="p-lbl">Volumen</div>
+          <canvas id="vol-canvas" role="img" aria-label="Volumen"></canvas>
+          <canvas class="panel-ov-canvas" id="vol-ov" data-panelkey="vol"></canvas>
+          <div class="p-resize" data-panel="vol-wrap"></div>
+        </div>
+        <div class="ind-panel" id="rsi-wrap">
+          <div class="p-lbl">RSI(14)</div>
+          <canvas id="rsi-canvas" role="img" aria-label="RSI"></canvas>
+          <canvas class="panel-ov-canvas" id="rsi-ov" data-panelkey="rsi"></canvas>
+          <div class="p-resize" data-panel="rsi-wrap"></div>
+        </div>
+        <div class="ind-panel" id="macd-wrap">
+          <div class="p-lbl">MACD(12,26,9)</div>
+          <canvas id="macd-canvas" role="img" aria-label="MACD"></canvas>
+          <canvas class="panel-ov-canvas" id="macd-ov" data-panelkey="macd"></canvas>
+          <div class="p-resize" data-panel="macd-wrap"></div>
+        </div>
+        <div class="ind-panel" id="srsi-wrap">
+          <div class="p-lbl">Stoch RSI(14)</div>
+          <canvas id="srsi-canvas" role="img" aria-label="Stoch RSI"></canvas>
+          <canvas class="panel-ov-canvas" id="srsi-ov" data-panelkey="srsi"></canvas>
+          <div class="p-resize" data-panel="srsi-wrap"></div>
+        </div>
+        <div class="ind-panel" id="atr-wrap">
+          <div class="p-lbl">ATR(14)</div>
+          <canvas id="atr-canvas" role="img" aria-label="ATR"></canvas>
+          <canvas class="panel-ov-canvas" id="atr-ov" data-panelkey="atr"></canvas>
+          <div class="p-resize" data-panel="atr-wrap"></div>
+        </div>
       </div>
     </div>
     <div id="status-bar" class="st-idle">Bereit</div>
