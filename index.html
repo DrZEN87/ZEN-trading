@@ -724,6 +724,8 @@ async function fetchYahooEvents(sym){
   });
   events.earnings=Array.from(earningsMap.values()).sort((a,b)=>a.timestamp-b.timestamp);
   console.log('[Events] '+sym+' → '+events.dividends.length+' Dividenden, '+events.earnings.length+' Earnings, '+events.splits.length+' Splits');
+  if(events.earnings.length)console.log('  Earnings-Daten:',events.earnings.map(e=>new Date(e.timestamp).toISOString().slice(0,10)+(e.future?' (zukünftig)':'')+(e.surprise!=null?' surprise='+e.surprise.toFixed(1)+'%':'')).join(', '));
+  if(events.dividends.length)console.log('  Dividenden-Daten:',events.dividends.map(d=>new Date(d.timestamp).toISOString().slice(0,10)+' '+d.amount).join(', '));
   return events;
 }
 async function fetchData(sym,tf,silent=false,_retries=3){
@@ -1464,31 +1466,33 @@ function drawEventIcons(ctx,ca){
   // Event-Icons (Earnings, Dividenden, Splits) am unteren Rand
   // Dividenden (D blau — wie bei TradingView)
   (chartEvents.dividends||[]).forEach(d=>{
-    if(d.timestamp<firstT-86400000||d.timestamp>lastT+86400000)return;
+    if(d.timestamp<firstT-7*86400000||d.timestamp>lastT+7*86400000)return;
     const px=tsToX(d.timestamp);
-    if(px==null||px<ca.left||px>ca.right)return;
+    if(px==null||px<ca.left-5||px>ca.right+5)return;
     ctx.fillStyle='rgba(59,130,246,.95)'; // blau
-    ctx.beginPath();ctx.arc(px,y0,7,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#fff';ctx.font='bold 9px system-ui';
+    ctx.beginPath();ctx.arc(px,y0,8,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=1;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 10px system-ui';
     ctx.fillText('D',px,y0);
-    eventIconZones.push({x:px,y:y0,r:9,type:'div',data:d});
+    eventIconZones.push({x:px,y:y0,r:10,type:'div',data:d});
   });
   // Splits (S violett)
   (chartEvents.splits||[]).forEach(s=>{
-    if(s.timestamp<firstT-86400000||s.timestamp>lastT+86400000)return;
+    if(s.timestamp<firstT-7*86400000||s.timestamp>lastT+7*86400000)return;
     const px=tsToX(s.timestamp);
-    if(px==null||px<ca.left||px>ca.right)return;
+    if(px==null||px<ca.left-5||px>ca.right+5)return;
     ctx.fillStyle='rgba(139,92,246,.9)';
-    ctx.beginPath();ctx.arc(px,y0,7,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#fff';ctx.font='bold 9px system-ui';
+    ctx.beginPath();ctx.arc(px,y0,8,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=1;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 10px system-ui';
     ctx.fillText('S',px,y0);
-    eventIconZones.push({x:px,y:y0,r:9,type:'split',data:s});
+    eventIconZones.push({x:px,y:y0,r:10,type:'split',data:s});
   });
   // Earnings — Farbe nach Surprise (grün = besser, rot = schlechter, pink = zukünftig)
   (chartEvents.earnings||[]).forEach(e=>{
-    if(e.timestamp<firstT-86400000)return;
+    if(e.timestamp<firstT-7*86400000)return; // 7 Tage Puffer
     const px=tsToX(e.timestamp);
-    if(px==null||px<ca.left||px>ca.right)return;
+    if(px==null||px<ca.left-5||px>ca.right+5)return;
     let col;
     if(e.future||e.timestamp>Date.now()){
       col='rgba(236,72,153,.95)'; // pink für zukünftige
@@ -1498,10 +1502,11 @@ function drawEventIcons(ctx,ca){
       col='rgba(148,163,184,.9)'; // grau wenn unbekannt
     }
     ctx.fillStyle=col;
-    ctx.beginPath();ctx.arc(px,y0,7,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#fff';ctx.font='bold 9px system-ui';
+    ctx.beginPath();ctx.arc(px,y0,8,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=1;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 10px system-ui';
     ctx.fillText('E',px,y0);
-    eventIconZones.push({x:px,y:y0,r:9,type:'earnings',data:e,color:col});
+    eventIconZones.push({x:px,y:y0,r:10,type:'earnings',data:e,color:col});
   });
   // Zukünftiges Earnings-Event als Badge rechts oben
   const futureEarning=(chartEvents.earnings||[]).find(e=>e.future&&e.timestamp>lastT);
