@@ -2948,7 +2948,7 @@ async function fetchDataForSMA(sym,tf){
   }catch(e){console.warn('SMA-fetch:',sym,tf,e);}
   return null;
 }
-function sma(closes,n){
+function smaLast(closes,n){
   if(closes.length<n)return null;
   let sum=0;
   for(let i=closes.length-n;i<closes.length;i++)sum+=closes[i];
@@ -2964,8 +2964,8 @@ async function checkSMATouchesAll(){
         if(!closes||closes.length<50)continue;
         const price=closes[closes.length-1].c;
         const arr=closes.map(c=>c.c);
-        const sma50=sma(arr,50);
-        const sma200=sma(arr,200);
+        const sma50=smaLast(arr,50);
+        const sma200=smaLast(arr,200);
         const tfLabel=tf==='d1'?'D1':'M1';
         if(sma50){
           const dist=Math.abs(price-sma50)/sma50;
