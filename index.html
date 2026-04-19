@@ -260,8 +260,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
       <span id="cur-price">—</span>
       <span id="live-dot" title="Live-Preis aktiv" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b;margin-left:4px;transition:background .2s"></span>
       <span id="price-chg"></span>
-      <span id="ohlc"></span>
-      <span id="candle-cd" style="font-size:11px;color:#e2e8f0;font-weight:500;margin-left:auto;padding:2px 8px;border-radius:3px"></span>
+      <span id="exchanges" style="display:flex;gap:10px;align-items:center;margin-left:16px;font-size:11px;color:#94a3b8;flex:1;overflow:hidden"></span>
+      <span id="candle-cd" style="font-size:11px;color:#e2e8f0;font-weight:500;padding:2px 8px;border-radius:3px"></span>
       <span id="draw-hint"></span>
       <span id="ai-hint"></span>
     </div>
@@ -1298,7 +1298,7 @@ function renderAll(){
   const curMain=getCurrency(currentSymbol);
   ce.textContent=(chg>=0?'+':'')+chg.toFixed(2)+' '+curMain+' ('+(chg>=0?'+':'')+pct.toFixed(2)+'%)';
   ce.className=chg>=0?'up':'dn';
-  document.getElementById('ohlc').textContent='O:'+last.o?.toFixed(2)+' H:'+last.h?.toFixed(2)+' L:'+last.l?.toFixed(2)+' C:'+last.c?.toFixed(2);
+  // ohlc-Element entfernt (durch Börsen-Status ersetzt)
   document.getElementById('al-sym').textContent=currentSymbol;
   // Detect crosses for visible range
   crossSignals=detectCrosses(candles.map(c=>c.c));
@@ -1718,10 +1718,9 @@ function redrawOC(){
       const dw=dl.length*6+8,dh=16;
       ctx.fillStyle='rgba(50,50,70,.95)';ctx.beginPath();ctx.roundRect(mp.rx-dw/2,ca.bottom+1,dw,dh,3);ctx.fill();
       ctx.fillStyle='#fff';ctx.font='700 10px system-ui';ctx.textAlign='center';ctx.fillText(dl,mp.rx,ca.bottom+1+dh/2+3.5);ctx.textAlign='left';
-      document.getElementById('ohlc').textContent='O:'+c.o?.toFixed(2)+' H:'+c.h?.toFixed(2)+' L:'+c.l?.toFixed(2)+' C:'+c.c?.toFixed(2)+' V:'+(c.v>=1e6?(c.v/1e6).toFixed(1)+'M':c.v>=1e3?(c.v/1e3).toFixed(0)+'K':c.v||'—');
     }
     ctx.restore();
-  }else if(candles.length){const last=candles[candles.length-1];document.getElementById('ohlc').textContent='O:'+last.o?.toFixed(2)+' H:'+last.h?.toFixed(2)+' L:'+last.l?.toFixed(2)+' C:'+last.c?.toFixed(2);}
+  }
 }
 
 // ── Fibonacci / Drawing helpers ───────────────────────────────
@@ -3928,6 +3927,94 @@ window.addEventListener('beforeunload',saveState);
 
 // ── Init ──────────────────────────────────────────────────────
 loadState();
+// ── Börsen-Öffnungszeiten ──────────────────────────────────────
+// Alle Zeiten in UTC — Berechnung berücksichtigt den Wochentag (Mo-Fr)
+const EXCHANGES=[
+  {name:'NYSE',      flag:'🇺🇸', tz:'America/New_York',  open:[9,30],  close:[16,0]},
+  {name:'London',    flag:'🇬🇧', tz:'Europe/London',     open:[8,0],   close:[16,30]},
+  {name:'Frankfurt', flag:'🇩🇪', tz:'Europe/Berlin',     open:[9,0],   close:[17,30]},
+  {name:'Tokio',     flag:'🇯🇵', tz:'Asia/Tokyo',        open:[9,0],   close:[15,0]},
+  {name:'Hongkong',  flag:'🇭🇰', tz:'Asia/Hong_Kong',    open:[9,30],  close:[16,0]},
+  {name:'Sydney',    flag:'🇦🇺', tz:'Australia/Sydney',  open:[10,0],  close:[16,0]},
+];
+
+// Erhalte aktuelle Stunde/Minute/Wochentag in der Timezone der Börse
+function getTZTime(tz){
+  const fmt=new Intl.DateTimeFormat('en-US',{
+    timeZone:tz, weekday:'short',
+    hour:'numeric', minute:'numeric', hour12:false
+  });
+  const parts=fmt.formatToParts(new Date());
+  const p={};
+  parts.forEach(x=>{p[x.type]=x.value;});
+  const weekday=p.weekday; // Mon,Tue,...,Sun
+  const h=parseInt(p.hour==='24'?'0':p.hour);
+  const m=parseInt(p.minute);
+  return {weekday, h, m, minutes: h*60+m};
+}
+
+// Berechnet Status einer Börse: offen + Rest-Zeit ODER geschlossen + Zeit bis Öffnung
+function getExchangeStatus(ex){
+  const now=getTZTime(ex.tz);
+  const openMin=ex.open[0]*60+ex.open[1];
+  const closeMin=ex.close[0]*60+ex.close[1];
+  const isWeekend=(now.weekday==='Sat'||now.weekday==='Sun');
+  const isOpen=!isWeekend && now.minutes>=openMin && now.minutes<closeMin;
+  if(isOpen){
+    const sinceOpen=now.minutes-openMin;
+    return {open:true, text:`offen seit ${fmtMins(sinceOpen)}`};
+  }
+  // Geschlossen — berechne Minuten bis zur nächsten Öffnung
+  let daysToAdd=0;
+  let targetMinutes=openMin-now.minutes;
+  if(now.minutes>=closeMin){
+    // Heute schon geschlossen → morgen
+    daysToAdd=1;
+    targetMinutes=(24*60-now.minutes)+openMin;
+  }else if(now.minutes<openMin && !isWeekend){
+    // Öffnet heute noch
+    targetMinutes=openMin-now.minutes;
+  }else if(isWeekend){
+    // Am Wochenende → nächster Montag
+    const wMap={Sat:2, Sun:1};
+    daysToAdd=wMap[now.weekday]||1;
+    targetMinutes=(24*60-now.minutes)+openMin+(daysToAdd-1)*24*60;
+  }
+  // Wenn nach dem Close ist: nächster Tag — aber falls Fr → Mo
+  if(!isWeekend && now.minutes>=closeMin){
+    if(now.weekday==='Fri'){targetMinutes+=2*24*60;}
+  }
+  return {open:false, text:`in ${fmtMins(targetMinutes)}`};
+}
+
+function fmtMins(totalMin){
+  totalMin=Math.max(0,Math.round(totalMin));
+  const d=Math.floor(totalMin/1440);
+  const h=Math.floor((totalMin%1440)/60);
+  const m=totalMin%60;
+  if(d>0)return `${d}d ${h}h`;
+  if(h>0)return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function renderExchanges(){
+  const el=document.getElementById('exchanges');
+  if(!el)return;
+  const parts=EXCHANGES.map(ex=>{
+    const s=getExchangeStatus(ex);
+    const dot=s.open?'<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#26a69a;box-shadow:0 0 4px #26a69a"></span>':
+                     '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#64748b"></span>';
+    const col=s.open?'#26a69a':'#94a3b8';
+    return `<span title="${ex.name} ${ex.tz}" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">
+      ${dot}<span style="color:${col};font-weight:${s.open?600:400}">${ex.flag} ${ex.name}</span>
+      <span style="color:#64748b;font-size:10px">${s.text}</span>
+    </span>`;
+  });
+  el.innerHTML=parts.join('<span style="color:#334155">·</span>');
+}
+renderExchanges();
+setInterval(renderExchanges,30000); // alle 30s updaten
+
 loadWL();
 setDrawMode('pointer');
 const initSym=localStorage.getItem('zen_lastSymbol')||'SAP.DE';
