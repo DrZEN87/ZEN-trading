@@ -25,10 +25,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 #logo span{color:var(--blue)}
 #sym-in{width:80px;font-size:12px;padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);outline:none}
 #sym-in:focus{border-color:var(--blue)}
-.btn{font-size:11px;padding:4px 8px;cursor:pointer;border-radius:var(--r);border:1px solid var(--border2);background:transparent;color:var(--text2);white-space:nowrap;transition:background .1s,color .1s}
-.icon-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;line-height:1;min-height:30px}
+.btn{font-size:12px;padding:5px 10px;cursor:pointer;border-radius:var(--r);border:1px solid var(--border2);background:transparent;color:var(--text2);white-space:nowrap;transition:background .1s,color .1s;line-height:1.2;min-height:28px;display:inline-flex;align-items:center;justify-content:center;gap:4px}
+.icon-btn{gap:5px;line-height:1.2}
 .icon-btn:hover{background:var(--bg3);color:var(--text)}
-#profile-btn{color:var(--text2);border:1px solid var(--border2);margin-right:4px}
+#profile-btn{color:var(--text2);border:1px solid var(--border2);margin-right:4px;padding:5px 10px;min-height:28px}
 #profile-btn:hover{color:#60a5fa;background:var(--bg3)}
 .btn:hover{background:var(--bg3);color:var(--text)}
 .btn.ab{background:rgba(59,130,246,.15);color:var(--blue);border-color:rgba(59,130,246,.4)}
@@ -192,8 +192,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 
 <div id="app">
 <div id="topbar">
-  <button class="btn icon-btn" id="profile-btn" title="Profil — Email & API-Key verwalten" style="padding:6px 10px;font-size:15px">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">
+  <button class="btn icon-btn" id="profile-btn" title="Profil — Email & API-Key verwalten">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">
       <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
     </svg>
   </button>
@@ -243,12 +243,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button id="autofit-btn" class="on" title="Auto-Fit Y">A</button>
   <button class="btn" id="fs-btn" title="Vollbild (F)">⛶</button>
   <div class="sep"></div>
-  <button id="ai-btn" class="icon-btn" title="KI-Analyse starten (benötigt Gemini API-Key im Profil)" style="padding:6px 12px;font-size:15px">🤖 KI-Analyse</button>
-  <button class="btn icon-btn" id="tts-btn" title="Sprachausgabe an/aus (liest Alarm-Meldungen vor)" style="padding:6px 10px;font-size:16px">🔊</button>
-  <button class="btn icon-btn" id="screenshot-btn" title="Chart in Zwischenablage kopieren (Strg+V zum Einfügen)" style="padding:6px 10px;font-size:16px">📷</button>
-  <button class="btn icon-btn" id="news-btn" title="News zu diesem Symbol anzeigen" style="padding:6px 10px;font-size:16px">📰</button>
+  <button id="ai-btn" class="btn icon-btn" title="KI-Analyse starten (benötigt Gemini API-Key im Profil)">🤖 KI-Analyse</button>
+  <button class="btn icon-btn" id="tts-btn" title="Sprachausgabe an/aus (liest Alarm-Meldungen vor)">🔊</button>
+  <button class="btn icon-btn" id="screenshot-btn" title="Chart in Zwischenablage kopieren (Strg+V zum Einfügen)">📷</button>
+  <button class="btn icon-btn" id="news-btn" title="News zu diesem Symbol anzeigen">📰</button>
   <div class="sep"></div>
-  <button class="btn aa icon-btn" id="al-toggle-btn" title="Alarm im Chart setzen — Klick, dann im Chart klicken" style="padding:6px 12px;font-size:15px">🔔 Alarm setzen</button>
+  <button class="btn aa icon-btn" id="al-toggle-btn" title="Alarm im Chart setzen — Klick, dann im Chart klicken">🔔 Alarm setzen</button>
 </div>
 
 <div id="main-row">
@@ -1031,6 +1031,22 @@ function getLabels(){
   const vc=visCandles(),pads=paddingSlots();
   const isIntra=['5m','1h','4h'].includes(currentTF);
   const range=vc.length;
+  // TF-ms für Extrapolation der zukünftigen Labels
+  const tfMsLbl={'5m':300000,'1h':3600000,'4h':14400000,d1:86400000,m1:2592000000}[currentTF]||86400000;
+  const lastCandleT=vc.length?vc[vc.length-1].t.getTime():(candles.length?candles[candles.length-1].t.getTime():Date.now());
+  const padLabels=[];
+  for(let i=1;i<=pads;i++){
+    const futureT=new Date(lastCandleT+i*tfMsLbl);
+    if(isIntra){
+      padLabels.push(futureT.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}));
+    }else if(currentTF==='d1'){
+      padLabels.push(range>365
+        ?futureT.toLocaleDateString('de-DE',{month:'short',year:'numeric'})
+        :futureT.toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'}));
+    }else{
+      padLabels.push(futureT.toLocaleDateString('de-DE',{month:'short',year:'numeric'}));
+    }
+  }
   return [...vc.map((c,i)=>{
     if(isIntra){
       const prev=i>0?vc[i-1]:null;
@@ -1044,7 +1060,7 @@ function getLabels(){
       return c.t.toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'});
     }
     return c.t.toLocaleDateString('de-DE',{month:'short',year:'numeric'});
-  }),...Array(pads).fill('')];
+  }),...padLabels];
 }
 function setView(s,e){
   viewStart=Math.max(0,Math.round(s));
@@ -1521,46 +1537,46 @@ function drawEventIcons(ctx,ca){
     return mainChart.scales.x.getPixelForValue(visIdx);
   }
   ctx.save();
-  // Wirtschaftskalender: Vertikale Linien über die gesamte Chart-Höhe
-  // Nur wenn: (a) Timeframe passt, (b) Zoom nicht zu weit rausgezogen
+  // Wirtschaftskalender als Symbole am unteren Rand (wie Earnings/Dividenden)
+  // Nur gestern bis Ende der Zeitleiste (rechter Chart-Rand, inklusive Padding in die Zukunft)
   const showMacro=(currentTF==='d1'||currentTF==='4h'||currentTF==='1h'||currentTF==='5m');
-  // Maximale sichtbare Zeitspanne: auf D1 max 2 Jahre, sonst proportional
-  const maxSpanMs={'5m':90*86400000,'1h':180*86400000,'4h':365*86400000,d1:730*86400000}[currentTF]||730*86400000;
-  const viewFirst=candles[Math.max(0,viewStart)]?.t.getTime()||0;
-  const viewLast=candles[Math.min(candles.length-1,viewEnd)]?.t.getTime()||0;
-  const viewSpan=viewLast-viewFirst;
-  const macroVisible=showMacro&&viewSpan<=maxSpanMs;
-  const macroLabelMinSpacing=30; // px
-  let lastMacroX=-999;
-  if(macroVisible)MACRO_EVENTS.forEach(m=>{
-    if(m.timestamp<firstT-86400000||m.timestamp>lastT+86400000)return;
-    const px=tsToX(m.timestamp);
-    if(px==null||px<ca.left||px>ca.right)return;
-    const isFuture=m.timestamp>Date.now();
-    const col={FOMC:'rgba(59,130,246,0.8)',NFP:'rgba(245,158,11,0.8)',CPI:'rgba(236,72,153,0.8)',ECB:'rgba(34,197,94,0.8)'}[m.type]||'rgba(148,163,184,0.8)';
-    // Label nur wenn genug Platz zum vorherigen Marker
-    const showLabel=(px-lastMacroX)>macroLabelMinSpacing;
-    if(showLabel)lastMacroX=px;
-    // Vertikale Linie
-    ctx.save();
-    ctx.strokeStyle=col.replace('0.8',isFuture?'0.3':'0.4');
-    ctx.lineWidth=1;
-    ctx.setLineDash(isFuture?[3,3]:[]);
-    ctx.beginPath();
-    ctx.moveTo(px,showLabel?ca.top+14:ca.top);
-    ctx.lineTo(px,ca.bottom-18);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    // Label oben nur wenn Platz
-    if(showLabel){
-      ctx.fillStyle=col;
-      ctx.font='bold 9px system-ui';
-      ctx.textAlign='center';ctx.textBaseline='top';
-      ctx.fillText(m.type,px,ca.top+2);
-    }
-    ctx.restore();
-    eventIconZones.push({x:px,y:ca.top+8,r:10,type:'macro',data:m,color:col});
-  });
+  if(showMacro){
+    const yesterday=Date.now()-86400000;
+    // Zeitleistenende = rechter Rand (lastT + ein paar Kerzen Padding)
+    const tfMsMacro={'5m':300000,'1h':3600000,'4h':14400000,d1:86400000,m1:2592000000}[currentTF]||86400000;
+    const viewLastTlocal=candles[Math.min(candles.length-1,viewEnd)]?.t.getTime()||lastT;
+    const timelineEnd=viewLastTlocal+tfMsMacro*10; // ~10 Kerzen in die Zukunft
+    MACRO_EVENTS.forEach(m=>{
+      // Filter: nur ab gestern bis Ende der Zeitleiste
+      if(m.timestamp<yesterday)return;
+      if(m.timestamp>timelineEnd)return;
+      const px=tsToX(m.timestamp);
+      if(px==null||px<ca.left-5||px>ca.right+5)return;
+      const isFuture=m.timestamp>Date.now();
+      const cfg={
+        FOMC:{icon:'🏛',col:'rgba(59,130,246,.95)'},
+        NFP: {icon:'👷',col:'rgba(245,158,11,.95)'},
+        CPI: {icon:'%', col:'rgba(236,72,153,.95)'},
+        ECB: {icon:'€', col:'rgba(34,197,94,.95)'}
+      }[m.type]||{icon:'!',col:'rgba(148,163,184,.95)'};
+      // Kreis-Icon wie bei Earnings
+      ctx.fillStyle=cfg.col;
+      ctx.beginPath();ctx.arc(px,y0,8,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=1;ctx.stroke();
+      // Zukünftige Events: gestrichelter Rand zur Unterscheidung
+      if(isFuture){
+        ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.setLineDash([2,2]);
+        ctx.beginPath();ctx.arc(px,y0,8,0,Math.PI*2);ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // Symbol-Text (Emoji oder Zeichen)
+      ctx.fillStyle='#fff';
+      ctx.font=cfg.icon.length>1?'9px system-ui':'bold 10px system-ui';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(cfg.icon,px,y0);
+      eventIconZones.push({x:px,y:y0,r:10,type:'macro',data:m,color:cfg.col});
+    });
+  }
   ctx.font='12px system-ui';
   ctx.textAlign='center';ctx.textBaseline='middle';
   // Event-Icons (Earnings, Dividenden, Splits) am unteren Rand
