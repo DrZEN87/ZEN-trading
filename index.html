@@ -260,7 +260,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
       <span id="cur-price">—</span>
       <span id="live-dot" title="Live-Preis aktiv" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b;margin-left:4px;transition:background .2s"></span>
       <span id="price-chg"></span>
-      <span id="exchanges" style="display:flex;gap:10px;align-items:center;margin-left:16px;font-size:11px;color:#94a3b8;flex:1;overflow:hidden"></span>
+      <span id="exchanges" style="display:flex;gap:12px;align-items:center;margin-left:16px;font-size:12px;color:#94a3b8;flex:1;overflow:hidden"></span>
       <span id="candle-cd" style="font-size:11px;color:#e2e8f0;font-weight:500;padding:2px 8px;border-radius:3px"></span>
       <span id="draw-hint"></span>
       <span id="ai-hint"></span>
@@ -4002,12 +4002,12 @@ function renderExchanges(){
   if(!el)return;
   const parts=EXCHANGES.map(ex=>{
     const s=getExchangeStatus(ex);
-    const dot=s.open?'<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#26a69a;box-shadow:0 0 4px #26a69a"></span>':
-                     '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#64748b"></span>';
-    const col=s.open?'#26a69a':'#94a3b8';
-    return `<span title="${ex.name} ${ex.tz}" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">
-      ${dot}<span style="color:${col};font-weight:${s.open?600:400}">${ex.flag} ${ex.name}</span>
-      <span style="color:#64748b;font-size:10px">${s.text}</span>
+    const dot=s.open?'<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#26a69a;box-shadow:0 0 5px #26a69a"></span>':
+                     '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#64748b"></span>';
+    const col=s.open?'#26a69a':'#cbd5e1';
+    return `<span title="${ex.name} ${ex.tz}" style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:12px">
+      ${dot}<span style="color:${col};font-weight:${s.open?600:500}">${ex.flag} ${ex.name}</span>
+      <span style="color:#94a3b8;font-size:12px">${s.text}</span>
     </span>`;
   });
   el.innerHTML=parts.join('<span style="color:#334155">·</span>');
