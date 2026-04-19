@@ -4163,6 +4163,64 @@ async function checkSMATouchesAll(){
             }
           }
         }
+        // ── MACD-Kreuzung (D1 + M1) ──────────────────────────────
+        if(arr.length>=35){
+          try{
+            const{line,signal}=macdCalc(arr);
+            const n=line.length;
+            const lN=line[n-1],lP=line[n-2],sN=signal[n-1],sP=signal[n-2];
+            if(lN!=null&&lP!=null&&sN!=null&&sP!=null){
+              const bullCross=(lP<=sP)&&(lN>sN);
+              const bearCross=(lP>=sP)&&(lN<sN);
+              if(bullCross){
+                const key=ddKey(sym,tf,'MACD_bull');
+                if(!alreadyTriggeredToday(key)){triggerMACDAlarm(sym,tfLabel,'bullish',lN,sN,price);markTriggered(key);}
+              }else if(bearCross){
+                const key=ddKey(sym,tf,'MACD_bear');
+                if(!alreadyTriggeredToday(key)){triggerMACDAlarm(sym,tfLabel,'bearish',lN,sN,price);markTriggered(key);}
+              }
+            }
+          }catch(e){console.warn('MACD-Check',sym,e);}
+        }
+        // ── Bollinger-Band-Ausbrüche (D1 + M1) ───────────────────
+        if(arr.length>=21){
+          try{
+            const{upper,lower}=bbands(arr,20,2);
+            const n=arr.length;
+            const uN=upper[n-1],lN=lower[n-1];
+            const cNow=arr[n-1],cPrev=arr[n-2];
+            if(uN!=null&&lN!=null&&cPrev!=null){
+              const breakUp=(cPrev<=upper[n-2])&&(cNow>uN);
+              const breakDown=(cPrev>=lower[n-2])&&(cNow<lN);
+              if(breakUp){
+                const key=ddKey(sym,tf,'BB_up');
+                if(!alreadyTriggeredToday(key)){triggerBBAlarm(sym,tfLabel,'oben',cNow,uN);markTriggered(key);}
+              }else if(breakDown){
+                const key=ddKey(sym,tf,'BB_dn');
+                if(!alreadyTriggeredToday(key)){triggerBBAlarm(sym,tfLabel,'unten',cNow,lN);markTriggered(key);}
+              }
+            }
+          }catch(e){console.warn('BB-Check',sym,e);}
+        }
+        // ── Stoch RSI Extremwerte (D1 + M1) ──────────────────────
+        if(arr.length>=40){
+          try{
+            const{k,d}=stochRSI(arr);
+            const n=k.length;
+            const kN=k[n-1],kP=k[n-2];
+            if(kN!=null&&kP!=null){
+              const enterOB=(kP<80)&&(kN>=80);
+              const enterOS=(kP>20)&&(kN<=20);
+              if(enterOB){
+                const key=ddKey(sym,tf,'SRSI_ob');
+                if(!alreadyTriggeredToday(key)){triggerStochAlarm(sym,tfLabel,'überkauft',kN,price);markTriggered(key);}
+              }else if(enterOS){
+                const key=ddKey(sym,tf,'SRSI_os');
+                if(!alreadyTriggeredToday(key)){triggerStochAlarm(sym,tfLabel,'überverkauft',kN,price);markTriggered(key);}
+              }
+            }
+          }catch(e){console.warn('Stoch-Check',sym,e);}
+        }
         // Zusätzliche Checks nur auf D1 (nicht M1)
         if(tf==='d1'&&closes.length>=21){
           const last=closes[closes.length-1];
@@ -4193,8 +4251,64 @@ async function checkSMATouchesAll(){
           }
         }
       }catch(e){console.warn('Check error',sym,tf,e);}
-      await new Promise(r=>setTimeout(r,300)); // rate-limit
+      await new Promise(r=>setTimeout(r,300));
     }
+  }
+}
+// ── Neue Alarm-Trigger-Funktionen ─────────────────────────────
+function triggerMACDAlarm(sym,tf,type,macdLine,signalLine,price){
+  const dirText=type==='bullish'?'Bullish Cross (Kauf-Signal)':'Bearish Cross (Verkaufs-Signal)';
+  const emoji=type==='bullish'?'📈':'📉';
+  const msg=sym+' ('+tf+') MACD '+dirText+' '+emoji+' — MACD='+macdLine.toFixed(3)+' Signal='+signalLine.toFixed(3);
+  console.log('MACD-Alarm:',msg);
+  setStatus('🔔 MACD: '+msg,type==='bullish'?'ok':'err');
+  try{playAlarmSound();}catch{}
+  const speechText=speakableSymbol(sym)+': MACD '+(type==='bullish'?'bullisches Kreuz, Kaufsignal':'bärisches Kreuz, Verkaufssignal');
+  speak(speechText,{cancel:true});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf,smaType:'MACD-'+type,price,smaValue:macdLine,message:msg});
+  }
+}
+function triggerBBAlarm(sym,tf,dir,price,bandLevel){
+  const dirText=dir==='oben'?'oberes Band durchbrochen':'unteres Band durchbrochen';
+  const emoji=dir==='oben'?'🚀':'⬇️';
+  const msg=sym+' ('+tf+') Bollinger '+dirText+' '+emoji+' — Preis: '+price.toFixed(2)+' · Band: '+bandLevel.toFixed(2);
+  console.log('BB-Alarm:',msg);
+  setStatus('🔔 BB: '+msg,dir==='oben'?'ok':'err');
+  try{playAlarmSound();}catch{}
+  const speechText=speakableSymbol(sym)+': Bollinger-Band '+(dir==='oben'?'oben ausgebrochen':'unten ausgebrochen');
+  speak(speechText,{cancel:true});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf,smaType:'BB-'+dir,price,smaValue:bandLevel,message:msg});
+  }
+}
+function triggerStochAlarm(sym,tf,extrem,stochK,price){
+  const emoji=extrem==='überkauft'?'🔥':'❄️';
+  const msg=sym+' ('+tf+') Stoch RSI '+extrem+' '+emoji+' — K='+stochK.toFixed(1)+' · Preis: '+price.toFixed(2);
+  console.log('Stoch-Alarm:',msg);
+  setStatus('🔔 Stoch RSI: '+msg,extrem==='überkauft'?'err':'ok');
+  try{playAlarmSound();}catch{}
+  speak(speakableSymbol(sym)+': Stochastischer RSI '+extrem,{cancel:true});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf,smaType:'Stoch-'+extrem,price,smaValue:stochK,message:msg});
   }
 }
 function triggerDailyMoveAlarm(sym,change,price){
@@ -4234,31 +4348,100 @@ function triggerVolumeAlarm(sym,currentVol,avgVol){
   }
 }
 function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
-  // Popup + Sound wie bei normalen Alarmen
   const msg=sym+' ('+tf+') berührt '+smaType+' @ '+smaValue.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
   console.log('SMA-Alarm:',msg);
   setStatus('🔔 SMA-Alarm: '+msg,'ok');
-  // Sound via existierenden Alarm-Sound
   try{playAlarmSound();}catch{}
-  // Sprachausgabe: "Apple: SMA zweihundert auf Tagesbasis erreicht"
   const tfSpeech=tf==='D1'?'Tagesbasis':tf==='M1'?'Monatsbasis':tf;
   const smaSpeech=smaType.replace('SMA','SMA ');
   speak(speakableSymbol(sym)+': '+smaSpeech+' auf '+tfSpeech+' erreicht',{cancel:true});
-  // Popup anzeigen
   try{
     const pop=document.getElementById('alarm-popup');
     const body=document.getElementById('pop-body');
-    if(pop&&body){
-      body.textContent=msg;
-      pop.style.display='flex';
-    }
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
   }catch{}
-  // Cloud-Email wenn Email gespeichert
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email){
     cloudRequest('notifySma',{symbol:sym,tf,smaType,price,smaValue,message:msg});
   }
 }
+// ── S/R und Fib Touch-Alarme für alle Watchlist-Symbole ────────
+// Prüft alle gezeichneten S/R-Linien und Fib-Levels (38.2/61.8/100) auf Touch
+// pro Watchlist-Symbol. Trigger nur 1x pro Tag pro Linie.
+async function checkDrawingTouchesAll(){
+  if(!watchlist||!watchlist.length||!drawings||!drawings.length)return;
+  const touchPct=0.005; // 0.5% Toleranz
+  // Symbole gruppieren, für die überhaupt Zeichnungen existieren
+  const symsWithDrawings=new Set(drawings.map(d=>d.sym).filter(Boolean));
+  for(const sym of watchlist){
+    if(!symsWithDrawings.has(sym))continue;
+    try{
+      // Aktuellen Preis abrufen (Live-Quote reicht)
+      const q=await fetchLiveQuote(sym);
+      if(!q||q.price==null)continue;
+      const price=q.price;
+      // Alle S/R-Linien dieses Symbols prüfen
+      drawings.filter(d=>d.sym===sym&&(d.type==='support'||d.type==='supportfull')).forEach(d=>{
+        if(d.price==null)return;
+        const dist=Math.abs(price-d.price)/d.price;
+        if(dist<=touchPct){
+          const label=d.label?' "'+d.label+'"':'';
+          const key=ddKey(sym,'sr',d.price.toFixed(2));
+          if(!alreadyTriggeredToday(key)){
+            triggerDrawingTouchAlarm(sym,'S/R'+label,d.price,price);
+            markTriggered(key);
+          }
+        }
+      });
+      // Alle Fib-Zeichnungen dieses Symbols prüfen (nur 38.2/61.8/100% — die wichtigen)
+      drawings.filter(d=>d.sym===sym&&d.type==='fib'&&d.p1&&d.p2).forEach(d=>{
+        const p1=d.p1.price, p2=d.p2.price;
+        // TradingView-Konvention: p1=100%, p2=0%, lvl=0..1 zwischen p2 und p1
+        // priceAtLvl = p2 + (p1-p2) * lvl
+        const keyLevels=[
+          {lvl:0.382,name:'38.2%'},
+          {lvl:0.618,name:'61.8%'},
+          {lvl:1.0,  name:'100%'}
+        ];
+        keyLevels.forEach(k=>{
+          const lvlPrice=p2+(p1-p2)*k.lvl;
+          const dist=Math.abs(price-lvlPrice)/lvlPrice;
+          if(dist<=touchPct){
+            const key=ddKey(sym,'fib',k.name+'_'+lvlPrice.toFixed(2));
+            if(!alreadyTriggeredToday(key)){
+              triggerDrawingTouchAlarm(sym,'Fib '+k.name,lvlPrice,price);
+              markTriggered(key);
+            }
+          }
+        });
+      });
+    }catch(e){console.warn('Drawing-touch check',sym,e);}
+    await new Promise(r=>setTimeout(r,300)); // kleine Pause zwischen Symbolen
+  }
+}
+function triggerDrawingTouchAlarm(sym,lineType,levelPrice,currentPrice){
+  const msg=sym+' berührt '+lineType+' @ '+levelPrice.toFixed(2)+' (Preis: '+currentPrice.toFixed(2)+')';
+  console.log('Drawing-Touch:',msg);
+  setStatus('🔔 '+msg,'ok');
+  try{playAlarmSound();}catch{}
+  // Sprachausgabe
+  const speechLine=lineType.replace('Fib ','Fibonacci ').replace('%',' Prozent').replace('S/R','Support Resistance');
+  speak(speakableSymbol(sym)+' berührt '+speechLine,{cancel:true});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf:'Touch',smaType:lineType,price:currentPrice,smaValue:levelPrice,message:msg});
+  }
+}
+// Parallel zu SMA-Check laufen lassen: alle 5 Min
+setTimeout(()=>{
+  checkDrawingTouchesAll();
+  setInterval(checkDrawingTouchesAll,5*60*1000);
+},8000); // 8s Verzögerung damit drawings geladen sind
 </script>
 </body>
 </html>
