@@ -26,6 +26,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 #sym-in{width:80px;font-size:12px;padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);outline:none}
 #sym-in:focus{border-color:var(--blue)}
 .btn{font-size:11px;padding:4px 8px;cursor:pointer;border-radius:var(--r);border:1px solid var(--border2);background:transparent;color:var(--text2);white-space:nowrap;transition:background .1s,color .1s}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;line-height:1;min-height:30px}
+.icon-btn:hover{background:var(--bg3);color:var(--text)}
+#profile-btn{color:var(--text2);border:1px solid var(--border2);margin-right:4px}
+#profile-btn:hover{color:#60a5fa;background:var(--bg3)}
 .btn:hover{background:var(--bg3);color:var(--text)}
 .btn.ab{background:rgba(59,130,246,.15);color:var(--blue);border-color:rgba(59,130,246,.4)}
 .btn.ag{background:rgba(34,197,94,.12);color:var(--up);border-color:rgba(34,197,94,.35)}
@@ -144,7 +148,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 <div id="loading"><div class="spinner"></div><p>Lade Daten...</p></div>
 <div id="al-popup">
   <div class="pop-inner">
-    <div class="pop-title">⚡ Alarm ausgelöst</div>
+    <div class="pop-title">🔔 Alarm ausgelöst</div>
     <div class="pop-body" id="pop-body">—</div>
     <div class="pop-meta" id="pop-meta">—</div>
     <span class="pop-close" id="pop-close">✕</span>
@@ -152,8 +156,47 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <div class="pop-bar" id="pop-bar"></div>
 </div>
 
+<!-- Profile Modal -->
+<div id="profile-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:2000;align-items:center;justify-content:center">
+  <div style="background:#111827;border:1px solid #334155;border-radius:10px;padding:24px;min-width:420px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.5)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
+      </svg>
+      <h2 style="margin:0;color:#e2e8f0;font-size:18px;font-weight:600">Profil</h2>
+      <span id="profile-close" style="margin-left:auto;cursor:pointer;color:#94a3b8;font-size:20px;padding:2px 8px">✕</span>
+    </div>
+    <div style="margin-bottom:18px">
+      <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;font-weight:500">📧 E-Mail-Adresse</label>
+      <input id="profile-email" type="email" placeholder="dein.name@beispiel.de" style="width:100%;box-sizing:border-box;padding:8px 10px;background:#1e293b;border:1px solid #475569;border-radius:5px;color:#e2e8f0;font-size:13px"/>
+      <div style="color:#64748b;font-size:11px;margin-top:4px;line-height:1.5">Alarme, Zeichnungen und Watchlist werden an diese Adresse gekoppelt — bei Wechsel werden deine Einstellungen automatisch geladen.</div>
+    </div>
+    <div style="margin-bottom:18px">
+      <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;font-weight:500">✨ Google Gemini API-Key</label>
+      <input id="profile-apikey" type="password" placeholder="AIza..." style="width:100%;box-sizing:border-box;padding:8px 10px;background:#1e293b;border:1px solid #475569;border-radius:5px;color:#e2e8f0;font-size:13px;font-family:monospace"/>
+      <div style="color:#64748b;font-size:11px;margin-top:4px;line-height:1.5">API-Key kostenlos holen unter <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#60a5fa;text-decoration:none">aistudio.google.com/apikey</a></div>
+    </div>
+    <div id="profile-status" style="font-size:12px;margin-bottom:14px;min-height:16px"></div>
+    <div style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#94a3b8;line-height:1.6">
+      <div style="color:#cbd5e1;font-weight:500;margin-bottom:4px">Hinweise:</div>
+      <div>• <b style="color:#cbd5e1">Alarme + Email-Versand:</b> benötigt E-Mail-Adresse</div>
+      <div>• <b style="color:#cbd5e1">KI-Analyse:</b> benötigt Gemini API-Key</div>
+      <div>• <b style="color:#cbd5e1">Cloud-Sync:</b> Zeichnungen, Watchlist, Alarme werden an deine E-Mail gekoppelt gespeichert</div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button id="profile-logout" style="padding:8px 14px;background:transparent;border:1px solid #475569;border-radius:5px;color:#94a3b8;cursor:pointer;font-size:12px">Abmelden</button>
+      <button id="profile-save" style="padding:8px 18px;background:#2563eb;border:0;border-radius:5px;color:#fff;cursor:pointer;font-size:13px;font-weight:500">Speichern</button>
+    </div>
+  </div>
+</div>
+
 <div id="app">
 <div id="topbar">
+  <button class="btn icon-btn" id="profile-btn" title="Profil — Email & API-Key verwalten" style="padding:6px 10px;font-size:15px">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">
+      <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
+    </svg>
+  </button>
   <div id="logo">🌅 ZEN<span>-Trading</span></div>
   <input id="sym-in" type="text" value="SAP.DE" autocomplete="off" spellcheck="false"/>
   <button class="btn" id="load-btn">Laden</button>
@@ -200,17 +243,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button id="autofit-btn" class="on" title="Auto-Fit Y">A</button>
   <button class="btn" id="fs-btn" title="Vollbild (F)">⛶</button>
   <div class="sep"></div>
-  <button id="ai-btn" title="Linksklick: KI-Analyse starten · Rechtsklick: API-Key verwalten">✦ KI-Analyse</button>
-  <button class="btn" id="ai-key-btn" title="API-Key verwalten">🔑</button>
-  <button class="btn" id="tts-btn" title="Sprachausgabe an/aus (liest Alarm-Meldungen vor)">🔊</button>
-  <button class="btn" id="screenshot-btn" title="Chart in Zwischenablage kopieren (Strg+V zum Einfügen)">📷</button>
-  <button class="btn" id="news-btn" title="News zu diesem Symbol anzeigen">📰</button>
+  <button id="ai-btn" class="icon-btn" title="KI-Analyse starten (benötigt Gemini API-Key im Profil)" style="padding:6px 12px;font-size:15px">🤖 KI-Analyse</button>
+  <button class="btn icon-btn" id="tts-btn" title="Sprachausgabe an/aus (liest Alarm-Meldungen vor)" style="padding:6px 10px;font-size:16px">🔊</button>
+  <button class="btn icon-btn" id="screenshot-btn" title="Chart in Zwischenablage kopieren (Strg+V zum Einfügen)" style="padding:6px 10px;font-size:16px">📷</button>
+  <button class="btn icon-btn" id="news-btn" title="News zu diesem Symbol anzeigen" style="padding:6px 10px;font-size:16px">📰</button>
   <div class="sep"></div>
-  <span style="font-size:10px;color:var(--text3);margin-left:6px">📧</span>
-  <input id="al-email" type="email" placeholder="email@beispiel.de" style="width:160px;font-size:11px;padding:4px 7px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
-  <button id="al-email-save" style="font-size:10px;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">💾</button>
-  <span id="al-email-status" style="font-size:10px;color:var(--text3);margin-right:4px"></span>
-  <button class="btn aa" id="al-toggle-btn" title="Alarm im Chart setzen — Klick, dann im Chart klicken">⚡ Alarm setzen</button>
+  <button class="btn aa icon-btn" id="al-toggle-btn" title="Alarm im Chart setzen — Klick, dann im Chart klicken" style="padding:6px 12px;font-size:15px">🔔 Alarm setzen</button>
 </div>
 
 <div id="main-row">
@@ -1200,7 +1238,7 @@ const cpPlugin={
       ctx.save();ctx.strokeStyle=isSel?'#ffe066':C.alarm;ctx.lineWidth=isSel?2:1;ctx.setLineDash([5,3]);
       ctx.beginPath();ctx.moveTo(ca.left,yp);ctx.lineTo(ca.right,yp);ctx.stroke();
       ctx.setLineDash([]);ctx.fillStyle=isSel?'#ffe066':C.alarm;ctx.font='10px system-ui';
-      const label='⚡ '+(a.dir==='above'?'▲':'▼')+' '+fmtPrice(a.price);
+      const label='🔔 '+(a.dir==='above'?'▲':'▼')+' '+fmtPrice(a.price);
       ctx.fillText(label,ca.right-100,yp-4);
       if(isSel){ctx.fillStyle='rgba(255,224,102,.9)';ctx.font='bold 10px system-ui';ctx.fillText('← Entf zum Löschen',ca.left+6,yp-4);}
       ctx.restore();
@@ -1452,35 +1490,35 @@ function drawEventIcons(ctx,ca){
   const lastT=candles[candles.length-1].t.getTime();
   const y0=ca.bottom-12;
   // Hilfsfunktion: timestamp → x-Pixel
+  // WICHTIG: mainChart arbeitet mit sichtbaren Indizes (0...visCandles.length-1),
+  // nicht absoluten Kerzennummern. Wir müssen viewStart abziehen.
   function tsToX(ts){
-    // Sichtbarer Zeitbereich: anhand der ersten und letzten sichtbaren Kerze
     const viewFirstT=candles[Math.max(0,viewStart)]?.t.getTime();
     const viewLastT=candles[Math.min(candles.length-1,viewEnd)]?.t.getTime();
     if(viewFirstT==null||viewLastT==null)return null;
-    // TF-spezifischer Puffer (erlaubt Events nahe dem Rand)
     const tfMs={'5m':300000,'1h':3600000,'4h':14400000,d1:86400000,m1:2592000000}[currentTF]||86400000;
     if(ts<viewFirstT-tfMs*2||ts>viewLastT+tfMs*5)return null;
-    // Interpoliere Pixel-Position linear zwischen den nächsten Kerzen
-    // Finde Kerzen die vor/nach ts liegen
+    // Finde Kerzen vor/nach ts
     let loIdx=-1,hiIdx=-1;
     for(let i=0;i<candles.length;i++){
       const ct=candles[i].t.getTime();
       if(ct<=ts)loIdx=i;
       if(ct>=ts&&hiIdx<0){hiIdx=i;break;}
     }
-    let idx;
-    if(loIdx<0)idx=hiIdx;
+    let absIdx;
+    if(loIdx<0)absIdx=hiIdx;
     else if(hiIdx<0){
-      // Event nach letzter Kerze → extrapolieren
       const lastIdx=candles.length-1;
       const dt=ts-candles[lastIdx].t.getTime();
-      idx=lastIdx+dt/tfMs;
-    }else if(loIdx===hiIdx)idx=loIdx;
+      absIdx=lastIdx+dt/tfMs;
+    }else if(loIdx===hiIdx)absIdx=loIdx;
     else{
       const tLo=candles[loIdx].t.getTime(),tHi=candles[hiIdx].t.getTime();
-      idx=loIdx+(ts-tLo)/(tHi-tLo)*(hiIdx-loIdx);
+      absIdx=loIdx+(ts-tLo)/(tHi-tLo)*(hiIdx-loIdx);
     }
-    return mainChart.scales.x.getPixelForValue(idx);
+    // In sichtbaren Index konvertieren
+    const visIdx=absIdx-viewStart;
+    return mainChart.scales.x.getPixelForValue(visIdx);
   }
   ctx.save();
   // Wirtschaftskalender: Vertikale Linien über die gesamte Chart-Höhe
@@ -1641,7 +1679,7 @@ function redrawOC(){
     if(drawMode==='channel'){if(drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1)dline(ctx,p1.x,p1.y,useP.x,useP.y,C.chan,1.5,[]);}if(drawStep===2&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){dline(ctx,p1.x,p1.y,p2.x,p2.y,C.chan,1.5,[]);const mid=(p1.y+p2.y)/2;ctx.save();ctx.globalAlpha=.5;dline(ctx,p1.x,p1.y+(mp.ry-mid),p2.x,p2.y+(mp.ry-mid),C.chan,1,[5,3]);ctx.restore();}}}
     if(drawMode==='fib'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1)drawFibLevels(ctx,ca,drawTemp[0].price,usePrice,p1.x,useP.x,p=>y.getPixelForValue(p));}
     if(drawMode==='support'||drawMode==='supportfull'){const last=candles[candles.length-1];const col=usePrice>=last.c?C.resist:C.support;const xFrom=drawMode==='support'?useP.x:ca.left;ctx.save();ctx.globalAlpha=.55;dline(ctx,xFrom,useP.y,ca.right,useP.y,col,1.5,[]);ctx.fillStyle=col;ctx.font='10px system-ui';ctx.fillText((usePrice>=last.c?'R':'S')+' $'+usePrice.toFixed(2),xFrom+6,useP.y-4);ctx.restore();}
-    if(drawMode==='alarm'){ctx.save();ctx.globalAlpha=.55;dline(ctx,ca.left,mp.ry,ca.right,mp.ry,C.alarm,1,[5,3]);ctx.fillStyle=C.alarm;ctx.font='10px system-ui';ctx.fillText('⚡ '+fmtPrice(mp.price),ca.left+6,mp.ry-4);ctx.restore();}
+    if(drawMode==='alarm'){ctx.save();ctx.globalAlpha=.55;dline(ctx,ca.left,mp.ry,ca.right,mp.ry,C.alarm,1,[5,3]);ctx.fillStyle=C.alarm;ctx.font='10px system-ui';ctx.fillText('🔔 '+fmtPrice(mp.price),ca.left+6,mp.ry-4);ctx.restore();}
     if(sp&&drawMode!=='pointer'&&drawMode!=='alarm'){ctx.save();ctx.strokeStyle=C.snap;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(sp.px,sp.py,6,0,Math.PI*2);ctx.stroke();ctx.strokeStyle=C.snap;ctx.lineWidth=.5;ctx.setLineDash([2,2]);ctx.beginPath();ctx.moveTo(sp.px,ca.top);ctx.lineTo(sp.px,ca.bottom);ctx.stroke();ctx.beginPath();ctx.moveTo(ca.left,sp.py);ctx.lineTo(ca.right,sp.py);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=C.snap;ctx.font='10px system-ui';ctx.fillText(sp.label+' '+fmtPrice(sp.price),sp.px+8,sp.py-4);ctx.restore();}
   }
   ctx.restore();
@@ -1964,6 +2002,8 @@ function extLineRight(x1,y1,x2,y2,xR){if(x1===x2)return{x1,y1,x2,y2:y1-9999};con
 // ✦ KI-ANALYSE
 // ════════════════════════════════════════════════════════════
 async function runAIAnalysis(){
+  // Profil-Check: Gemini API-Key muss hinterlegt sein
+  if(!requireProfileFor('ai'))return;
   let provider=getAIProvider();
   let apiKey=getApiKey(provider);
 
@@ -1987,7 +2027,7 @@ async function runAIAnalysis(){
   btn.classList.add('loading');btn.textContent='⟳ Analysiere…';
   const aiStartTime=Date.now();
   const provLabel=provider==='gemini'?'Gemini':'Claude';
-  setStatus('✦ KI-Analyse via '+provLabel+' — '+currentSymbol+'…','ai');
+  setStatus('🤖 KI-Analyse via '+provLabel+' — '+currentSymbol+'…','ai');
   // Use VISIBLE candles (what user sees) instead of just last 120
   const visStart=Math.max(0,viewStart);
   const visEnd=Math.min(candles.length-1,viewEnd);
@@ -2306,7 +2346,7 @@ Maximum: 2 Trendlinien, 3 S/R-Linien, 2 Chartmuster. Fibonacci wird automatisch 
     setStatus('⚠ KI-Fehler ('+elapsed+'s): '+e.message,'err');console.error(e);
     setTimeout(()=>setStatus('Bereit','idle'),8000);
   }finally{
-    btn.classList.remove('loading');btn.textContent='✦ KI-Analyse';
+    btn.classList.remove('loading');btn.textContent='🤖 KI-Analyse';
   }
 }
 document.getElementById('ai-btn').addEventListener('click',runAIAnalysis);
@@ -2329,7 +2369,8 @@ function manageApiKey(){
   }
   setTimeout(()=>setStatus('Bereit','idle'),3000);
 }
-document.getElementById('ai-btn').addEventListener('contextmenu',e=>{e.preventDefault();manageApiKey();});
+// API-Key Verwaltung passiert jetzt im Profil-Modal
+// Check vor KI-Analyse: erfordert API-Key im Profil
 // Screenshot-Button: Chart in die Zwischenablage (Strg+V zum Einfügen)
 document.getElementById('screenshot-btn').addEventListener('click',async()=>{
   try{
@@ -2442,7 +2483,7 @@ async function fetchYahooNews(sym){
   }
   return [];
 }
-document.getElementById('ai-key-btn').addEventListener('click',manageApiKey);
+// ai-key-btn entfernt — API-Key wird über das Profil-Modal verwaltet
 // TTS-Toggle
 (function(){
   const btn=document.getElementById('tts-btn');
@@ -2580,7 +2621,7 @@ function initPanelOverlays(){
 function setDrawMode(mode){
   drawMode=mode;drawStep=0;drawTemp=null;snapPoint=null;selectedDrawing=null;
   document.querySelectorAll('[data-draw]').forEach(b=>b.className='btn'+(b.dataset.draw===mode?' ab':''));
-  const hints={pointer:'',alarm:'⚡ Klick = Alarm setzen',trendline:'Trendlinie: 2 Klicks · Rechtsklick: Abbrechen',channel:'Kanal: 3 Klicks · Rechtsklick: Abbrechen',support:'S/R Ray: Klick → Linie geht nach rechts · Rechtsklick: Abbrechen',supportfull:'S/R Full: Klick → volle Bildschirmbreite · Rechtsklick: Abbrechen',fib:'Fibonacci: 2 Klicks · Rechtsklick: Abbrechen'};
+  const hints={pointer:'',alarm:'🔔 Klick = Alarm setzen',trendline:'Trendlinie: 2 Klicks · Rechtsklick: Abbrechen',channel:'Kanal: 3 Klicks · Rechtsklick: Abbrechen',support:'S/R Ray: Klick → Linie geht nach rechts · Rechtsklick: Abbrechen',supportfull:'S/R Full: Klick → volle Bildschirmbreite · Rechtsklick: Abbrechen',fib:'Fibonacci: 2 Klicks · Rechtsklick: Abbrechen'};
   const h=document.getElementById('draw-hint');h.textContent=hints[mode]||'';h.style.display=mode==='pointer'?'none':'inline';
   document.getElementById('main-wrap').style.cursor=mode==='pointer'?'grab':'crosshair';
   // Reset panel trendline state on mode change
@@ -3030,7 +3071,7 @@ function checkAlarms(){
         playAlarmSound();
         showPopup(a);
         const cur2=getCurrency(a.sym);
-        setStatus('⚡ Alarm: '+a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2),'err');
+        setStatus('🔔 Alarm: '+a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2),'err');
         if(Notification.permission==='granted')new Notification(a.sym+' Alarm',{body:(a.dir==='above'?'Über':'Unter')+' '+cur2+a.price.toFixed(2)});
         else if(Notification.permission!=='denied')Notification.requestPermission();
         // Sprachausgabe: "Apple Alarm: 100 Dollar überschritten"
@@ -3063,13 +3104,11 @@ async function cloudDeleteAlarm(sym,price){
 // Alarme Button → aktiviert Alarm-Zeichenmodus
 document.getElementById('al-toggle-btn').addEventListener('click',(e)=>{
   e.stopPropagation();
+  // Profil-Check: ohne Email kein Alarm-Feature
+  if(!requireProfileFor('alarm'))return;
   setDrawMode('alarm');
   const email=localStorage.getItem('zen_alarm_email')||'';
-  if(email){
-    setStatus('⚡ Alarm-Modus AKTIV — Klick im Chart setzt Alarm (wird an Cloud+'+email+' gesendet)','ai');
-  }else{
-    setStatus('⚡ Alarm-Modus AKTIV — Klick im Chart setzt Alarm. ⚠ Keine E-Mail gespeichert!','err');
-  }
+  setStatus('🔔 Alarm-Modus AKTIV — Klick im Chart setzt Alarm (wird an '+email+' gesendet)','ai');
 });
 
 // ── RSI-Alarme für Watchlist-Symbole ──────────────────────────
@@ -3105,7 +3144,7 @@ async function checkRsiAlarms(){
         const alarm={sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true,id:Date.now()+Math.random()};
         playAlarmSound();
         showRsiPopup(sym,rsi,now);
-        setStatus('⚡ RSI-Alarm: '+sym+' '+(now==='overbought'?'überkauft':'überverkauft')+' (RSI '+rsi.toFixed(1)+')','err');
+        setStatus('🔔 RSI-Alarm: '+sym+' '+(now==='overbought'?'überkauft':'überverkauft')+' (RSI '+rsi.toFixed(1)+')','err');
         if(Notification.permission==='granted')new Notification('RSI-Alarm: '+sym,{body:(now==='overbought'?'Überkauft':'Überverkauft')+' (RSI '+rsi.toFixed(1)+')'});
         sendAlarmEmail({sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true});
       }
@@ -3319,30 +3358,106 @@ async function syncCloudDrawings(){
   document.getElementById('al-cloud-sync').addEventListener('click',cloudListAlarms);
 })();
 
-// ── Email notification ───────────────────────────────────────
+// ── Profile Modal (Email + Gemini API-Key) ─────────────────────
 (function(){
-  const emailIn=document.getElementById('al-email');
-  const statusEl=document.getElementById('al-email-status');
-  const saved=localStorage.getItem('zen_alarm_email')||'';
-  if(saved)emailIn.value=saved;
-  document.getElementById('al-email-save').addEventListener('click',()=>{
-    const em=emailIn.value.trim();
-    if(em&&em.includes('@')){
+  const modal=document.getElementById('profile-modal');
+  const emailIn=document.getElementById('profile-email');
+  const keyIn=document.getElementById('profile-apikey');
+  const status=document.getElementById('profile-status');
+  function openModal(){
+    emailIn.value=localStorage.getItem('zen_alarm_email')||'';
+    keyIn.value=localStorage.getItem('chartpro_gemini_key')||'';
+    status.textContent='';
+    modal.style.display='flex';
+    setTimeout(()=>emailIn.focus(),100);
+  }
+  function closeModal(){modal.style.display='none';}
+  document.getElementById('profile-btn').addEventListener('click',openModal);
+  document.getElementById('profile-close').addEventListener('click',closeModal);
+  modal.addEventListener('click',e=>{if(e.target===modal)closeModal();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modal.style.display==='flex')closeModal();});
+  document.getElementById('profile-save').addEventListener('click',async()=>{
+    const em=emailIn.value.trim().toLowerCase();
+    const key=keyIn.value.trim();
+    let msgs=[];
+    let needsReload=false;
+    // Email
+    const oldEmail=(localStorage.getItem('zen_alarm_email')||'').toLowerCase();
+    if(em){
+      if(!em.includes('@')){status.style.color='#ef4444';status.textContent='⚠ Ungültige E-Mail';return;}
       localStorage.setItem('zen_alarm_email',em);
-      statusEl.textContent='✓ Gespeichert';statusEl.style.color='var(--up)';
-    }else if(!em){
+      msgs.push('E-Mail gespeichert');
+      if(em!==oldEmail)needsReload=true;
+    }else if(oldEmail){
       localStorage.removeItem('zen_alarm_email');
-      statusEl.textContent='E-Mail entfernt';statusEl.style.color='var(--text3)';
-    }else{
-      statusEl.textContent='⚠ Ungültig';statusEl.style.color='var(--dn)';
+      msgs.push('E-Mail entfernt');
     }
-    setTimeout(()=>statusEl.textContent='',3000);
+    // API Key
+    if(key){
+      if(key.length<10){status.style.color='#ef4444';status.textContent='⚠ API-Key zu kurz';return;}
+      setApiKey('gemini',key);
+      setAIProvider('gemini');
+      msgs.push('Gemini-Key gespeichert');
+    }else if(localStorage.getItem('chartpro_gemini_key')){
+      localStorage.removeItem('chartpro_gemini_key');
+      msgs.push('Gemini-Key entfernt');
+    }
+    status.style.color='#26a69a';
+    status.textContent='✓ '+msgs.join(', ');
+    // Email geändert → Cloud-Daten neu laden
+    if(needsReload){
+      status.textContent+=' — lade Cloud-Daten...';
+      try{
+        await syncCloudAlarms();
+        await syncCloudDrawings();
+        await syncCloudWatchlist();
+        status.textContent='✓ Alles geladen';
+        setTimeout(()=>{closeModal();location.reload();},1200);
+      }catch(e){
+        status.textContent='⚠ Cloud-Laden fehlgeschlagen: '+e.message;
+      }
+    }else{
+      setTimeout(closeModal,1500);
+    }
   });
+  document.getElementById('profile-logout').addEventListener('click',()=>{
+    if(!confirm('Wirklich abmelden? E-Mail und API-Key werden entfernt. (Deine Daten bleiben in der Cloud gespeichert.)'))return;
+    localStorage.removeItem('zen_alarm_email');
+    localStorage.removeItem('chartpro_gemini_key');
+    closeModal();
+    setTimeout(()=>location.reload(),300);
+  });
+  // Markierung: hat der User bereits eine E-Mail? Button-Farbe anpassen
+  function updateProfileBtnState(){
+    const btn=document.getElementById('profile-btn');
+    if(!btn)return;
+    const hasEmail=!!localStorage.getItem('zen_alarm_email');
+    if(hasEmail){btn.style.color='#26a69a';btn.title='Profil — '+localStorage.getItem('zen_alarm_email');}
+    else{btn.style.color='';btn.title='Profil — E-Mail und API-Key hinterlegen';}
+  }
+  updateProfileBtnState();
+  // Expose for after save
+  window.updateProfileBtnState=updateProfileBtnState;
 })();
-function sendAlarmEmail(alarm){
-  // E-Mail wird vom Google Apps Script verschickt — keine mailto-Fenster mehr.
-  // Diese Funktion bleibt als Stub für Kompatibilität.
-  return;
+function sendAlarmEmail(alarm){return;} // stub — Apps Script sendet E-Mails
+
+// Hinweis-Check für features die Email/Key brauchen
+function requireProfileFor(feature){
+  const hasEmail=!!localStorage.getItem('zen_alarm_email');
+  const hasKey=!!localStorage.getItem('chartpro_gemini_key');
+  if(feature==='alarm'&&!hasEmail){
+    if(confirm('Für Alarm-E-Mails benötigst du eine hinterlegte E-Mail-Adresse.\n\nJetzt im Profil hinterlegen?')){
+      document.getElementById('profile-btn').click();
+    }
+    return false;
+  }
+  if(feature==='ai'&&!hasKey){
+    if(confirm('Für die KI-Analyse benötigst du einen Gemini API-Key (kostenlos).\n\nJetzt im Profil hinterlegen?')){
+      document.getElementById('profile-btn').click();
+    }
+    return false;
+  }
+  return true;
 }
 
 // ── Watchlist — init prices on startup ────────────────────────
@@ -3688,6 +3803,12 @@ setTimeout(()=>{
     syncCloudWatchlist();
     syncCloudDrawings();
     setInterval(syncCloudAlarms,120000); // alle 2 Min
+  }else{
+    // Erstnutzer ohne E-Mail → Profil-Modal nach 2s öffnen
+    setTimeout(()=>{
+      const btn=document.getElementById('profile-btn');
+      if(btn)btn.click();
+    },2000);
   }
   // SMA-Touch-Check: alle 5 Min für alle Watchlist-Symbole
   checkSMATouchesAll();
@@ -3829,7 +3950,7 @@ function triggerDailyMoveAlarm(sym,change,price){
   const emoji=change>=0?'📈':'📉';
   const msg=sym+' heute '+emoji+' '+pct+'% '+dir+' — Preis: '+price.toFixed(2);
   console.log('Tages-Alarm:',msg);
-  setStatus('⚡ '+msg,change>=0?'ok':'err');
+  setStatus('🔔 '+msg,change>=0?'ok':'err');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+' heute '+Math.abs(pct)+' Prozent '+dir,{cancel:true});
   try{
@@ -3846,7 +3967,7 @@ function triggerVolumeAlarm(sym,currentVol,avgVol){
   const ratio=(currentVol/avgVol).toFixed(1);
   const msg=sym+' ungewöhnlich hohes Volumen: '+ratio+'x Durchschnitt';
   console.log('Volumen-Alarm:',msg);
-  setStatus('⚡ '+msg,'ok');
+  setStatus('🔔 '+msg,'ok');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+' ungewöhnlich hohes Volumen, '+ratio+' mal Durchschnitt',{cancel:true});
   try{
@@ -3863,7 +3984,7 @@ function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
   // Popup + Sound wie bei normalen Alarmen
   const msg=sym+' ('+tf+') berührt '+smaType+' @ '+smaValue.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
   console.log('SMA-Alarm:',msg);
-  setStatus('⚡ SMA-Alarm: '+msg,'ok');
+  setStatus('🔔 SMA-Alarm: '+msg,'ok');
   // Sound via existierenden Alarm-Sound
   try{playAlarmSound();}catch{}
   // Sprachausgabe: "Apple: SMA zweihundert auf Tagesbasis erreicht"
