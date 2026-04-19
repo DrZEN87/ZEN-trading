@@ -199,7 +199,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   </button>
   <div id="logo">🌅 ZEN<span>-Trading</span></div>
   <input id="sym-in" type="text" value="SAP.DE" autocomplete="off" spellcheck="false"/>
-  <button class="btn" id="load-btn">Laden</button>
   <button class="btn ag" id="add-wl-btn">+ Watchlist</button>
   <div class="sep"></div>
   <span class="tlbl">Zeit</span>
@@ -481,7 +480,7 @@ let panelStep={},panelTemp={},panelMouse={};
 let popupTimer=null;
 let crossSignals=[];
 let aiDrawings=[];
-const RIGHT_PAD=0.10;
+const RIGHT_PAD=0.15;
 const TF={'5m':{i:'5m',r:'5d'},'1h':{i:'1h',r:'1mo'},'4h':{i:'4h',r:'6mo'},d1:{i:'1d',r:'max'},w1:{i:'1wk',r:'max'},m1:{i:'1mo',r:'max'}};
 // Fibonacci-Levels: Retracement (0-100%) + Extensions (über 100% für Kursziele nach Ausbruch)
 // Nach Murphy "Technical Analysis of the Financial Markets" und Elliott Wave Theory
@@ -491,9 +490,9 @@ const FIB_COLORS=[
   'rgba(245,158,11,.8)',   // 23.6% orange
   'rgba(34,197,94,.8)',    // 38.2% grün
   'rgba(59,130,246,.8)',   // 50% blau
-  'rgba(139,92,246,.8)',   // 61.8% violett
+  'rgba(239,68,68,.8)',    // 61.8% rot (getauscht mit 100%)
   'rgba(20,184,166,.8)',   // 78.6% türkis
-  'rgba(239,68,68,.8)',    // 100% rot
+  'rgba(139,92,246,.8)',   // 100% violett (getauscht mit 61.8%)
   'rgba(255,200,100,.9)',  // 127.2% hellgelb (Extension)
   'rgba(255,215,0,.9)',    // 161.8% gold (Hauptziel)
   'rgba(255,100,255,.85)', // 200% magenta
@@ -1545,7 +1544,7 @@ function drawEventIcons(ctx,ca){
     // Zeitleistenende = rechter Rand (lastT + ein paar Kerzen Padding)
     const tfMsMacro={'5m':300000,'1h':3600000,'4h':14400000,d1:86400000,m1:2592000000}[currentTF]||86400000;
     const viewLastTlocal=candles[Math.min(candles.length-1,viewEnd)]?.t.getTime()||lastT;
-    const timelineEnd=viewLastTlocal+tfMsMacro*10; // ~10 Kerzen in die Zukunft
+    const timelineEnd=viewLastTlocal+tfMsMacro*15; // ~15 Kerzen in die Zukunft
     MACRO_EVENTS.forEach(m=>{
       // Filter: nur ab gestern bis Ende der Zeitleiste
       if(m.timestamp<yesterday)return;
@@ -1727,22 +1726,21 @@ function drawFibLevels(ctx,ca,price1,price2,x1,x2,yScale){
   const cur=getCurrency(currentSymbol);
   // TradingView-Konvention: p1 (erster Klick) = 100%, p2 (zweiter Klick) = 0%
   // Formel: priceAtLvl = p2 + (p1 - p2) * lvl
-  //   lvl=0 → p2 (0%)
-  //   lvl=1 → p1 (100%)
-  //   lvl>1 → Extension über p1 hinaus (Kursziel in Richtung Start-Bewegung)
   FIB_LEVELS.forEach((lvl,i)=>{
     const p=price2+(price1-price2)*lvl;
     const yp=yScale(p);
     const isExtension=lvl>1.0;
     const isKeyExt=Math.abs(lvl-1.618)<0.001;
+    // 38.2% und 61.8% werden etwas dicker/kräftiger gezeichnet (wichtige Retracement-Levels)
+    const isKeyRetrace=Math.abs(lvl-0.382)<0.001||Math.abs(lvl-0.618)<0.001;
     ctx.save();
     ctx.strokeStyle=FIB_COLORS[i];
-    ctx.lineWidth=isKeyExt?1.5:1;
+    ctx.lineWidth=isKeyExt?1.5:(isKeyRetrace?1.6:1);
     ctx.setLineDash(isExtension?[2,4]:[4,3]);
     ctx.beginPath();ctx.moveTo(ca.left,yp);ctx.lineTo(ca.right,yp);ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle=FIB_COLORS[i];
-    ctx.font=(isKeyExt?'700 ':'500 ')+'10px system-ui';
+    ctx.font=((isKeyExt||isKeyRetrace)?'700 ':'500 ')+(isKeyRetrace?'11px':'10px')+' system-ui';
     const pctStr=(Math.round(lvl*1000)/10)+'%';
     const priceStr=p.toFixed(2)+' '+cur;
     const label=isExtension?('🎯 '+pctStr+' — '+priceStr):(pctStr+' — '+priceStr);
@@ -1752,11 +1750,6 @@ function drawFibLevels(ctx,ca,price1,price2,x1,x2,yScale){
   // Vertikale Linien an p1 und p2
   ctx.save();ctx.strokeStyle='rgba(255,255,255,.18)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
   [x1,x2].forEach(xv=>{ctx.beginPath();ctx.moveTo(xv,ca.top);ctx.lineTo(xv,ca.bottom);ctx.stroke();});
-  // Goldene Zone (38.2% – 61.8%) hervorheben
-  const y382=yScale(price2+(price1-price2)*0.382);
-  const y618=yScale(price2+(price1-price2)*0.618);
-  ctx.setLineDash([]);ctx.fillStyle=C.fibFill;
-  ctx.fillRect(ca.left,Math.min(y382,y618),ca.right-ca.left,Math.abs(y618-y382));
   ctx.restore();
 }
 // ── Drawing hit-test ──────────────────────────────────────────
@@ -3044,7 +3037,7 @@ document.getElementById('clear-btn').addEventListener('click',()=>{
 document.getElementById('del-selected-btn').addEventListener('click',()=>{
   if(selectedDrawing)deleteSelectedDrawing();
 });
-document.getElementById('load-btn').addEventListener('click',()=>{currentSymbol=document.getElementById('sym-in').value.trim().toUpperCase();fetchData(currentSymbol,currentTF);});
+// load-btn entfernt — Enter im Input lädt das Symbol
 document.getElementById('sym-in').addEventListener('keydown',e=>{if(e.key==='Enter'){currentSymbol=e.target.value.trim().toUpperCase();fetchData(currentSymbol,currentTF);}});
 
 // ── Alarm ─────────────────────────────────────────────────────
