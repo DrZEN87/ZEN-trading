@@ -198,7 +198,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
     </svg>
   </button>
   <div id="logo">🌅 ZEN<span>-Trading</span></div>
-  <input id="sym-in" type="text" value="SAP.DE" autocomplete="off" spellcheck="false"/>
+  <div id="sym-search-wrap" style="position:relative;display:inline-block">
+    <input id="sym-in" type="text" value="SAP.DE" autocomplete="off" spellcheck="false" placeholder="Symbol oder Name…"/>
+    <div id="sym-dropdown" style="display:none;position:absolute;top:100%;left:0;width:320px;max-height:360px;overflow-y:auto;background:#0f172a;border:1px solid #334155;border-radius:6px;margin-top:4px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div>
+  </div>
   <button class="btn ag" id="add-wl-btn">+ Watchlist</button>
   <div class="sep"></div>
   <span class="tlbl">Zeit</span>
@@ -486,17 +489,17 @@ const TF={'5m':{i:'5m',r:'5d'},'1h':{i:'1h',r:'1mo'},'4h':{i:'4h',r:'6mo'},d1:{i
 // Nach Murphy "Technical Analysis of the Financial Markets" und Elliott Wave Theory
 const FIB_LEVELS=[0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618, 2.0, 2.618];
 const FIB_COLORS=[
-  'rgba(239,68,68,.8)',    // 0% rot
-  'rgba(245,158,11,.8)',   // 23.6% orange
-  'rgba(34,197,94,.8)',    // 38.2% grün
-  'rgba(59,130,246,.8)',   // 50% blau
-  'rgba(239,68,68,.8)',    // 61.8% rot (getauscht mit 100%)
-  'rgba(20,184,166,.8)',   // 78.6% türkis
-  'rgba(139,92,246,.8)',   // 100% violett (getauscht mit 61.8%)
-  'rgba(255,200,100,.9)',  // 127.2% hellgelb (Extension)
+  'rgba(255,255,255,.85)', // 0%
+  'rgba(255,255,255,.85)', // 23.6%
+  'rgba(34,197,94,.95)',   // 38.2% GRÜN (wichtig)
+  'rgba(255,255,255,.85)', // 50%
+  'rgba(236,72,153,.95)',  // 61.8% PINK (wichtig)
+  'rgba(255,255,255,.85)', // 78.6%
+  'rgba(255,255,255,.85)', // 100%
+  'rgba(255,255,255,.75)', // 127.2% (Extension)
   'rgba(255,215,0,.9)',    // 161.8% gold (Hauptziel)
-  'rgba(255,100,255,.85)', // 200% magenta
-  'rgba(255,50,200,.85)'   // 261.8% pink
+  'rgba(255,255,255,.75)', // 200%
+  'rgba(255,255,255,.75)'  // 261.8%
 ];
 
 // ── Color constants ──────────────────────────────────────────
@@ -3038,7 +3041,138 @@ document.getElementById('del-selected-btn').addEventListener('click',()=>{
   if(selectedDrawing)deleteSelectedDrawing();
 });
 // load-btn entfernt — Enter im Input lädt das Symbol
-document.getElementById('sym-in').addEventListener('keydown',e=>{if(e.key==='Enter'){currentSymbol=e.target.value.trim().toUpperCase();fetchData(currentSymbol,currentTF);}});
+// ── Symbol-Suche mit Autocomplete (Yahoo Finance Search API) ──
+(function(){
+  const input=document.getElementById('sym-in');
+  const dropdown=document.getElementById('sym-dropdown');
+  let searchTimer=null;
+  let currentResults=[];
+  let selectedIdx=-1;
+  let abortCtrl=null;
+  const proxies=['https://corsproxy.io/?','https://api.allorigins.win/raw?url=','https://api.codetabs.com/v1/proxy?quest='];
+
+  async function searchSymbols(query){
+    if(abortCtrl)abortCtrl.abort();
+    abortCtrl=new AbortController();
+    const url=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0&lang=de-DE&region=DE`;
+    for(const p of proxies){
+      try{
+        const resp=await fetch(p+encodeURIComponent(url),{signal:abortCtrl.signal});
+        if(!resp.ok)continue;
+        const data=await resp.json();
+        return data.quotes||[];
+      }catch(e){if(e.name==='AbortError')return null;}
+    }
+    return [];
+  }
+
+  function renderDropdown(results){
+    currentResults=results;
+    selectedIdx=-1;
+    if(!results||!results.length){
+      dropdown.style.display='none';return;
+    }
+    dropdown.innerHTML=results.map((r,i)=>{
+      const sym=r.symbol||'';
+      const name=r.shortname||r.longname||'';
+      const exch=r.exchDisp||r.exchange||'';
+      const type=r.quoteType||r.typeDisp||'';
+      const typeIcon={EQUITY:'📊',ETF:'📈',INDEX:'📉',CRYPTOCURRENCY:'₿',CURRENCY:'💱',MUTUALFUND:'💼',FUTURE:'📅'}[type]||'•';
+      return `<div class="sym-item" data-idx="${i}" data-sym="${sym}" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid rgba(148,163,184,.08);display:flex;align-items:center;gap:8px">
+        <span style="font-size:14px;width:18px;text-align:center">${typeIcon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;justify-content:space-between;gap:8px">
+            <b style="color:#e2e8f0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name||sym}</b>
+            <span style="color:#60a5fa;font-size:11px;font-weight:600;flex-shrink:0">${sym}</span>
+          </div>
+          <div style="color:#94a3b8;font-size:10px;margin-top:2px">${exch}${type?' · '+type:''}</div>
+        </div>
+      </div>`;
+    }).join('');
+    dropdown.style.display='block';
+    // Click handlers
+    dropdown.querySelectorAll('.sym-item').forEach(el=>{
+      el.addEventListener('mouseenter',()=>{
+        dropdown.querySelectorAll('.sym-item').forEach(x=>x.style.background='');
+        el.style.background='rgba(59,130,246,.15)';
+        selectedIdx=parseInt(el.dataset.idx);
+      });
+      el.addEventListener('click',()=>{
+        selectSymbol(el.dataset.sym);
+      });
+    });
+  }
+
+  function selectSymbol(sym){
+    if(!sym)return;
+    input.value=sym.toUpperCase();
+    dropdown.style.display='none';
+    currentSymbol=sym.toUpperCase();
+    fetchData(currentSymbol,currentTF);
+    input.blur();
+  }
+
+  function updateSelection(delta){
+    if(!currentResults.length)return;
+    selectedIdx=Math.max(0,Math.min(currentResults.length-1,selectedIdx+delta));
+    dropdown.querySelectorAll('.sym-item').forEach((el,i)=>{
+      el.style.background=(i===selectedIdx)?'rgba(59,130,246,.2)':'';
+      if(i===selectedIdx)el.scrollIntoView({block:'nearest'});
+    });
+  }
+
+  input.addEventListener('input',()=>{
+    const q=input.value.trim();
+    if(searchTimer)clearTimeout(searchTimer);
+    if(q.length<1){dropdown.style.display='none';return;}
+    // Debounce 200ms
+    searchTimer=setTimeout(async()=>{
+      const results=await searchSymbols(q);
+      if(results!==null)renderDropdown(results);
+    },200);
+  });
+
+  input.addEventListener('keydown',e=>{
+    if(e.key==='ArrowDown'){e.preventDefault();updateSelection(1);}
+    else if(e.key==='ArrowUp'){e.preventDefault();updateSelection(-1);}
+    else if(e.key==='Enter'){
+      e.preventDefault();
+      if(selectedIdx>=0&&currentResults[selectedIdx]){
+        selectSymbol(currentResults[selectedIdx].symbol);
+      }else{
+        // Direkte Eingabe (z.B. wenn User Kürzel kennt)
+        const sym=input.value.trim().toUpperCase();
+        if(sym){selectSymbol(sym);}
+      }
+    }else if(e.key==='Escape'){
+      dropdown.style.display='none';
+      input.blur();
+    }
+  });
+
+  // Dropdown bei Klick außerhalb schließen
+  document.addEventListener('click',e=>{
+    if(!e.target.closest('#sym-search-wrap')){dropdown.style.display='none';}
+  });
+
+  // Beim Fokus den gesamten Text markieren (einfache Überschreibung)
+  input.addEventListener('focus',()=>{input.select();});
+
+  // TradingView-Style: beim Tippen im Chart fokussiert sich die Suche
+  window.addEventListener('keydown',e=>{
+    // Nur wenn kein anderes Input fokussiert ist
+    if(document.activeElement&&['INPUT','TEXTAREA'].includes(document.activeElement.tagName))return;
+    // Profil-Modal offen? → skip
+    if(document.getElementById('profile-modal').style.display==='flex')return;
+    // Einzelner Buchstabe/Zahl (Symbolsuche starten)
+    if(e.key.length===1&&/[a-zA-Z0-9]/.test(e.key)&&!e.ctrlKey&&!e.altKey&&!e.metaKey){
+      input.focus();
+      input.value=e.key.toUpperCase();
+      input.dispatchEvent(new Event('input'));
+      e.preventDefault();
+    }
+  });
+})();
 
 // ── Alarm ─────────────────────────────────────────────────────
 function showPopup(alarm){
