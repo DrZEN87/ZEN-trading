@@ -250,7 +250,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button class="btn icon-btn" id="screenshot-btn" title="Chart in Zwischenablage kopieren (Strg+V zum Einfügen)">📷</button>
   <button class="btn icon-btn" id="news-btn" title="News zu diesem Symbol anzeigen">📰</button>
   <div class="sep"></div>
-  <button class="btn aa icon-btn" id="al-toggle-btn" title="Alarm im Chart setzen — Klick, dann im Chart klicken">🔔 Alarm setzen</button>
+  <button class="btn aa icon-btn" id="al-toggle-btn" title="Alarm im Chart setzen — Klick, dann im Chart klicken">🔔 Alarm</button>
 </div>
 
 <div id="main-row">
@@ -260,7 +260,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
       <span id="cur-price">—</span>
       <span id="live-dot" title="Live-Preis aktiv" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b;margin-left:4px;transition:background .2s"></span>
       <span id="price-chg"></span>
-      <span id="exchanges" style="display:flex;gap:12px;align-items:center;margin-left:16px;font-size:12px;color:#94a3b8;flex:1;overflow:hidden"></span>
+      <span id="exchanges" style="display:flex;gap:12px;align-items:center;justify-content:center;margin-left:16px;font-size:12px;color:#94a3b8;flex:1;overflow:hidden"></span>
       <span id="candle-cd" style="font-size:11px;color:#e2e8f0;font-weight:500;padding:2px 8px;border-radius:3px"></span>
       <span id="draw-hint"></span>
       <span id="ai-hint"></span>
@@ -3620,20 +3620,33 @@ function saveWL(){
     saveWL._t=setTimeout(()=>cloudPushWatchlist(),500);
   }
 }
+// Cache für letzten bekannten Preis pro Symbol (wird im localStorage persistiert)
+function loadWLCache(){
+  try{return JSON.parse(localStorage.getItem('zen_wl_cache')||'{}');}catch{return {};}
+}
+function saveWLCache(c){
+  try{localStorage.setItem('zen_wl_cache',JSON.stringify(c));}catch{}
+}
 function renderWL(){
   const el=document.getElementById('wl-list');
+  const cache=loadWLCache();
   el.innerHTML=watchlist.map((s,idx)=>{
     const id=s.replace(/\W/g,'_');
     const name=getSymName(s);
-    const displayName=name||s; // fallback: kürzel wenn kein name bekannt
+    const displayName=name||s;
+    // Aus Cache den letzten bekannten Preis + Änderung anzeigen
+    const c=cache[s]||{};
+    const pTxt=c.p||'…';
+    const cTxt=c.c||'…';
+    const col=c.col||'var(--text3)';
     return `<div class="wl-item${s===currentSymbol?' active':''}" data-sym="${s}" data-idx="${idx}" draggable="true">
       <div class="wl-row">
         <span class="wl-name">${displayName}</span>
         ${name?`<span class="wl-sym">${s}</span>`:''}
       </div>
       <div class="wl-row">
-        <span class="wl-price" id="wlp-${id}">…</span>
-        <span class="wl-chg" id="wlc-${id}">…</span>
+        <span class="wl-price" id="wlp-${id}">${pTxt}</span>
+        <span class="wl-chg" id="wlc-${id}" style="color:${col}">${cTxt}</span>
       </div>
       <span class="wl-del" data-del="${s}">✕</span>
     </div>`;
@@ -3662,6 +3675,7 @@ function renderWL(){
 }
 async function updateWLPrices(){
   const wlResults={};
+  const cache=loadWLCache();
   for(const sym of watchlist){
     try{
       let lastPrice=null,pct=0,dollarChg=0;
@@ -3675,18 +3689,27 @@ async function updateWLPrices(){
           pct=dollarChg/prev.c*100;
         }
       }catch{}
-      if(lastPrice===null){wlResults[sym]={p:'—',c:'—',col:'var(--text3)'};setWLChg(sym,'—','—','var(--text3)');continue;}
+      if(lastPrice===null){
+        // Behalte Cache-Wert wenn Abruf fehlschlägt — NICHT auf "—" zurücksetzen
+        if(cache[sym]){wlResults[sym]=cache[sym];setWLChg(sym,cache[sym].p,cache[sym].c,cache[sym].col);continue;}
+        wlResults[sym]={p:'…',c:'…',col:'var(--text3)'};setWLChg(sym,'…','…','var(--text3)');continue;
+      }
       const col=pct>=0?'var(--up)':'var(--dn)';
       const sign=pct>=0?'+':'';
       const cur=getCurrency(sym);
       const pTxt=lastPrice.toFixed(2)+' '+cur,cTxt=sign+dollarChg.toFixed(2)+' '+cur+' ('+sign+pct.toFixed(2)+'%)';
       wlResults[sym]={p:pTxt,c:cTxt,col};
+      cache[sym]={p:pTxt,c:cTxt,col};
       setWLChg(sym,pTxt,cTxt,col);
       if(sym===currentSymbol)document.getElementById('cur-price').textContent=lastPrice.toFixed(2)+' '+cur;
-    }catch{wlResults[sym]={p:'—',c:'—',col:'var(--text3)'};}
+    }catch{
+      // Bei Fehler: letzten bekannten Wert behalten
+      if(cache[sym])wlResults[sym]=cache[sym];
+    }
     await new Promise(r=>setTimeout(r,400));
   }
-  // Re-render to show company names discovered from Yahoo, then reapply prices
+  saveWLCache(cache);
+  // Re-render zeigt aktualisierte Firmennamen, dann Preise neu setzen
   renderWL();
   for(const sym of watchlist){const r=wlResults[sym];if(r)setWLChg(sym,r.p,r.c,r.col);}
 }
