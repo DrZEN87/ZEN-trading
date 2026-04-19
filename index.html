@@ -230,17 +230,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button class="btn ar" id="clear-btn" title="Alle löschen">✕ Alle</button>
   <button class="btn ar" id="del-selected-btn" title="Ausgewähltes Objekt löschen" style="display:none">🗑 Löschen</button>
   <div class="sep"></div>
-  <span class="tlbl">Indikatoren</span>
-  <button class="btn ab" data-ind="vol">Vol</button>
-  <button class="btn ab" data-ind="sma200">SMA 200</button>
-  <button class="btn ab" data-ind="sma50">SMA 50</button>
-  <button class="btn ab" data-ind="ema21">EMA 21</button>
-  <button class="btn ab" data-ind="bb">BB</button>
-  <button class="btn ab" data-ind="rsi">RSI</button>
-  <button class="btn ab" data-ind="srsi">Stoch RSI</button>
-  <button class="btn ab" data-ind="macd">MACD</button>
-  <button class="btn ab" data-ind="atr">ATR</button>
-  <button class="btn" data-ind="volprofile" title="Volumen-Profil">Vol Profil</button>
+  <button class="btn icon-btn" id="indicators-btn" title="Indikatoren verwalten">📊 Indikatoren</button>
+  <button class="btn icon-btn" id="alarm-history-btn" title="Letzte 50 ausgelöste Alarme">📜 Historie</button>
   <div class="sep"></div>
   <button id="autofit-btn" class="on" title="Auto-Fit Y">A</button>
   <button class="btn" id="fs-btn" title="Vollbild (F)">⛶</button>
@@ -251,6 +242,38 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button class="btn icon-btn" id="news-btn" title="News zu diesem Symbol anzeigen">📰</button>
   <div class="sep"></div>
   <button class="btn aa icon-btn" id="al-toggle-btn" title="Alarm im Chart setzen — Klick, dann im Chart klicken">🔔 Alarm</button>
+</div>
+
+<!-- Indikatoren Popup -->
+<div id="indicators-popup" style="display:none;position:fixed;top:56px;left:0;right:0;background:rgba(15,23,42,.98);border-bottom:1px solid #334155;z-index:900;padding:14px 20px;box-shadow:0 4px 20px rgba(0,0,0,.5)">
+  <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:1400px;margin:0 auto">
+    <span style="color:#94a3b8;font-size:12px;font-weight:500;margin-right:8px">Indikatoren:</span>
+    <button class="btn ab" data-ind="vol">Vol</button>
+    <button class="btn ab" data-ind="sma200">SMA 200</button>
+    <button class="btn ab" data-ind="sma50">SMA 50</button>
+    <button class="btn ab" data-ind="ema21">EMA 21</button>
+    <button class="btn ab" data-ind="bb">BB</button>
+    <button class="btn ab" data-ind="rsi">RSI</button>
+    <button class="btn ab" data-ind="srsi">Stoch RSI</button>
+    <button class="btn ab" data-ind="macd">MACD</button>
+    <button class="btn ab" data-ind="atr">ATR</button>
+    <button class="btn" data-ind="volprofile" title="Volumen-Profil">Vol Profil</button>
+    <span style="margin-left:auto;color:#64748b;font-size:11px">Klick auf Button → an/aus</span>
+    <button id="indicators-close" style="background:transparent;border:0;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 8px">✕</button>
+  </div>
+</div>
+
+<!-- Alarm-Historie Popup -->
+<div id="alarm-history-popup" style="display:none;position:fixed;top:56px;right:16px;width:480px;max-height:70vh;background:rgba(15,23,42,.98);border:1px solid #334155;border-radius:8px;z-index:900;box-shadow:0 8px 32px rgba(0,0,0,.5);overflow:hidden;display:none;flex-direction:column">
+  <div style="padding:12px 16px;border-bottom:1px solid #334155;display:flex;align-items:center;gap:8px">
+    <span style="font-size:16px">📜</span>
+    <span style="color:#e2e8f0;font-weight:600;font-size:13px">Alarm-Historie (letzte 50)</span>
+    <span style="margin-left:auto;display:flex;gap:4px">
+      <button id="alarm-history-clear" title="Historie löschen" style="background:transparent;border:1px solid #475569;color:#94a3b8;font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer">Löschen</button>
+      <button id="alarm-history-close" style="background:transparent;border:0;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 8px">✕</button>
+    </span>
+  </div>
+  <div id="alarm-history-list" style="overflow-y:auto;flex:1;min-height:0;max-height:60vh"></div>
 </div>
 
 <div id="main-row">
@@ -3213,7 +3236,9 @@ function checkAlarms(){
         playAlarmSound();
         showPopup(a);
         const cur2=getCurrency(a.sym);
-        setStatus('🔔 Alarm: '+a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2),'err');
+        const msg=a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2);
+        setStatus('🔔 Alarm: '+msg,'err');
+        if(typeof recordAlarm==='function')recordAlarm('Preis-'+a.dir,a.sym,'',msg);
         if(Notification.permission==='granted')new Notification(a.sym+' Alarm',{body:(a.dir==='above'?'Über':'Unter')+' '+cur2+a.price.toFixed(2)});
         else if(Notification.permission!=='denied')Notification.requestPermission();
         // Sprachausgabe: "Apple Alarm: 100 Dollar überschritten"
@@ -3286,7 +3311,9 @@ async function checkRsiAlarms(){
         const alarm={sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true,id:Date.now()+Math.random()};
         playAlarmSound();
         showRsiPopup(sym,rsi,now);
-        setStatus('🔔 RSI-Alarm: '+sym+' '+(now==='overbought'?'überkauft':'überverkauft')+' (RSI '+rsi.toFixed(1)+')','err');
+        const rsiMsg=sym+' '+(now==='overbought'?'überkauft':'überverkauft')+' (RSI '+rsi.toFixed(1)+')';
+        setStatus('🔔 RSI-Alarm: '+rsiMsg,'err');
+        if(typeof recordAlarm==='function')recordAlarm('RSI-'+now,sym,'D1',rsiMsg);
         if(Notification.permission==='granted')new Notification('RSI-Alarm: '+sym,{body:(now==='overbought'?'Überkauft':'Überverkauft')+' (RSI '+rsi.toFixed(1)+')'});
         sendAlarmEmail({sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true});
       }
@@ -4260,7 +4287,7 @@ function triggerMACDAlarm(sym,tf,type,macdLine,signalLine,price){
   const dirText=type==='bullish'?'Bullish Cross (Kauf-Signal)':'Bearish Cross (Verkaufs-Signal)';
   const emoji=type==='bullish'?'📈':'📉';
   const msg=sym+' ('+tf+') MACD '+dirText+' '+emoji+' — MACD='+macdLine.toFixed(3)+' Signal='+signalLine.toFixed(3);
-  console.log('MACD-Alarm:',msg);
+  console.log('MACD-Alarm:',msg);recordAlarm('MACD-'+type,sym,tf,msg);
   setStatus('🔔 MACD: '+msg,type==='bullish'?'ok':'err');
   try{playAlarmSound();}catch{}
   const speechText=speakableSymbol(sym)+': MACD '+(type==='bullish'?'bullisches Kreuz, Kaufsignal':'bärisches Kreuz, Verkaufssignal');
@@ -4279,7 +4306,7 @@ function triggerBBAlarm(sym,tf,dir,price,bandLevel){
   const dirText=dir==='oben'?'oberes Band durchbrochen':'unteres Band durchbrochen';
   const emoji=dir==='oben'?'🚀':'⬇️';
   const msg=sym+' ('+tf+') Bollinger '+dirText+' '+emoji+' — Preis: '+price.toFixed(2)+' · Band: '+bandLevel.toFixed(2);
-  console.log('BB-Alarm:',msg);
+  console.log('BB-Alarm:',msg);recordAlarm('BB-'+dir,sym,tf,msg);
   setStatus('🔔 BB: '+msg,dir==='oben'?'ok':'err');
   try{playAlarmSound();}catch{}
   const speechText=speakableSymbol(sym)+': Bollinger-Band '+(dir==='oben'?'oben ausgebrochen':'unten ausgebrochen');
@@ -4297,7 +4324,7 @@ function triggerBBAlarm(sym,tf,dir,price,bandLevel){
 function triggerStochAlarm(sym,tf,extrem,stochK,price){
   const emoji=extrem==='überkauft'?'🔥':'❄️';
   const msg=sym+' ('+tf+') Stoch RSI '+extrem+' '+emoji+' — K='+stochK.toFixed(1)+' · Preis: '+price.toFixed(2);
-  console.log('Stoch-Alarm:',msg);
+  console.log('Stoch-Alarm:',msg);recordAlarm('SRSI-'+extrem,sym,tf,msg);
   setStatus('🔔 Stoch RSI: '+msg,extrem==='überkauft'?'err':'ok');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+': Stochastischer RSI '+extrem,{cancel:true});
@@ -4316,7 +4343,7 @@ function triggerDailyMoveAlarm(sym,change,price){
   const dir=change>=0?'gestiegen':'gefallen';
   const emoji=change>=0?'📈':'📉';
   const msg=sym+' heute '+emoji+' '+pct+'% '+dir+' — Preis: '+price.toFixed(2);
-  console.log('Tages-Alarm:',msg);
+  console.log('Tages-Alarm:',msg);recordAlarm('Tages-Move',sym,'D1',msg);
   setStatus('🔔 '+msg,change>=0?'ok':'err');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+' heute '+Math.abs(pct)+' Prozent '+dir,{cancel:true});
@@ -4333,7 +4360,7 @@ function triggerDailyMoveAlarm(sym,change,price){
 function triggerVolumeAlarm(sym,currentVol,avgVol){
   const ratio=(currentVol/avgVol).toFixed(1);
   const msg=sym+' ungewöhnlich hohes Volumen: '+ratio+'x Durchschnitt';
-  console.log('Volumen-Alarm:',msg);
+  console.log('Volumen-Alarm:',msg);recordAlarm('Volumen',sym,'D1',msg);
   setStatus('🔔 '+msg,'ok');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+' ungewöhnlich hohes Volumen, '+ratio+' mal Durchschnitt',{cancel:true});
@@ -4349,7 +4376,7 @@ function triggerVolumeAlarm(sym,currentVol,avgVol){
 }
 function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
   const msg=sym+' ('+tf+') berührt '+smaType+' @ '+smaValue.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
-  console.log('SMA-Alarm:',msg);
+  console.log('SMA-Alarm:',msg);recordAlarm(smaType,sym,tf,msg);
   setStatus('🔔 SMA-Alarm: '+msg,'ok');
   try{playAlarmSound();}catch{}
   const tfSpeech=tf==='D1'?'Tagesbasis':tf==='M1'?'Monatsbasis':tf;
@@ -4365,6 +4392,101 @@ function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
     cloudRequest('notifySma',{symbol:sym,tf,smaType,price,smaValue,message:msg});
   }
 }
+
+// ── Alarm-Historie (lokal, max. 50 Einträge) ──────────────────
+function loadAlarmHistory(){
+  try{return JSON.parse(localStorage.getItem('zen_alarm_history')||'[]');}catch{return [];}
+}
+function recordAlarm(type,sym,tf,message,extra){
+  const h=loadAlarmHistory();
+  h.unshift({
+    timestamp:Date.now(),
+    type,      // 'SMA50', 'MACD-bullish', 'BB-oben', etc.
+    sym,
+    tf: tf||'',
+    message,
+    extra: extra||{}
+  });
+  if(h.length>50)h.length=50;
+  try{localStorage.setItem('zen_alarm_history',JSON.stringify(h));}catch{}
+  // Falls Historie-Panel offen: neu rendern
+  if(document.getElementById('alarm-history-popup').style.display==='flex')renderAlarmHistory();
+}
+function renderAlarmHistory(){
+  const listEl=document.getElementById('alarm-history-list');
+  const h=loadAlarmHistory();
+  if(!h.length){
+    listEl.innerHTML='<div style="padding:20px;color:#64748b;text-align:center;font-size:12px">Noch keine Alarme ausgelöst.</div>';
+    return;
+  }
+  listEl.innerHTML=h.map(entry=>{
+    const d=new Date(entry.timestamp);
+    const dateStr=d.toLocaleDateString('de-DE',{day:'2-digit',month:'short'});
+    const timeStr=d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+    const isRecent=(Date.now()-entry.timestamp)<60*60*1000; // <1h
+    // Icon nach Typ
+    const t=entry.type||'';
+    let icon='🔔',col='#cbd5e1';
+    if(t.includes('MACD'))    {icon='📊'; col=t.includes('bull')?'#26a69a':'#ef5350';}
+    else if(t.includes('BB')) {icon='🎯'; col=t.includes('oben')?'#26a69a':'#ef5350';}
+    else if(t.includes('SRSI')||t.includes('Stoch')) {icon='⚡'; col=t.includes('über')?'#fbbf24':'#cbd5e1';}
+    else if(t.includes('SMA')) {icon='📈'; col='#60a5fa';}
+    else if(t.includes('EMA')) {icon='📈'; col='#60a5fa';}
+    else if(t.includes('Vol')||t.includes('Volumen')) {icon='📊'; col='#a78bfa';}
+    else if(t.includes('Tages-Move')||t.includes('DAY')) {icon='📈'; col=entry.message?.includes('gestiegen')?'#26a69a':'#ef5350';}
+    else if(t.includes('Preis')||t.includes('Price')) {icon='🔔'; col='#fbbf24';}
+    else if(t.includes('Fib'))  {icon='φ'; col='#ec4899';}
+    return `<div style="padding:10px 16px;border-bottom:1px solid #1e293b;display:flex;gap:10px;align-items:flex-start;${isRecent?'background:rgba(59,130,246,.05)':''}">
+      <div style="font-size:16px;line-height:1;margin-top:1px;color:${col};min-width:18px;text-align:center">${icon}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;gap:8px">
+          <b style="color:#e2e8f0;font-size:12px">${entry.sym}${entry.tf?' ('+entry.tf+')':''}</b>
+          <span style="color:#64748b;font-size:11px;white-space:nowrap">${dateStr} ${timeStr}</span>
+        </div>
+        <div style="color:#94a3b8;font-size:11px;margin-top:2px;line-height:1.4">${entry.message||entry.type}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+// Popup-Handling
+(function(){
+  const indBtn=document.getElementById('indicators-btn');
+  const indPopup=document.getElementById('indicators-popup');
+  const indClose=document.getElementById('indicators-close');
+  indBtn.addEventListener('click',e=>{
+    e.stopPropagation();
+    const isOpen=indPopup.style.display==='block';
+    indPopup.style.display=isOpen?'none':'block';
+  });
+  indClose.addEventListener('click',()=>indPopup.style.display='none');
+  document.addEventListener('click',e=>{
+    if(indPopup.style.display==='block'&&!e.target.closest('#indicators-popup')&&e.target.id!=='indicators-btn'){
+      indPopup.style.display='none';
+    }
+  });
+  const histBtn=document.getElementById('alarm-history-btn');
+  const histPopup=document.getElementById('alarm-history-popup');
+  const histClose=document.getElementById('alarm-history-close');
+  const histClear=document.getElementById('alarm-history-clear');
+  histBtn.addEventListener('click',e=>{
+    e.stopPropagation();
+    const isOpen=histPopup.style.display==='flex';
+    histPopup.style.display=isOpen?'none':'flex';
+    if(!isOpen)renderAlarmHistory();
+  });
+  histClose.addEventListener('click',()=>histPopup.style.display='none');
+  histClear.addEventListener('click',()=>{
+    if(confirm('Alarm-Historie wirklich löschen?')){
+      localStorage.removeItem('zen_alarm_history');
+      renderAlarmHistory();
+    }
+  });
+  document.addEventListener('click',e=>{
+    if(histPopup.style.display==='flex'&&!e.target.closest('#alarm-history-popup')&&e.target.id!=='alarm-history-btn'){
+      histPopup.style.display='none';
+    }
+  });
+})();
 // ── S/R und Fib Touch-Alarme für alle Watchlist-Symbole ────────
 // Prüft alle gezeichneten S/R-Linien und Fib-Levels (38.2/61.8/100) auf Touch
 // pro Watchlist-Symbol. Trigger nur 1x pro Tag pro Linie.
