@@ -284,7 +284,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
       <span id="live-dot" title="Live-Preis aktiv" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b;margin-left:4px;transition:background .2s"></span>
       <span id="price-chg"></span>
       <span id="exchanges" style="display:flex;gap:12px;align-items:center;justify-content:center;margin-left:16px;font-size:12px;color:#94a3b8;flex:1;overflow:hidden"></span>
-      <span id="candle-cd" style="font-size:11px;color:#e2e8f0;font-weight:500;padding:2px 8px;border-radius:3px"></span>
+      <span id="candle-cd" style="display:none"></span>
       <span id="draw-hint"></span>
       <span id="ai-hint"></span>
     </div>
@@ -1014,20 +1014,44 @@ function speak(text,opts){
   if(localStorage.getItem('zen_tts_enabled')==='0')return;
   if(!('speechSynthesis'in window))return;
   try{
-    // Laufende Ausgabe abbrechen wenn gewünscht
     if(opts&&opts.cancel)window.speechSynthesis.cancel();
     const u=new SpeechSynthesisUtterance(text);
     u.lang='de-DE';
-    u.rate=(opts&&opts.rate)||1.0;
-    u.volume=(opts&&opts.volume)||1.0;
+    u.rate=(opts&&opts.rate)||0.95;    // etwas langsamer = klarer
+    u.volume=(opts&&opts.volume)||1.0; // maximal
     u.pitch=(opts&&opts.pitch)||1.0;
-    // Deutsche Stimme bevorzugen falls vorhanden
+    // Deutsche Stimme auswählen — priorisiert hochqualitative "Natural"/"Premium" Stimmen
     const voices=window.speechSynthesis.getVoices();
-    const deVoice=voices.find(v=>v.lang.startsWith('de'));
-    if(deVoice)u.voice=deVoice;
+    const deVoices=voices.filter(v=>v.lang.startsWith('de'));
+    // Ranking: user-gespeicherte > Natural/Premium/Neural > Online > beliebig
+    const savedName=localStorage.getItem('zen_tts_voice');
+    let best=savedName?deVoices.find(v=>v.name===savedName):null;
+    if(!best){
+      // Bekannte hochwertige Stimmen bevorzugen
+      const preferred=[
+        /Natural/i,/Premium/i,/Neural/i,
+        /Katja/i,/Hedda/i,/Anna/i,/Stefan/i, // Microsoft-Stimmen
+        /Google Deutsch/i,
+        /Markus/i,/Helena/i,/Petra/i
+      ];
+      for(const rx of preferred){
+        best=deVoices.find(v=>rx.test(v.name));
+        if(best)break;
+      }
+    }
+    if(!best)best=deVoices[0];
+    if(best)u.voice=best;
     window.speechSynthesis.speak(u);
   }catch(e){console.warn('TTS error:',e);}
 }
+// Verfügbare Stimmen auflisten (für Debug in der Konsole)
+window.zenListVoices=function(){
+  const voices=window.speechSynthesis.getVoices().filter(v=>v.lang.startsWith('de'));
+  console.log('Verfügbare deutsche Stimmen:');
+  voices.forEach(v=>console.log(` "${v.name}" — ${v.lang}${v.default?' (default)':''}${v.localService?'':' [Online]'}`));
+  console.log('Zum Setzen: localStorage.setItem("zen_tts_voice","NAME")');
+  return voices;
+};
 // Währungs-Namen für Sprachausgabe
 function currencyName(cur){
   return{'$':'Dollar','€':'Euro','£':'Pfund','¥':'Yen','C$':'Kanadische Dollar'}[cur]||'Dollar';
@@ -1267,7 +1291,25 @@ const cpPlugin={
         ctx.fillStyle=C.lastPrice;ctx.setLineDash([]);
         ctx.beginPath();ctx.roundRect(ca.right+1,yp-bh/2,bw2,bh,3);ctx.fill();
         ctx.fillStyle='#000';ctx.font='700 10px system-ui';ctx.textAlign='center';
-        ctx.fillText(fmtPrice(lp),ca.right+1+bw2/2,yp+3.5);ctx.textAlign='left';
+        ctx.fillText(fmtPrice(lp),ca.right+1+bw2/2,yp+3.5);
+        // Kerzen-Countdown unter dem Preis-Label (wie TradingView)
+        try{
+          const tfMs={'5m':5*60000,'1h':60*60000,'4h':4*60*60000,d1:24*60*60000,m1:30*24*60*60000}[currentTF]||24*60*60000;
+          const lastT=candles[candles.length-1].t.getTime();
+          const rem=Math.max(0,lastT+tfMs-Date.now());
+          if(rem>0){
+            const h=Math.floor(rem/3600000),m=Math.floor((rem%3600000)/60000),s=Math.floor((rem%60000)/1000);
+            let cdTxt;
+            if(h>=24){const d=Math.floor(h/24);cdTxt=d+'d '+(h%24)+'h';}
+            else if(h>0)cdTxt=h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+            else cdTxt=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+            ctx.fillStyle='rgba(30,41,59,.9)';
+            ctx.beginPath();ctx.roundRect(ca.right+1,yp+bh/2+2,bw2,14,3);ctx.fill();
+            ctx.fillStyle='#e2e8f0';ctx.font='600 9px system-ui';
+            ctx.fillText(cdTxt,ca.right+1+bw2/2,yp+bh/2+12);
+          }
+        }catch{}
+        ctx.textAlign='left';
         ctx.restore();
       }
     }
@@ -3262,9 +3304,10 @@ function checkAlarms(){
 }
 async function cloudDeleteAlarm(sym,price){
   try{
+    const email=localStorage.getItem('zen_alarm_email')||'';
     await fetch(CLOUD_WEBHOOK_URL,{
       method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'delete',symbol:sym,price})
+      body:JSON.stringify({action:'delete',symbol:sym,price,email,token:CLOUD_TOKEN})
     });
   }catch{}
 }
@@ -3355,10 +3398,13 @@ setTimeout(loadRsiAlarmState,3000);
 
 // ── Cloud-Alarme (Google Apps Script Backend) ────────────────
 const CLOUD_WEBHOOK_URL='https://script.google.com/macros/s/AKfycbwFVvK46TJ-nlFU3c_9LwTNyOWHZtPAsnj8pPDiZEi1M5-1zUzYLs74R28dM6RFT0-r/exec';
+// HINWEIS: Dieser Token muss exakt dem ZEN_TOKEN im Google Apps Script entsprechen.
+// Nach dem Ändern im Apps Script muss er auch hier aktualisiert werden.
+const CLOUD_TOKEN='zen_T9x8K2pLmQ7nR4vY6wZ1hB5jF3gA';
 async function cloudRequest(action,data){
   try{
     const email=localStorage.getItem('zen_alarm_email')||'';
-    const payload={action,email,...data};
+    const payload={action,email,token:CLOUD_TOKEN,...data};
     await fetch(CLOUD_WEBHOOK_URL,{
       method:'POST',
       mode:'no-cors',
@@ -3373,7 +3419,7 @@ async function cloudFetchAlarms(){
   try{
     const email=localStorage.getItem('zen_alarm_email')||'';
     if(!email)return null;
-    const url=CLOUD_WEBHOOK_URL+'?action=list&email='+encodeURIComponent(email);
+    const url=CLOUD_WEBHOOK_URL+'?action=list&email='+encodeURIComponent(email)+'&token='+encodeURIComponent(CLOUD_TOKEN);
     const resp=await fetch(url);
     if(!resp.ok)return null;
     const data=await resp.json();
@@ -3426,7 +3472,7 @@ async function cloudFetchWatchlist(){
   try{
     const email=localStorage.getItem('zen_alarm_email')||'';
     if(!email)return null;
-    const url=CLOUD_WEBHOOK_URL+'?action=listWatchlist&email='+encodeURIComponent(email);
+    const url=CLOUD_WEBHOOK_URL+'?action=listWatchlist&email='+encodeURIComponent(email)+'&token='+encodeURIComponent(CLOUD_TOKEN);
     const resp=await fetch(url);
     if(!resp.ok)return null;
     const data=await resp.json();
@@ -3479,7 +3525,7 @@ async function cloudFetchDrawings(){
   try{
     const email=localStorage.getItem('zen_alarm_email')||'';
     if(!email)return null;
-    const url=CLOUD_WEBHOOK_URL+'?action=listDrawings&email='+encodeURIComponent(email);
+    const url=CLOUD_WEBHOOK_URL+'?action=listDrawings&email='+encodeURIComponent(email)+'&token='+encodeURIComponent(CLOUD_TOKEN);
     const resp=await fetch(url);
     if(!resp.ok)return null;
     const data=await resp.json();
@@ -3921,19 +3967,9 @@ document.addEventListener('visibilitychange',()=>{
 
 // ── Candle countdown ─────────────────────────────────────────
 function candleCountdown(){
-  const el=document.getElementById('candle-cd');
-  if(!el||!candles.length)return;
-  const now=Date.now();
-  const tfMs={'5m':5*60000,'1h':60*60000,'4h':4*60*60000,d1:24*60*60000,m1:30*24*60*60000};
-  const ms=tfMs[currentTF]||24*60*60000;
-  const lastT=candles[candles.length-1].t.getTime();
-  const nextT=lastT+ms;
-  const rem=Math.max(0,nextT-now);
-  if(rem<=0){el.textContent='';return;}
-  const h=Math.floor(rem/3600000),m=Math.floor((rem%3600000)/60000),s=Math.floor((rem%60000)/1000);
-  if(h>0)el.textContent=h+'h '+m+'m '+s+'s';
-  else if(m>0)el.textContent=m+'m '+s+'s';
-  else el.textContent=s+'s';
+  // Countdown wird jetzt direkt im cpPlugin auf der Y-Achse gezeichnet.
+  // Chart.js neu zeichnen damit die Zeit tickt.
+  try{if(mainChart)mainChart.update('none');}catch{}
 }
 setInterval(candleCountdown,1000);
 
