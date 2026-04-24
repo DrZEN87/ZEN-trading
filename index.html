@@ -6,14 +6,6 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
 <meta http-equiv="Pragma" content="no-cache"/>
 <meta http-equiv="Expires" content="0"/>
-<meta name="theme-color" content="#0f0f12"/>
-<meta name="mobile-web-app-capable" content="yes"/>
-<meta name="apple-mobile-web-app-capable" content="yes"/>
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<meta name="apple-mobile-web-app-title" content="ZEN-Trading"/>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Crect%20width%3D%22100%22%20height%3D%22100%22%20rx%3D%2218%22%20fill%3D%22%230f0f12%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2258%22%20r%3D%2216%22%20fill%3D%22%23f5b946%22%2F%3E%3Cg%20stroke%3D%22%23f5b946%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22%3E%3Cline%20x1%3D%2250%22%20y1%3D%2224%22%20x2%3D%2250%22%20y2%3D%2232%22%2F%3E%3Cline%20x1%3D%2226%22%20y1%3D%2258%22%20x2%3D%2218%22%20y2%3D%2258%22%2F%3E%3Cline%20x1%3D%2274%22%20y1%3D%2258%22%20x2%3D%2282%22%20y2%3D%2258%22%2F%3E%3Cline%20x1%3D%2230%22%20y1%3D%2238%22%20x2%3D%2224%22%20y2%3D%2232%22%2F%3E%3Cline%20x1%3D%2270%22%20y1%3D%2238%22%20x2%3D%2276%22%20y2%3D%2232%22%2F%3E%3C%2Fg%3E%3Cline%20x1%3D%2214%22%20y1%3D%2282%22%20x2%3D%2286%22%20y2%3D%2282%22%20stroke%3D%22%233b82f6%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E"/>
-<link rel="apple-touch-icon" href="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Crect%20width%3D%22100%22%20height%3D%22100%22%20rx%3D%2218%22%20fill%3D%22%230f0f12%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2258%22%20r%3D%2216%22%20fill%3D%22%23f5b946%22%2F%3E%3Cg%20stroke%3D%22%23f5b946%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22%3E%3Cline%20x1%3D%2250%22%20y1%3D%2224%22%20x2%3D%2250%22%20y2%3D%2232%22%2F%3E%3Cline%20x1%3D%2226%22%20y1%3D%2258%22%20x2%3D%2218%22%20y2%3D%2258%22%2F%3E%3Cline%20x1%3D%2274%22%20y1%3D%2258%22%20x2%3D%2282%22%20y2%3D%2258%22%2F%3E%3Cline%20x1%3D%2230%22%20y1%3D%2238%22%20x2%3D%2224%22%20y2%3D%2232%22%2F%3E%3Cline%20x1%3D%2270%22%20y1%3D%2238%22%20x2%3D%2276%22%20y2%3D%2232%22%2F%3E%3C%2Fg%3E%3Cline%20x1%3D%2214%22%20y1%3D%2282%22%20x2%3D%2286%22%20y2%3D%2282%22%20stroke%3D%22%233b82f6%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E"/>
-<link rel="manifest" id="pwa-manifest"/>
 <title>ZEN-Trading</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -212,7 +204,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   </div>
   <button class="btn ag" id="add-wl-btn">+ Watchlist</button>
   <button class="btn" id="finnhub-key-btn" title="Finnhub API-Key für Live-Daten (US-Aktien)" style="margin-left:4px">🔑 Live</button>
-  <button class="btn" id="install-app-btn" title="ZEN-Trading als App installieren" style="margin-left:4px;display:none">📲 Installieren</button>
+  <button class="btn" id="tts-voice-btn" title="TTS-Stimme wählen" style="margin-left:4px">🎙</button>
   <div class="sep"></div>
   <span class="tlbl">Zeit</span>
   <button class="btn" data-tf="5m">5m</button>
@@ -365,89 +357,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 </div>
 
 <script>
-
-// ─────────────────────────────────────────────────────────────
-// PWA: Manifest dynamisch erzeugen + Install-Event abfangen
-// ─────────────────────────────────────────────────────────────
-(function setupPWA(){
-  // Icon: gezeichnete Sonne (🌅-Stil) auf dunklem Hintergrund
-  // Keine Emoji-Zeichen im SVG, damit btoa sicher funktioniert
-  const iconSVG=(size)=>{
-    const s=size;
-    const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="'+s+'" height="'+s+'">'
-      +'<rect width="100" height="100" rx="18" fill="#0f0f12"/>'
-      +'<circle cx="50" cy="58" r="16" fill="#f5b946"/>'
-      +'<g stroke="#f5b946" stroke-width="4" stroke-linecap="round">'
-      +'<line x1="50" y1="24" x2="50" y2="32"/>'
-      +'<line x1="26" y1="58" x2="18" y2="58"/>'
-      +'<line x1="74" y1="58" x2="82" y2="58"/>'
-      +'<line x1="30" y1="38" x2="24" y2="32"/>'
-      +'<line x1="70" y1="38" x2="76" y2="32"/>'
-      +'</g>'
-      +'<line x1="14" y1="82" x2="86" y2="82" stroke="#3b82f6" stroke-width="4" stroke-linecap="round"/>'
-      +'</svg>';
-    return 'data:image/svg+xml;base64,'+btoa(svg);
-  };
-  const manifest={
-    name:'ZEN-Trading',
-    short_name:'ZEN',
-    description:'Eigene Trading-Plattform mit Live-Charts',
-    start_url:location.pathname,
-    scope:location.pathname,
-    display:'standalone',
-    background_color:'#0f0f12',
-    theme_color:'#0f0f12',
-    orientation:'any',
-    icons:[
-      {src:iconSVG(192),sizes:'192x192',type:'image/svg+xml',purpose:'any'},
-      {src:iconSVG(512),sizes:'512x512',type:'image/svg+xml',purpose:'any'},
-      {src:iconSVG(512),sizes:'512x512',type:'image/svg+xml',purpose:'maskable'}
-    ]
-  };
-  try{
-    const blob=new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});
-    const url=URL.createObjectURL(blob);
-    const link=document.getElementById('pwa-manifest');
-    if(link)link.href=url;
-  }catch(e){console.warn('PWA manifest init failed',e);}
-
-  // Service Worker registrieren falls sw.js im gleichen Verzeichnis liegt
-  // (Nötig für "Install"-Prompt in Chrome/Brave/Edge)
-  if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('sw.js').then(reg=>{
-      console.log('✓ Service Worker registriert',reg.scope);
-    }).catch(err=>{
-      // Kein SW gefunden → Install-Prompt wird nicht feuern. Kein Fehler, nur Info.
-      console.log('ℹ️ Kein Service Worker (sw.js fehlt) — Install-Button zeigt Fallback-Anleitung');
-    });
-  }
-
-  // beforeinstallprompt abfangen (nur Chromium-Browser: Brave, Chrome, Edge, Opera)
-  window._zenInstallPrompt=null;
-  window.addEventListener('beforeinstallprompt',e=>{
-    e.preventDefault();
-    window._zenInstallPrompt=e;
-    const btn=document.getElementById('install-app-btn');
-    if(btn)btn.style.display='';
-  });
-  window.addEventListener('appinstalled',()=>{
-    window._zenInstallPrompt=null;
-    const btn=document.getElementById('install-app-btn');
-    if(btn)btn.style.display='none';
-  });
-
-  // Button IMMER sichtbar machen (auch ohne Prompt), damit User den Fallback nutzen kann
-  document.addEventListener('DOMContentLoaded',()=>{
-    const btn=document.getElementById('install-app-btn');
-    if(!btn)return;
-    // Nicht anzeigen wenn bereits installiert (Standalone-Modus)
-    if(window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone){
-      btn.style.display='none';
-    }else{
-      btn.style.display='';
-    }
-  });
-})();
 
 // Polyfill for ctx.roundRect (not in all browsers)
 if(!CanvasRenderingContext2D.prototype.roundRect){
@@ -958,32 +867,26 @@ async function fetchData(sym,tf,silent=false,_retries=3){
     }
     candles=result.candles;
     const n=candles.length;
+    // prevClose-Cache für Tagesvergleich: wenn TF=D1 direkt aus candles, sonst per D1-Call
+    if(tf==='d1'&&n>=2){
+      prevCloseCache[sym]=candles[n-2].c;
+    }else{
+      // Hintergrund: D1-Daten holen für prevClose
+      loadCandles(sym,'d1').then(r=>{
+        if(r&&r.candles.length>=2)prevCloseCache[sym]=r.candles[r.candles.length-2].c;
+      }).catch(()=>{});
+    }
     // Events (Earnings, Dividenden) im Hintergrund laden
     chartEvents={dividends:[],earnings:[],splits:[]};
     fetchYahooEvents(sym).then(ev=>{
       if(currentSymbol===sym){chartEvents=ev;redrawOC();}
     }).catch(()=>{});
-    // Restore saved view for this symbol, or default to last 120
-    // ABER: beim allerersten Laden pro Session nicht restoren, sondern aktuelle Ansicht zeigen
-    const saved=symbolViews[sym+'_'+tf];
-    if(saved&&saved.viewEnd<=n-1&&!window._zenFirstLoadDone){
-      // Erstes Laden: ignoriere gespeicherten View → zeige aktuelle Kerzen
-      yOverride=null;autoFit=true;
-      document.getElementById('autofit-btn').classList.add('on');
-      const show=Math.min(365,n);
-      viewStart=n-show;viewEnd=n-1;ensureRightPad();
-    }else if(saved&&saved.viewEnd<=n-1){
-      viewStart=saved.viewStart;viewEnd=saved.viewEnd;
-      yOverride=saved.yOverride||null;
-      autoFit=saved.autoFit!==undefined?saved.autoFit:true;
-      document.getElementById('autofit-btn').classList.toggle('on',autoFit);
-    }else{
-      yOverride=null;autoFit=true;
-      document.getElementById('autofit-btn').classList.add('on');
-      const show=Math.min(365,n);
-      viewStart=n-show;viewEnd=n-1;ensureRightPad();
-    }
-    // Flag setzen nach erstem erfolgreichen Load — ab jetzt wieder restoren
+    // Bei JEDEM Laden eines Charts: aktuellste Ansicht zeigen (wie A-Button)
+    // Saved-View wird nicht mehr restoriert, damit man immer die Gegenwart sieht.
+    yOverride=null;autoFit=true;
+    document.getElementById('autofit-btn').classList.add('on');
+    const show=Math.min(365,n);
+    viewStart=n-show;viewEnd=n-1;ensureRightPad();
     window._zenFirstLoadDone=true;
     renderAll();
     // Try to fetch company name if not known yet
@@ -1158,39 +1061,58 @@ function speak(text,opts){
     if(opts&&opts.cancel)window.speechSynthesis.cancel();
     const u=new SpeechSynthesisUtterance(text);
     u.lang='de-DE';
-    u.rate=(opts&&opts.rate)||0.95;    // etwas langsamer = klarer
-    u.volume=(opts&&opts.volume)||1.0; // maximal
+    u.rate=(opts&&opts.rate)||0.95;
+    u.volume=(opts&&opts.volume)||1.0;
     u.pitch=(opts&&opts.pitch)||1.0;
-    // Deutsche Stimme auswählen — priorisiert hochqualitative "Natural"/"Premium" Stimmen
-    const voices=window.speechSynthesis.getVoices();
-    const deVoices=voices.filter(v=>v.lang.startsWith('de'));
-    // Ranking: user-gespeicherte > Natural/Premium/Neural > Online > beliebig
-    const savedName=localStorage.getItem('zen_tts_voice');
-    let best=savedName?deVoices.find(v=>v.name===savedName):null;
-    if(!best){
-      // Bekannte hochwertige Stimmen bevorzugen
-      const preferred=[
-        /Natural/i,/Premium/i,/Neural/i,
-        /Katja/i,/Hedda/i,/Anna/i,/Stefan/i, // Microsoft-Stimmen
-        /Google Deutsch/i,
-        /Markus/i,/Helena/i,/Petra/i
-      ];
-      for(const rx of preferred){
-        best=deVoices.find(v=>rx.test(v.name));
-        if(best)break;
-      }
-    }
-    if(!best)best=deVoices[0];
+    const best=pickBestGermanVoice();
     if(best)u.voice=best;
     window.speechSynthesis.speak(u);
   }catch(e){console.warn('TTS error:',e);}
 }
+
+// Wählt die beste verfügbare deutsche Stimme aus.
+// Rangfolge: gespeicherter Nutzer-Wunsch > Neural/Natural-Online > Google > Microsoft-Desktop > irgendeine de-*
+function pickBestGermanVoice(){
+  const voices=window.speechSynthesis.getVoices();
+  const deVoices=voices.filter(v=>v.lang.startsWith('de'));
+  if(!deVoices.length)return null;
+  const savedName=localStorage.getItem('zen_tts_voice');
+  if(savedName){
+    const hit=deVoices.find(v=>v.name===savedName);
+    if(hit)return hit;
+  }
+  // Klassen der Qualität — höhere Rangzahl = bessere Stimme
+  const scoreVoice=v=>{
+    const n=v.name.toLowerCase();
+    let s=0;
+    // Windows 11 Neural (beste Qualität, Online)
+    if(/natural/.test(n))s+=100;
+    if(/online/.test(n))s+=80;
+    if(/neural/.test(n))s+=80;
+    // Google-Stimmen (gut, aber nur in Chrome/Brave)
+    if(/google.*deutsch/.test(n)||/google.*german/.test(n))s+=60;
+    // Namens-Bonus: weibliche Stimmen klingen im Schnitt klarer
+    if(/katja/.test(n))s+=30;
+    if(/hedda/.test(n))s+=20;
+    if(/anna/.test(n))s+=15;
+    if(/petra/.test(n))s+=10;
+    // Lokale Stimmen bevorzugen wenn keine Online-Variante existiert (keine Latenz)
+    if(v.localService&&s<50)s+=5;
+    // de-DE vor de-AT/de-CH
+    if(v.lang==='de-DE')s+=10;
+    return s;
+  };
+  return deVoices.slice().sort((a,b)=>scoreVoice(b)-scoreVoice(a))[0];
+}
+
 // Verfügbare Stimmen auflisten (für Debug in der Konsole)
 window.zenListVoices=function(){
   const voices=window.speechSynthesis.getVoices().filter(v=>v.lang.startsWith('de'));
   console.log('Verfügbare deutsche Stimmen:');
   voices.forEach(v=>console.log(` "${v.name}" — ${v.lang}${v.default?' (default)':''}${v.localService?'':' [Online]'}`));
-  console.log('Zum Setzen: localStorage.setItem("zen_tts_voice","NAME")');
+  const best=pickBestGermanVoice();
+  console.log('Automatisch gewählt:',best?best.name:'(keine)');
+  console.log('Zum manuellen Setzen: localStorage.setItem("zen_tts_voice","NAME")');
   return voices;
 };
 // Währungs-Namen für Sprachausgabe
@@ -1898,10 +1820,10 @@ function redrawOC(){
     const mp=mousePos,sp=snapPoint;
     const useP=sp?{x:sp.px,y:sp.py}:{x:mp.rx,y:mp.ry};
     const usePrice=sp?sp.price:mp.price;
-    if(drawMode==='trendline'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){dline(ctx,p1.x,p1.y,useP.x,useP.y,C.trend,1.5,[]);dpt(ctx,p1.x,p1.y,C.trend);}}
+    if(drawMode==='trendline'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){const ext=extLineRight(p1.x,p1.y,useP.x,useP.y,ca.right);dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,C.trend,1.5,[]);dpt(ctx,p1.x,p1.y,C.trend);}}
     if(drawMode==='trendseg'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){dline(ctx,p1.x,p1.y,useP.x,useP.y,C.trend,1.5,[4,3]);dpt(ctx,p1.x,p1.y,C.trend);}}
     if(drawMode==='measure'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){const col=usePrice>=drawTemp[0].price?'#26a69a':'#ef5350';ctx.save();ctx.strokeStyle=col;ctx.lineWidth=1;ctx.setLineDash([4,3]);ctx.strokeRect(Math.min(p1.x,useP.x),Math.min(p1.y,useP.y),Math.abs(useP.x-p1.x),Math.abs(useP.y-p1.y));ctx.setLineDash([]);ctx.restore();}}
-    if(drawMode==='channel'){if(drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1)dline(ctx,p1.x,p1.y,useP.x,useP.y,C.chan,1.5,[]);}if(drawStep===2&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){dline(ctx,p1.x,p1.y,p2.x,p2.y,C.chan,1.5,[]);const mid=(p1.y+p2.y)/2;ctx.save();ctx.globalAlpha=.5;dline(ctx,p1.x,p1.y+(mp.ry-mid),p2.x,p2.y+(mp.ry-mid),C.chan,1,[5,3]);ctx.restore();}}}
+    if(drawMode==='channel'){if(drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){const ext=extLine(p1.x,p1.y,useP.x,useP.y,ca.left,ca.right);dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,C.chan,1.5,[]);dpt(ctx,p1.x,p1.y,C.chan);}}if(drawStep===2&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){const e1=extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);dline(ctx,e1.x1,e1.y1,e1.x2,e1.y2,C.chan,1.5,[]);const mid=(p1.y+p2.y)/2;const offset=mp.ry-mid;const e2=extLine(p1.x,p1.y+offset,p2.x,p2.y+offset,ca.left,ca.right);ctx.save();ctx.globalAlpha=.5;dline(ctx,e2.x1,e2.y1,e2.x2,e2.y2,C.chan,1,[5,3]);ctx.restore();}}}
     if(drawMode==='fib'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1)drawFibLevels(ctx,ca,drawTemp[0].price,usePrice,p1.x,useP.x,p=>y.getPixelForValue(p));}
     if(drawMode==='support'||drawMode==='supportfull'){const last=candles[candles.length-1];const col=usePrice>=last.c?C.resist:C.support;const xFrom=drawMode==='support'?useP.x:ca.left;ctx.save();ctx.globalAlpha=.55;dline(ctx,xFrom,useP.y,ca.right,useP.y,col,1.5,[]);ctx.fillStyle=col;ctx.font='10px system-ui';ctx.fillText((usePrice>=last.c?'R':'S')+' '+fmtPrice(usePrice),xFrom+6,useP.y-4);ctx.restore();}
     if(drawMode==='alarm'){ctx.save();ctx.globalAlpha=.55;dline(ctx,ca.left,mp.ry,ca.right,mp.ry,C.alarm,1,[5,3]);ctx.fillStyle=C.alarm;ctx.font='10px system-ui';ctx.fillText('🔔 '+fmtPrice(mp.price),ca.left+6,mp.ry-4);ctx.restore();}
@@ -4107,44 +4029,27 @@ function renderWL(){
   });
 }
 async function updateWLPrices(){
-  const wlResults={};
-  const cache=loadWLCache();
   for(const sym of watchlist){
     try{
-      let lastPrice=null,pct=0,dollarChg=0;
-      try{
-        const res=await loadCandles(sym,'d1');
-        if(res&&res.candles.length>1){
-          const last=res.candles[res.candles.length-1];
-          const prev=res.candles[res.candles.length-2];
-          lastPrice=last.c;
-          dollarChg=last.c-prev.c;
-          pct=dollarChg/prev.c*100;
-        }
-      }catch{}
-      if(lastPrice===null){
-        // Behalte Cache-Wert wenn Abruf fehlschlägt — NICHT auf "—" zurücksetzen
-        if(cache[sym]){wlResults[sym]=cache[sym];setWLChg(sym,cache[sym].p,cache[sym].abs,cache[sym].pct,cache[sym].col);continue;}
-        wlResults[sym]={p:'…',abs:'…',pct:'',col:'var(--text3)'};setWLChg(sym,'…','…','','var(--text3)');continue;
+      const res=await loadCandles(sym,'d1');
+      if(res&&res.candles.length>1){
+        const last=res.candles[res.candles.length-1];
+        const prev=res.candles[res.candles.length-2];
+        // prevClose für Tagesvergleich merken
+        prevCloseCache[sym]=prev.c;
+        // Alles über zentrale Funktion setzen → Header, WL, Chart synchron
+        applyLivePrice(sym,last.c);
       }
-      const col=pct>=0?'var(--up)':'var(--dn)';
-      const sign=pct>=0?'+':'';
-      const cur=getCurrency(sym);
-      const pTxt=fmtNum(lastPrice)+' '+cur;
-      const absTxt=sign+fmtNum(dollarChg)+' '+cur;
-      const pctTxt='('+sign+fmtNum(pct)+'%)';
-      wlResults[sym]={p:pTxt,abs:absTxt,pct:pctTxt,col};
-      cache[sym]={p:pTxt,abs:absTxt,pct:pctTxt,col};
-      setWLChg(sym,pTxt,absTxt,pctTxt,col);
-      if(sym===currentSymbol)document.getElementById('cur-price').textContent=fmtPrice(lastPrice,sym);
-    }catch{
-      if(cache[sym])wlResults[sym]=cache[sym];
-    }
+    }catch{}
     await new Promise(r=>setTimeout(r,400));
   }
-  saveWLCache(cache);
   renderWL();
-  for(const sym of watchlist){const r=wlResults[sym];if(r)setWLChg(sym,r.p,r.abs,r.pct,r.col);}
+  // Nach dem Re-Render fehlen die Farben/Werte kurz → neu setzen
+  const cache=loadWLCache();
+  for(const sym of watchlist){
+    const c=cache[sym];
+    if(c)setWLChg(sym,c.p,c.abs,c.pct,c.col);
+  }
 }
 function setWLChg(sym,priceText,absText,pctText,color){
   const id=sym.replace(/\W/g,'_');
@@ -4361,39 +4266,14 @@ function updateFinnhubSubscriptions(){
   updateDelayBadge();
 }
 function onFinnhubTick(sym,price,tMs,vol){
-  // 1) Watchlist-Preislabel live aktualisieren
-  const id=sym.replace(/\W/g,'_');
-  const cur=getCurrency(sym);
-  const pEl=document.getElementById('wlp-'+id);
-  if(pEl){
-    const oldTxt=pEl.textContent;
-    const newTxt=fmtNum(price)+' '+cur;
-    if(oldTxt!==newTxt){
-      pEl.textContent=newTxt;
-      pEl.classList.remove('flash-up','flash-dn');
-      void pEl.offsetWidth;
-      pEl.classList.add('flash-up');
-      setTimeout(()=>pEl.classList.remove('flash-up'),800);
-    }
-  }
-  // Watchlist-Cache updaten (damit bei Re-Render nicht alter Wert erscheint)
-  const cache=loadWLCache();
-  if(cache[sym]){
-    cache[sym].p=fmtNum(price)+' '+cur;
-    saveWLCache(cache);
-  }
-  // 2) Wenn aktuelles Chart-Symbol → Kerzen-Aggregation + Chart-Update
+  // Kerzen-Aggregation nur wenn aktuelles Chart-Symbol
   if(sym===currentSymbol&&candles.length>0){
     const result=applyTickToCandles(candles,price,tMs,vol,currentTF);
-    if(result==='skip')return;
-    if(mainChart&&mainChart.data.datasets[0]){
+    if(result!=='skip'&&mainChart&&mainChart.data.datasets[0]){
       const ds=mainChart.data.datasets[0].data;
       if(result==='new'){
-        // Neue Kerze: viewStart ggf. mitziehen (wir wollen den neuen Kerzen sehen)
-        // Chart komplett neu zeichnen ist zuverlässiger als mit viewStart zu rechnen
         updateView();
       }else{
-        // In-place Update der letzten sichtbaren Kerze
         if(ds.length>0){
           const last=candles[candles.length-1];
           ds[ds.length-1]={x:ds[ds.length-1].x,o:last.o,h:last.h,l:last.l,c:last.c};
@@ -4401,28 +4281,9 @@ function onFinnhubTick(sym,price,tMs,vol){
         }
       }
     }
-    const last=candles[candles.length-1];
-    const prev=candles.length>1?candles[candles.length-2]:last;
-    document.getElementById('cur-price').textContent=fmtPrice(price,sym);
-    const chg=price-prev.c,pct=prev.c>0?chg/prev.c*100:0;
-    const ce=document.getElementById('price-chg');
-    if(ce){
-      ce.textContent=(chg>=0?'+':'')+fmtNum(chg)+' '+cur+' ('+(chg>=0?'+':'')+fmtNum(pct)+'%)';
-      ce.className=chg>=0?'up':'dn';
-    }
-    const dot=document.getElementById('live-dot');
-    if(dot){dot.classList.remove('pulsing');void dot.offsetWidth;dot.classList.add('pulsing');}
-    // Flash-Animation bei Preisänderung
-    const priceEl=document.getElementById('cur-price');
-    if(priceEl){
-      const flashClass=chg>=0?'flash-up':'flash-dn';
-      priceEl.classList.remove('flash-up','flash-dn');
-      void priceEl.offsetWidth;
-      priceEl.classList.add(flashClass);
-      setTimeout(()=>priceEl.classList.remove(flashClass),800);
-    }
-    redrawOC();
   }
+  // Zentraler Updater: Header, Y-Achse, Watchlist, Cache — alles in einem Rutsch
+  applyLivePrice(sym,price);
 }
 function stopFinnhubStream(){
   if(finnhubReconnectTimer){clearTimeout(finnhubReconnectTimer);finnhubReconnectTimer=null;}
@@ -4469,6 +4330,79 @@ function updateDelayBadge(){
     el.style.background='rgba(148,163,184,.15)';
     el.style.color='#94a3b8';
     el.title='Verzögerung unbekannt, typisch 15 min bei Yahoo';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// prevCloseCache: pro Symbol den Schlusskurs vom Vortag merken
+// ─────────────────────────────────────────────────────────────
+let prevCloseCache={};  // {sym: prevClose}
+
+// ─────────────────────────────────────────────────────────────
+// applyLivePrice: der EINE Ort, an dem alle Preis-Anzeigen synchron
+// aktualisiert werden. Egal ob der Tick von Finnhub-WS oder Yahoo-Poll kommt.
+// ─────────────────────────────────────────────────────────────
+function applyLivePrice(sym,price){
+  const cur=getCurrency(sym);
+  const id=sym.replace(/\W/g,'_');
+  const prevC=prevCloseCache[sym]||null;
+
+  // Änderung berechnen (Tagesvergleich wenn prevClose bekannt, sonst vs. vorletzte Kerze)
+  let chg=0,pct=0;
+  if(prevC!=null&&prevC>0){
+    chg=price-prevC;pct=chg/prevC*100;
+  }else if(sym===currentSymbol&&candles.length>1){
+    const p=candles[candles.length-2].c;
+    chg=price-p;pct=p>0?chg/p*100:0;
+  }
+  const sign=chg>=0?'+':'';
+  const col=chg>=0?'var(--up)':'var(--dn)';
+  const flashClass=chg>=0?'flash-up':'flash-dn';
+  const pTxt=fmtNum(price)+' '+cur;
+  const absTxt=sign+fmtNum(chg)+' '+cur;
+  const pctTxt='('+sign+fmtNum(pct)+'%)';
+
+  // 1) Watchlist-Zelle
+  const wlP=document.getElementById('wlp-'+id);
+  const wlA=document.getElementById('wla-'+id);
+  const wlPct=document.getElementById('wlpct-'+id);
+  if(wlP&&wlP.textContent!==pTxt){
+    wlP.textContent=pTxt;
+    wlP.classList.remove('flash-up','flash-dn');void wlP.offsetWidth;
+    wlP.classList.add(flashClass);
+    setTimeout(()=>wlP.classList.remove('flash-up','flash-dn'),800);
+  }
+  if(wlA&&prevC!=null){wlA.textContent=absTxt;wlA.style.color='#e2e8f0';}
+  if(wlPct&&prevC!=null){wlPct.textContent=pctTxt;wlPct.style.color=col;}
+  // WL-Cache synchron halten
+  try{
+    const cache=loadWLCache();
+    if(cache[sym]||watchlist.includes(sym)){
+      cache[sym]={p:pTxt,abs:absTxt,pct:pctTxt,col};
+      saveWLCache(cache);
+    }
+  }catch{}
+
+  // 2) Wenn aktuelles Chart-Symbol: Header + Y-Achse + Overlay
+  if(sym===currentSymbol){
+    const priceEl=document.getElementById('cur-price');
+    if(priceEl){
+      priceEl.textContent=fmtPrice(price,sym);
+      priceEl.classList.remove('flash-up','flash-dn');void priceEl.offsetWidth;
+      priceEl.classList.add(flashClass);
+      setTimeout(()=>priceEl.classList.remove('flash-up','flash-dn'),800);
+    }
+    const ce=document.getElementById('price-chg');
+    if(ce&&(prevC!=null||candles.length>1)){
+      ce.textContent=sign+fmtNum(chg)+' '+cur+' ('+sign+fmtNum(pct)+'%)';
+      ce.className=chg>=0?'up':'dn';
+    }
+    const dot=document.getElementById('live-dot');
+    if(dot){dot.classList.remove('bg','pulsing');void dot.offsetWidth;dot.classList.add('pulsing');}
+    // Y-Achse: wenn AutoFit an ist, Range bei Bedarf refitten (Last-Price-Label bleibt in Range)
+    if(mainChart&&autoFit){try{autoFitYFn();}catch{}}
+    // Last-Price-Label auf Y-Achse (liegt auf overlay) neu zeichnen
+    redrawOC();
   }
 }
 
@@ -4522,44 +4456,9 @@ function startLiveRefresh(){
           redrawOC();
         }
       }
-      // Price-Update UI
+      // Price-Update UI — über zentralen Kanal (Header, WL, Y-Achse alles synchron)
       if(candles.length>0){
-        const last=candles[candles.length-1];
-        const prev=candles.length>1?candles[candles.length-2]:last;
-        const newPrice=last.c;
-        const oldPrice=lastKnownPrice;
-        document.getElementById('cur-price').textContent=fmtPrice(last.c);
-        // Live-Dot pulsen lassen (zeigt dass gerade ein Update kam)
-        const dot=document.getElementById('live-dot');
-        if(dot){
-          dot.classList.remove('bg');
-          dot.classList.remove('pulsing');
-          void dot.offsetWidth; // Force reflow für Animation-Restart
-          dot.classList.add('pulsing');
-        }
-        const chg=last.c-prev.c,pct=prev.c>0?chg/prev.c*100:0;
-        const ce=document.getElementById('price-chg');
-        const curLive=getCurrency(currentSymbol);
-        ce.textContent=(chg>=0?'+':'')+fmtNum(chg)+' '+curLive+' ('+(chg>=0?'+':'')+fmtNum(pct)+'%)';
-        ce.className=chg>=0?'up':'dn';
-        // Flash-Animation bei Preis-Änderung
-        if(Math.abs(newPrice-oldPrice)>0.001){
-          const flashClass=newPrice>oldPrice?'flash-up':'flash-dn';
-          const priceEl=document.getElementById('cur-price');
-          const chgEl=document.getElementById('price-chg');
-          priceEl.classList.add(flashClass);chgEl.classList.add(flashClass);
-          const wlId=currentSymbol.replace(/\W/g,'_');
-          const wlP=document.getElementById('wlp-'+wlId);
-          const wlC=document.getElementById('wlc-'+wlId);
-          if(wlP)wlP.classList.add(flashClass);
-          if(wlC)wlC.classList.add(flashClass);
-          setTimeout(()=>{
-            priceEl.classList.remove(flashClass);chgEl.classList.remove(flashClass);
-            if(wlP)wlP.classList.remove(flashClass);
-            if(wlC)wlC.classList.remove(flashClass);
-          },3000);
-          lastKnownPrice=newPrice;
-        }
+        applyLivePrice(currentSymbol,candles[candles.length-1].c);
       }
     }catch(e){console.warn('Live-refresh error:',e);}
     finally{refreshing=false;}
@@ -5232,35 +5131,62 @@ setInterval(()=>{
   }
 },2000);
 
-// ── Install-App-Button (PWA) ───────────────────────────────────
-// Sichtbarkeit wird in setupPWA() oben gesteuert.
-// Button feuert beforeinstallprompt wenn verfügbar, sonst Fallback-Anleitung.
-(function initInstallButton(){
-  const btn=document.getElementById('install-app-btn');
-  if(!btn)return;
-  btn.addEventListener('click',async()=>{
-    const p=window._zenInstallPrompt;
-    if(!p){
-      const ua=navigator.userAgent;
-      if(/iPhone|iPad|iPod/.test(ua)){
-        alert('So installierst du ZEN-Trading auf iOS:\n1. Safari öffnen\n2. Teilen-Button tippen\n3. "Zum Home-Bildschirm"');
-      }else if(/Firefox/.test(ua)){
-        alert('Firefox unterstützt PWA-Install nicht.\nAlternative: in Brave/Chrome/Edge öffnen und dort installieren.');
-      }else{
-        alert('Install-Prompt ist noch nicht bereit.\n\nGründe:\n• sw.js fehlt neben der index.html (→ nötig für Install-Prompt)\n• Seite noch nicht lang genug angezeigt (Chrome verlangt ~30s Interaktion)\n• Bereits installiert\n\nFallback: Brave-Menü ≡ → "Seite als App installieren".');
-      }
-      return;
-    }
-    p.prompt();
-    const choice=await p.userChoice;
-    if(choice.outcome==='accepted'){
-      setStatus('App wird installiert …','ok');
-      setTimeout(()=>setStatus('Bereit','idle'),3000);
-    }
-    window._zenInstallPrompt=null;
-    btn.style.display='none';
+// ── TTS-Stimmen-Dialog ────────────────────────────────────────
+document.getElementById('tts-voice-btn').addEventListener('click',()=>{
+  if(!('speechSynthesis'in window)){alert('Dein Browser unterstützt keine Sprachausgabe.');return;}
+  const voices=window.speechSynthesis.getVoices().filter(v=>v.lang.startsWith('de'));
+  if(!voices.length){
+    alert('Keine deutschen Stimmen gefunden.\n\nTipps:\n• Windows 11: Einstellungen → Zeit und Sprache → Sprache → Deutsch hinzufügen → Sprachpaket laden → Neural-Stimme aktivieren\n• Seite neu laden nach Installation');
+    return;
+  }
+  const saved=localStorage.getItem('zen_tts_voice')||'';
+  const autoPick=pickBestGermanVoice();
+  // Liste nach Qualität sortieren (Neural/Natural oben)
+  const ranked=voices.slice().sort((a,b)=>{
+    const score=v=>{
+      const n=v.name.toLowerCase();
+      let s=0;
+      if(/natural/.test(n))s+=100;
+      if(/online/.test(n))s+=80;
+      if(/neural/.test(n))s+=80;
+      if(/google/.test(n))s+=60;
+      return s;
+    };
+    return score(b)-score(a);
   });
-})();
+  const listTxt=ranked.map((v,i)=>{
+    const marker=v.name===saved?'✓':(v.name===(autoPick&&autoPick.name)&&!saved?'*':' ');
+    const online=v.localService?'':' [online]';
+    return (i+1)+') '+marker+' '+v.name+' ('+v.lang+')'+online;
+  }).join('\n');
+  const answer=prompt(
+    'Deutsche TTS-Stimmen:\n\n'+listTxt+
+    '\n\n✓ = aktuell gewählt · * = Auto-Pick · [online] = Neural (beste Qualität, braucht Internet)\n\n'+
+    'Nummer eingeben zum Wählen und Testen.\n"auto" → Auto-Pick · "x" → zurücksetzen',
+    ''
+  );
+  if(!answer)return;
+  const a=answer.trim().toLowerCase();
+  if(a==='x'){
+    localStorage.removeItem('zen_tts_voice');
+    speak('Stimme zurückgesetzt. Auto-Pick aktiv.',{cancel:true});
+    return;
+  }
+  if(a==='auto'){
+    localStorage.removeItem('zen_tts_voice');
+    const picked=pickBestGermanVoice();
+    speak('Auto-Pick: '+((picked&&picked.name)||'Standard'),{cancel:true});
+    return;
+  }
+  const idx=parseInt(a,10)-1;
+  if(!isNaN(idx)&&idx>=0&&idx<ranked.length){
+    const v=ranked[idx];
+    localStorage.setItem('zen_tts_voice',v.name);
+    speak('Guten Tag, ich bin '+v.name.split(/[\s\-(]/)[0]+'. Der Aktienmarkt bewegt sich heute interessant.',{cancel:true});
+  }else{
+    alert('Ungültige Eingabe.');
+  }
+});
 </script>
 </body>
 </html>
