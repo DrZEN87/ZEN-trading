@@ -566,7 +566,7 @@ function getCurrency(sym){
   if(/\.(T|TYO)$/i.test(sym))return'¥';
   return'$';
 }
-function fmtPrice(v){const c=getCurrency(currentSymbol);return (v>=1000?v.toFixed(0):v>=100?v.toFixed(1):v.toFixed(2))+' '+c;}
+function fmtPrice(v){const c=getCurrency(currentSymbol);return (v>=10000?v.toFixed(0):v.toFixed(2))+' '+c;}
 
 // Multiple CORS proxies — tried in order until one works
 // ── Data fetching ────────────────────────────────────────────
@@ -3130,7 +3130,32 @@ document.getElementById('del-selected-btn').addEventListener('click',()=>{
   async function searchSymbols(query){
     if(abortCtrl)abortCtrl.abort();
     abortCtrl=new AbortController();
-    const url=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0&lang=de-DE&region=DE`;
+    async function searchSymbols(query){
+    if(abortCtrl)abortCtrl.abort();
+    abortCtrl=new AbortController();
+    // Breite Suche ohne Region-Filter um sowohl US als auch DE zu bekommen
+    const url=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=15&newsCount=0`;
+    for(const p of proxies){
+      try{
+        const resp=await fetch(p+encodeURIComponent(url),{signal:abortCtrl.signal});
+        if(!resp.ok)continue;
+        const data=await resp.json();
+        const quotes=data.quotes||[];
+        // Sortierung: NYSE/NASDAQ zuerst, dann Xetra (.DE), dann Rest
+        const exchRank=e=>{
+          if(!e)return 5;
+          const eu=e.toLowerCase();
+          if(eu.includes('nyse')||eu.includes('nasdaq')||eu.includes('nms'))return 1;
+          if(eu.includes('xetra')||eu.includes('gts')||eu.includes('ger'))return 2;
+          if(eu==='ebs'||eu==='sto'||eu==='osl'||eu==='cph')return 3;
+          return 4;
+        };
+        quotes.sort((a,b)=>exchRank(a.exchDisp||a.exchange)-exchRank(b.exchDisp||b.exchange));
+        return quotes.slice(0,10);
+      }catch(e){if(e.name==='AbortError')return null;}
+    }
+    return [];
+  }
     for(const p of proxies){
       try{
         const resp=await fetch(p+encodeURIComponent(url),{signal:abortCtrl.signal});
@@ -4015,22 +4040,15 @@ function startLiveRefresh(){
           if(q.low!=null&&q.low<last.l)last.l=q.low;
           if(q.volume!=null)last.v=q.volume;
           // Chart-Update wenn mainChart existiert
-          if(mainChart&&mainChart.data.datasets[0]){
-            const ds=mainChart.data.datasets[0].data;
-            if(ds.length>0){
-              ds[ds.length-1]={x:ds[ds.length-1].x,o:last.o,h:last.h,l:last.l,c:last.c};
-              mainChart.update('none');
-            }
+          // Chart-Update: cpPlugin liest direkt aus candles[], daher genügt update('none')
+          if(autoFit&&mainChart){
+            const{min,max}=calcYRange();
+            mainChart.options.scales.y.min=min;
+            mainChart.options.scales.y.max=max;
           }
+          if(mainChart)mainChart.update('none');
           // Overlay (Zeichnungen, Fib, etc.) auch neu zeichnen
           redrawOC();
-        }
-      }
-      // Price-Update UI
-      if(candles.length>0){
-        const last=candles[candles.length-1];
-        const prev=candles.length>1?candles[candles.length-2]:last;
-        const newPrice=last.c;
         const oldPrice=lastKnownPrice;
         document.getElementById('cur-price').textContent=fmtPrice(last.c);
         // Live-Dot pulsen lassen (zeigt dass gerade ein Update kam)
