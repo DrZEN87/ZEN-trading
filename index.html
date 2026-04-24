@@ -158,7 +158,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 
 <!-- Profile Modal -->
 <div id="profile-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:2000;align-items:center;justify-content:center">
-  <div style="background:#111827;border:1px solid #334155;border-radius:10px;padding:24px;min-width:520px;max-width:90vw;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.5)">
+  <div style="background:#111827;border:1px solid #334155;border-radius:10px;padding:24px;min-width:420px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.5)">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
@@ -176,24 +176,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
       <input id="profile-apikey" type="password" placeholder="AIza..." style="width:100%;box-sizing:border-box;padding:8px 10px;background:#1e293b;border:1px solid #475569;border-radius:5px;color:#e2e8f0;font-size:13px;font-family:monospace"/>
       <div style="color:#64748b;font-size:11px;margin-top:4px;line-height:1.5">API-Key kostenlos holen unter <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#60a5fa;text-decoration:none">aistudio.google.com/apikey</a></div>
     </div>
-    <!-- Alarm-Einstellungen -->
-    <div style="margin-bottom:18px;border-top:1px solid #334155;padding-top:16px">
-      <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:10px;font-weight:500">🔔 Alarm-Einstellungen</label>
-      <div style="display:grid;grid-template-columns:1fr 60px 60px 60px;gap:6px 10px;font-size:11px;align-items:center;color:#94a3b8">
-        <span></span>
-        <span style="text-align:center;color:#64748b">Aktiv</span>
-        <span style="text-align:center;color:#64748b">Popup</span>
-        <span style="text-align:center;color:#64748b">E-Mail</span>
-        <div id="alarm-settings-rows" style="grid-column:1/-1;display:grid;grid-template-columns:1fr 60px 60px 60px;gap:6px 10px;align-items:center"></div>
-      </div>
-      <div style="color:#64748b;font-size:10px;margin-top:8px;line-height:1.5">Sprachausgabe: separat per 🔊-Button in der Toolbar steuerbar. E-Mail-Versand erfordert hinterlegte E-Mail.</div>
-    </div>
     <div id="profile-status" style="font-size:12px;margin-bottom:14px;min-height:16px"></div>
     <div style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#94a3b8;line-height:1.6">
-      <div style="color:#cbd5e1;font-weight:500;margin-bottom:4px">⚠ Hinweise zur Benachrichtigung:</div>
-      <div>• <b style="color:#cbd5e1">Alarm-Prüfungen laufen nur bei geöffnetem Browser.</b> Wenn dein PC aus ist, werden keine Alarme ausgelöst oder Mails versendet.</div>
-      <div>• <b style="color:#cbd5e1">Empfehlung:</b> Handy-App mit derselben E-Mail öffnen, um auch unterwegs Alarme zu erhalten.</div>
+      <div style="color:#cbd5e1;font-weight:500;margin-bottom:4px">Hinweise:</div>
+      <div>• <b style="color:#cbd5e1">Alarme + Email-Versand:</b> benötigt E-Mail-Adresse</div>
       <div>• <b style="color:#cbd5e1">KI-Analyse:</b> benötigt Gemini API-Key</div>
+      <div>• <b style="color:#cbd5e1">Cloud-Sync:</b> Zeichnungen, Watchlist, Alarme werden an deine E-Mail gekoppelt gespeichert</div>
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button id="profile-logout" style="padding:8px 14px;background:transparent;border:1px solid #475569;border-radius:5px;color:#94a3b8;cursor:pointer;font-size:12px">Abmelden</button>
@@ -215,6 +203,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
     <div id="sym-dropdown" style="display:none;position:absolute;top:100%;left:0;width:320px;max-height:360px;overflow-y:auto;background:#0f172a;border:1px solid #334155;border-radius:6px;margin-top:4px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div>
   </div>
   <button class="btn ag" id="add-wl-btn">+ Watchlist</button>
+  <button class="btn" id="finnhub-key-btn" title="Finnhub API-Key für Live-Daten (US-Aktien)" style="margin-left:4px">🔑 Live</button>
   <div class="sep"></div>
   <span class="tlbl">Zeit</span>
   <button class="btn" data-tf="5m">5m</button>
@@ -566,7 +555,14 @@ function getCurrency(sym){
   if(/\.(T|TYO)$/i.test(sym))return'¥';
   return'$';
 }
-function fmtPrice(v){const c=getCurrency(currentSymbol);return (v>=10000?v.toFixed(0):v.toFixed(2))+' '+c;}
+function fmtPrice(v,sym){
+  const c=getCurrency(sym||currentSymbol);
+  const formatted=Number(v).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return formatted+' '+c;
+}
+function fmtNum(v){
+  return Number(v).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
 
 // Multiple CORS proxies — tried in order until one works
 // ── Data fetching ────────────────────────────────────────────
@@ -1373,7 +1369,7 @@ function renderAll(){
   document.getElementById('cur-price').textContent=fmtPrice(last.c);
   const ce=document.getElementById('price-chg');
   const curMain=getCurrency(currentSymbol);
-  ce.textContent=(chg>=0?'+':'')+chg.toFixed(2)+' '+curMain+' ('+(chg>=0?'+':'')+pct.toFixed(2)+'%)';
+  ce.textContent=(chg>=0?'+':'')+fmtNum(chg)+' '+curMain+' ('+(chg>=0?'+':'')+fmtNum(pct)+'%)';
   ce.className=chg>=0?'up':'dn';
   // ohlc-Element entfernt (durch Börsen-Status ersetzt)
   document.getElementById('al-sym').textContent=currentSymbol;
@@ -1773,7 +1769,7 @@ function redrawOC(){
     if(drawMode==='measure'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){const col=usePrice>=drawTemp[0].price?'#26a69a':'#ef5350';ctx.save();ctx.strokeStyle=col;ctx.lineWidth=1;ctx.setLineDash([4,3]);ctx.strokeRect(Math.min(p1.x,useP.x),Math.min(p1.y,useP.y),Math.abs(useP.x-p1.x),Math.abs(useP.y-p1.y));ctx.setLineDash([]);ctx.restore();}}
     if(drawMode==='channel'){if(drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1)dline(ctx,p1.x,p1.y,useP.x,useP.y,C.chan,1.5,[]);}if(drawStep===2&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){dline(ctx,p1.x,p1.y,p2.x,p2.y,C.chan,1.5,[]);const mid=(p1.y+p2.y)/2;ctx.save();ctx.globalAlpha=.5;dline(ctx,p1.x,p1.y+(mp.ry-mid),p2.x,p2.y+(mp.ry-mid),C.chan,1,[5,3]);ctx.restore();}}}
     if(drawMode==='fib'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1)drawFibLevels(ctx,ca,drawTemp[0].price,usePrice,p1.x,useP.x,p=>y.getPixelForValue(p));}
-    if(drawMode==='support'||drawMode==='supportfull'){const last=candles[candles.length-1];const col=usePrice>=last.c?C.resist:C.support;const xFrom=drawMode==='support'?useP.x:ca.left;ctx.save();ctx.globalAlpha=.55;dline(ctx,xFrom,useP.y,ca.right,useP.y,col,1.5,[]);ctx.fillStyle=col;ctx.font='10px system-ui';ctx.fillText((usePrice>=last.c?'R':'S')+' $'+usePrice.toFixed(2),xFrom+6,useP.y-4);ctx.restore();}
+    if(drawMode==='support'||drawMode==='supportfull'){const last=candles[candles.length-1];const col=usePrice>=last.c?C.resist:C.support;const xFrom=drawMode==='support'?useP.x:ca.left;ctx.save();ctx.globalAlpha=.55;dline(ctx,xFrom,useP.y,ca.right,useP.y,col,1.5,[]);ctx.fillStyle=col;ctx.font='10px system-ui';ctx.fillText((usePrice>=last.c?'R':'S')+' '+fmtPrice(usePrice),xFrom+6,useP.y-4);ctx.restore();}
     if(drawMode==='alarm'){ctx.save();ctx.globalAlpha=.55;dline(ctx,ca.left,mp.ry,ca.right,mp.ry,C.alarm,1,[5,3]);ctx.fillStyle=C.alarm;ctx.font='10px system-ui';ctx.fillText('🔔 '+fmtPrice(mp.price),ca.left+6,mp.ry-4);ctx.restore();}
     if(sp&&drawMode!=='pointer'&&drawMode!=='alarm'){ctx.save();ctx.strokeStyle=C.snap;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(sp.px,sp.py,6,0,Math.PI*2);ctx.stroke();ctx.strokeStyle=C.snap;ctx.lineWidth=.5;ctx.setLineDash([2,2]);ctx.beginPath();ctx.moveTo(sp.px,ca.top);ctx.lineTo(sp.px,ca.bottom);ctx.stroke();ctx.beginPath();ctx.moveTo(ca.left,sp.py);ctx.lineTo(ca.right,sp.py);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=C.snap;ctx.font='10px system-ui';ctx.fillText(sp.label+' '+fmtPrice(sp.price),sp.px+8,sp.py-4);ctx.restore();}
   }
@@ -3097,7 +3093,7 @@ document.querySelectorAll('[data-ctype]').forEach(btn=>btn.addEventListener('cli
   document.querySelectorAll('[data-ctype]').forEach(b=>b.className='btn');btn.className='btn ab';chartType=btn.dataset.ctype;createCharts();
 }));
 document.querySelectorAll('[data-tf]').forEach(btn=>btn.addEventListener('click',()=>{
-  document.querySelectorAll('[data-tf]').forEach(b=>b.className='btn');btn.className='btn ab';currentTF=btn.dataset.tf;fetchData(currentSymbol,currentTF);
+  document.querySelectorAll('[data-tf]').forEach(b=>b.className='btn');btn.className='btn ab';currentTF=btn.dataset.tf;fetchData(currentSymbol,currentTF);updateFinnhubSubscriptions();
 }));
 document.querySelectorAll('[data-draw]').forEach(btn=>btn.addEventListener('click',()=>setDrawMode(btn.dataset.draw)));
 // contextmenu cancel also resets supportfull
@@ -3130,29 +3126,40 @@ document.getElementById('del-selected-btn').addEventListener('click',()=>{
   async function searchSymbols(query){
     if(abortCtrl)abortCtrl.abort();
     abortCtrl=new AbortController();
-    const url=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=15&newsCount=0`;
+    const url=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0&lang=de-DE&region=DE`;
     for(const p of proxies){
       try{
         const resp=await fetch(p+encodeURIComponent(url),{signal:abortCtrl.signal});
         if(!resp.ok)continue;
         const data=await resp.json();
-        const quotes=data.quotes||[];
-        const exchRank=e=>{
-          if(!e)return 5;
-          const eu=e.toLowerCase();
-          if(eu.includes('nyse')||eu.includes('nasdaq')||eu.includes('nms'))return 1;
-          if(eu.includes('xetra')||eu.includes('gts')||eu.includes('ger'))return 2;
-          if(eu==='ebs'||eu==='sto'||eu==='osl'||eu==='cph')return 3;
-          return 4;
-        };
-        quotes.sort((a,b)=>exchRank(a.exchDisp||a.exchange)-exchRank(b.exchDisp||b.exchange));
-        return quotes.slice(0,10);
+        return data.quotes||[];
       }catch(e){if(e.name==='AbortError')return null;}
     }
     return [];
   }
 
+  function rankResults(results){
+    if(!results||!results.length)return results;
+    const score=r=>{
+      const exch=(r.exchange||'').toUpperCase();
+      const exchDisp=(r.exchDisp||'').toUpperCase();
+      const sym=(r.symbol||'').toUpperCase();
+      const type=(r.quoteType||'').toUpperCase();
+      let s=0;
+      if(type==='EQUITY')s+=50;
+      else if(type==='ETF')s+=30;
+      else if(type==='INDEX')s+=20;
+      if(exch==='NYQ'||exch==='NMS'||exch==='NAS'||exchDisp==='NYSE'||exchDisp==='NASDAQ')s+=100;
+      if(sym.endsWith('.DE')&&(exch==='GER'||exchDisp.includes('XETRA')))s+=100;
+      if(/\.(F|SG|MU|HM|HA|DU|BE)$/.test(sym))s-=30;
+      if(exch==='PNK'||exchDisp.includes('OTC')||exchDisp.includes('PINK'))s-=50;
+      if(type==='CRYPTOCURRENCY')s-=20;
+      return s;
+    };
+    return [...results].sort((a,b)=>score(b)-score(a));
+  }
   function renderDropdown(results){
+    results=rankResults(results);
     currentResults=results;
     selectedIdx=-1;
     if(!results||!results.length){
@@ -3195,6 +3202,7 @@ document.getElementById('del-selected-btn').addEventListener('click',()=>{
     dropdown.style.display='none';
     currentSymbol=sym.toUpperCase();
     fetchData(currentSymbol,currentTF);
+    updateFinnhubSubscriptions();
     input.blur();
   }
 
@@ -3268,73 +3276,6 @@ function showPopup(alarm){
   document.getElementById('al-popup').style.display='flex';
   if(popupTimer)clearTimeout(popupTimer);popupTimer=setTimeout(()=>document.getElementById('al-popup').style.display='none',8000);
 }
-// Universelles Popup für alle Arten von Alarmen
-function showAlarmPopup(title,message){
-  const titleEl=document.querySelector('#al-popup .pop-title');
-  if(titleEl)titleEl.textContent=title||'🔔 Alarm ausgelöst';
-  document.getElementById('pop-body').textContent=message||'';
-  document.getElementById('pop-meta').textContent=new Date().toLocaleString('de-DE');
-  const bar=document.getElementById('pop-bar');
-  if(bar){bar.style.animation='none';requestAnimationFrame(()=>requestAnimationFrame(()=>{bar.style.animation='barDown 8s linear forwards';}));}
-  document.getElementById('al-popup').style.display='flex';
-  if(popupTimer)clearTimeout(popupTimer);
-  popupTimer=setTimeout(()=>document.getElementById('al-popup').style.display='none',8000);
-}
-
-// ── Alarm-Typen Registry ───────────────────────────────────────
-// Jeder Typ kann individuell pro User an/aus + Popup + Mail gesteuert werden
-const ALARM_TYPES=[
-  {id:'price',     label:'Preis-Alarm (manuell gesetzt)',     icon:'🔔'},
-  {id:'sma50',     label:'SMA 50 Berührung',                  icon:'📈'},
-  {id:'sma200',    label:'SMA 200 Berührung',                 icon:'📈'},
-  {id:'macd',      label:'MACD-Kreuzung',                     icon:'📊'},
-  {id:'bb',        label:'Bollinger-Band Ausbruch',           icon:'🎯'},
-  {id:'srsi',      label:'Stoch RSI Extremwerte',             icon:'⚡'},
-  {id:'rsi',       label:'RSI überkauft/überverkauft',        icon:'⚡'},
-  {id:'volume',    label:'Volumen-Anomalie',                  icon:'📊'},
-  {id:'daymove',   label:'5% Tages-Bewegung',                 icon:'📉'},
-  {id:'sr',        label:'S/R-Linie berührt',                 icon:'━'},
-  {id:'fib',       label:'Fibonacci-Level berührt',           icon:'φ'},
-  {id:'trendline', label:'Trendlinie berührt',                icon:'╱'}
-];
-function loadAlarmSettings(){
-  try{
-    const raw=JSON.parse(localStorage.getItem('zen_alarm_settings')||'{}');
-    // Default: alle aktiv, alle Popup, Mail nur wenn E-Mail hinterlegt
-    const out={};
-    ALARM_TYPES.forEach(t=>{
-      out[t.id]=raw[t.id]||{enabled:true,popup:true,email:true};
-    });
-    return out;
-  }catch{
-    const out={};ALARM_TYPES.forEach(t=>{out[t.id]={enabled:true,popup:true,email:true};});
-    return out;
-  }
-}
-function saveAlarmSettings(settings){
-  try{localStorage.setItem('zen_alarm_settings',JSON.stringify(settings));}catch{}
-}
-function alarmSetting(typeId){
-  const all=loadAlarmSettings();
-  return all[typeId]||{enabled:true,popup:true,email:true};
-}
-// Zentrale Dispatch-Funktion — wird von allen Trigger-Funktionen genutzt
-function fireAlarm(typeId,title,message,soundEnabled,emailPayload){
-  const s=alarmSetting(typeId);
-  if(!s.enabled)return false; // Typ komplett deaktiviert
-  // Sound (TTS-Toggle entscheidet separat via speak())
-  if(soundEnabled!==false){try{playAlarmSound();}catch{}}
-  // Popup — nur wenn eingeschaltet
-  if(s.popup)showAlarmPopup(title,message);
-  // E-Mail — nur wenn eingeschaltet UND E-Mail hinterlegt
-  if(s.email&&emailPayload){
-    const email=localStorage.getItem('zen_alarm_email')||'';
-    if(email){
-      cloudRequest(emailPayload.action||'notifySma',Object.assign({},emailPayload,{message}));
-    }
-  }
-  return true;
-}
 document.getElementById('pop-close').addEventListener('click',()=>{document.getElementById('al-popup').style.display='none';if(popupTimer)clearTimeout(popupTimer);});
 function addAlarm(price,dir){
   if(isNaN(price)||price<=0)return;
@@ -3364,17 +3305,18 @@ function checkAlarms(){
     if((a.dir==='above'&&cur>=a.price)||(a.dir==='below'&&cur<=a.price)){
       if(!a.triggered){
         a.triggered=true;
-        if(!alarmSetting('price').enabled){triggeredIds.push(a.id);return;}
+        playAlarmSound();
+        showPopup(a);
         const cur2=getCurrency(a.sym);
         const msg=a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2);
         setStatus('🔔 Alarm: '+msg,'err');
         if(typeof recordAlarm==='function')recordAlarm('Preis-'+a.dir,a.sym,'',msg);
-        const richtung=a.dir==='above'?'überschritten':'unterschritten';
-        speak(speakableSymbol(a.sym)+' Alarm: '+a.price.toFixed(2)+' '+currencyName(cur2)+' '+richtung,{cancel:true});
-        // Popup + Sound + Mail via fireAlarm
-        fireAlarm('price','🔔 Preis-Alarm',msg,true,{action:'notifyTrigger',symbol:a.sym,price:a.price,direction:a.dir});
         if(Notification.permission==='granted')new Notification(a.sym+' Alarm',{body:(a.dir==='above'?'Über':'Unter')+' '+cur2+a.price.toFixed(2)});
         else if(Notification.permission!=='denied')Notification.requestPermission();
+        // Sprachausgabe: "Apple Alarm: 100 Dollar überschritten"
+        const richtung=a.dir==='above'?'überschritten':'unterschritten';
+        speak(speakableSymbol(a.sym)+' Alarm: '+a.price.toFixed(2)+' '+currencyName(cur2)+' '+richtung,{cancel:true});
+        sendAlarmEmail(a);
         // Cloud: mark as triggered (will be auto-removed on next check)
         if(localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
         triggeredIds.push(a.id);
@@ -3439,14 +3381,14 @@ async function checkRsiAlarms(){
       else if(rsi<=30)now='oversold';
       // Trigger only on state change into overbought/oversold
       if(now!==prev&&now!=='neutral'){
+        const alarm={sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true,id:Date.now()+Math.random()};
+        playAlarmSound();
+        showRsiPopup(sym,rsi,now);
         const rsiMsg=sym+' '+(now==='overbought'?'überkauft':'überverkauft')+' (RSI '+rsi.toFixed(1)+')';
-        if(alarmSetting('rsi').enabled){
-          setStatus('🔔 RSI-Alarm: '+rsiMsg,'err');
-          if(typeof recordAlarm==='function')recordAlarm('RSI-'+now,sym,'D1',rsiMsg);
-          if(Notification.permission==='granted')new Notification('RSI-Alarm: '+sym,{body:(now==='overbought'?'Überkauft':'Überverkauft')+' (RSI '+rsi.toFixed(1)+')'});
-          speak(speakableSymbol(sym)+': RSI '+(now==='overbought'?'überkauft':'überverkauft'),{cancel:true});
-          fireAlarm('rsi','🔔 RSI-Alarm',rsiMsg,true,{symbol:sym,tf:'D1',smaType:'RSI-'+now,price:rsi,smaValue:rsi});
-        }
+        setStatus('🔔 RSI-Alarm: '+rsiMsg,'err');
+        if(typeof recordAlarm==='function')recordAlarm('RSI-'+now,sym,'D1',rsiMsg);
+        if(Notification.permission==='granted')new Notification('RSI-Alarm: '+sym,{body:(now==='overbought'?'Überkauft':'Überverkauft')+' (RSI '+rsi.toFixed(1)+')'});
+        sendAlarmEmail({sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true});
       }
       rsiAlarmState[sym]=now;
       saveRsiAlarmState();
@@ -3667,46 +3609,10 @@ async function syncCloudDrawings(){
   const emailIn=document.getElementById('profile-email');
   const keyIn=document.getElementById('profile-apikey');
   const status=document.getElementById('profile-status');
-  function renderAlarmSettings(){
-    const grid=document.getElementById('alarm-settings-rows');
-    if(!grid)return;
-    const s=loadAlarmSettings();
-    grid.innerHTML=ALARM_TYPES.map(t=>{
-      const cur=s[t.id]||{enabled:true,popup:true,email:true};
-      return `<label style="color:#cbd5e1;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0">
-          <span style="width:18px;text-align:center">${t.icon}</span>
-          <span>${t.label}</span>
-        </label>
-        <input type="checkbox" data-as-id="${t.id}" data-as-key="enabled" ${cur.enabled?'checked':''} style="justify-self:center;cursor:pointer;width:16px;height:16px;accent-color:#2563eb">
-        <input type="checkbox" data-as-id="${t.id}" data-as-key="popup"   ${cur.popup?'checked':''}   style="justify-self:center;cursor:pointer;width:16px;height:16px;accent-color:#2563eb">
-        <input type="checkbox" data-as-id="${t.id}" data-as-key="email"   ${cur.email?'checked':''}   style="justify-self:center;cursor:pointer;width:16px;height:16px;accent-color:#2563eb">`;
-    }).join('');
-    // Live-Speichern bei Klick
-    grid.querySelectorAll('input[type=checkbox]').forEach(cb=>{
-      cb.addEventListener('change',()=>{
-        const all=loadAlarmSettings();
-        const id=cb.dataset.asId, key=cb.dataset.asKey;
-        if(!all[id])all[id]={enabled:true,popup:true,email:true};
-        all[id][key]=cb.checked;
-        // Wenn "Aktiv" ausgeschaltet wird: auch Popup + Mail visuell deaktivieren
-        if(key==='enabled'&&!cb.checked){
-          grid.querySelectorAll(`input[data-as-id="${id}"]`).forEach(x=>{x.disabled=true;});
-        }else if(key==='enabled'&&cb.checked){
-          grid.querySelectorAll(`input[data-as-id="${id}"]`).forEach(x=>{x.disabled=false;});
-        }
-        saveAlarmSettings(all);
-      });
-      // Initial: disabled-State setzen wenn "enabled" false ist
-      const id=cb.dataset.asId, key=cb.dataset.asKey;
-      const cur=s[id]||{enabled:true};
-      if(!cur.enabled&&key!=='enabled')cb.disabled=true;
-    });
-  }
   function openModal(){
     emailIn.value=localStorage.getItem('zen_alarm_email')||'';
     keyIn.value=localStorage.getItem('chartpro_gemini_key')||'';
     status.textContent='';
-    renderAlarmSettings();
     modal.style.display='flex';
     setTimeout(()=>emailIn.focus(),100);
   }
@@ -3849,7 +3755,7 @@ function renderWL(){
     </div>`;
   }).join('');
   // Click handlers
-  el.querySelectorAll('.wl-item').forEach(it=>it.addEventListener('click',e=>{if(e.target.classList.contains('wl-del'))return;currentSymbol=it.dataset.sym;document.getElementById('sym-in').value=currentSymbol;renderWL();fetchData(currentSymbol,currentTF);}));
+  el.querySelectorAll('.wl-item').forEach(it=>it.addEventListener('click',e=>{if(e.target.classList.contains('wl-del'))return;currentSymbol=it.dataset.sym;document.getElementById('sym-in').value=currentSymbol;renderWL();fetchData(currentSymbol,currentTF);updateFinnhubSubscriptions();}));
   el.querySelectorAll('.wl-del').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();watchlist=watchlist.filter(s=>s!==b.dataset.del);saveWL();renderWL();}));
   // Drag & drop reorder
   let dragIdx=null;
@@ -3894,11 +3800,11 @@ async function updateWLPrices(){
       const col=pct>=0?'var(--up)':'var(--dn)';
       const sign=pct>=0?'+':'';
       const cur=getCurrency(sym);
-      const pTxt=lastPrice.toFixed(2)+' '+cur,cTxt=sign+dollarChg.toFixed(2)+' '+cur+' ('+sign+pct.toFixed(2)+'%)';
+      const pTxt=fmtNum(lastPrice)+' '+cur,cTxt=sign+fmtNum(dollarChg)+' '+cur+' ('+sign+fmtNum(pct)+'%)';
       wlResults[sym]={p:pTxt,c:cTxt,col};
       cache[sym]={p:pTxt,c:cTxt,col};
       setWLChg(sym,pTxt,cTxt,col);
-      if(sym===currentSymbol)document.getElementById('cur-price').textContent=lastPrice.toFixed(2)+' '+cur;
+      if(sym===currentSymbol)document.getElementById('cur-price').textContent=fmtPrice(lastPrice,sym);
     }catch{
       // Bei Fehler: letzten bekannten Wert behalten
       if(cache[sym])wlResults[sym]=cache[sym];
@@ -3919,7 +3825,7 @@ function setWLChg(sym,priceText,chgText,color){
 }
 document.getElementById('add-wl-btn').addEventListener('click',()=>{
   const s=document.getElementById('sym-in').value.trim().toUpperCase();
-  if(s&&!watchlist.includes(s)){watchlist.push(s);saveWL();renderWL();updateWLPrices();}
+  if(s&&!watchlist.includes(s)){watchlist.push(s);saveWL();renderWL();updateWLPrices();updateFinnhubSubscriptions();}
 });
 
 window.addEventListener('resize',()=>{syncOC();redrawOC();});
@@ -3986,6 +3892,211 @@ async function fetchLiveQuote(sym){
   }
   return null;
 }
+
+// ─────────────────────────────────────────────────────────────
+// Finnhub WebSocket — echter Live-Stream für US-Aktien (kostenlos)
+// Free-Tier: 50 Symbole parallel, kein Credit Card nötig
+// Registrieren unter https://finnhub.io/register → API-Key in localStorage
+// ─────────────────────────────────────────────────────────────
+let finnhubWS=null;
+let finnhubSubscribed=new Set();
+let finnhubLastTick={};
+let finnhubReconnectTimer=null;
+
+function getFinnhubKey(){
+  return localStorage.getItem('zen_finnhub_key')||'';
+}
+function setFinnhubKey(k){
+  localStorage.setItem('zen_finnhub_key',k.trim());
+  if(finnhubWS){try{finnhubWS.close();}catch{}finnhubWS=null;}
+  startFinnhubStream();
+}
+// Nur US-Stocks im Free-Tier WebSocket real-time.
+// DE/FR/L/etc. werden ausgeschlossen (delayed, nicht via WS im Free).
+function isFinnhubEligible(sym){
+  if(!sym)return false;
+  const s=sym.toUpperCase();
+  if(/\.(DE|F|SG|MU|HM|HA|DU|BE|L|PA|AS|MI|SW|TO|HK|T|AX|SA|MX|VI|BR|CO|HE|IS|OL|ST|WA|TA|SI|KL|JK|BK|KS|KQ)$/.test(s))return false;
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Kerzen-Aggregation: Ticks in Buckets einordnen (abhängig vom TF)
+// Unterstützt: 5m, 1h, 4h, d1, m1
+// ─────────────────────────────────────────────────────────────
+// Liefert Start-Timestamp (ms) des Buckets in den ein Tick fällt.
+function bucketStart(tMs,tf){
+  const d=new Date(tMs);
+  if(tf==='5m'){
+    const bucketMin=Math.floor(d.getUTCMinutes()/5)*5;
+    return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate(),d.getUTCHours(),bucketMin,0,0);
+  }
+  if(tf==='1h'){
+    return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate(),d.getUTCHours(),0,0,0);
+  }
+  if(tf==='4h'){
+    const bucketHour=Math.floor(d.getUTCHours()/4)*4;
+    return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate(),bucketHour,0,0,0);
+  }
+  if(tf==='d1'){
+    return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate(),0,0,0,0);
+  }
+  if(tf==='m1'){
+    return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1,0,0,0,0);
+  }
+  return tMs;
+}
+
+// Wendet einen Tick auf das candles-Array an.
+// Gibt zurück: 'update' (in-place), 'new' (neue Kerze entstanden), 'skip' (zu alt)
+function applyTickToCandles(arr,price,tMs,vol,tf){
+  if(!arr||!arr.length)return 'skip';
+  const bStart=bucketStart(tMs,tf);
+  const last=arr[arr.length-1];
+  const lastBucket=bucketStart(last.t,tf);
+  if(bStart<lastBucket){
+    // Tick älter als letzte Kerze — ignorieren
+    return 'skip';
+  }
+  if(bStart===lastBucket){
+    // In-place update der aktuellen Kerze
+    last.c=price;
+    if(price>last.h)last.h=price;
+    if(price<last.l)last.l=price;
+    if(vol!=null)last.v=(last.v||0)+vol;
+    return 'update';
+  }
+  // Neuer Bucket → neue Kerze anlegen
+  // Volumen des neuen Ticks startet die neue Kerze
+  arr.push({t:bStart,o:price,h:price,l:price,c:price,v:vol||0});
+  return 'new';
+}
+
+function startFinnhubStream(){
+  const key=getFinnhubKey();
+  if(!key)return;
+  if(finnhubWS&&finnhubWS.readyState===WebSocket.OPEN)return;
+  try{
+    finnhubWS=new WebSocket('wss://ws.finnhub.io?token='+encodeURIComponent(key));
+  }catch(e){console.warn('Finnhub WS init failed',e);return;}
+  finnhubWS.addEventListener('open',()=>{
+    console.log('✓ Finnhub WebSocket verbunden');
+    updateFinnhubSubscriptions();
+  });
+  finnhubWS.addEventListener('message',e=>{
+    try{
+      const msg=JSON.parse(e.data);
+      if(msg.type==='trade'&&Array.isArray(msg.data)){
+        // Pro Symbol nur das neueste Tick behalten (Performance)
+        const latest={};
+        for(const t of msg.data){
+          const s=t.s;
+          if(!latest[s]||t.t>latest[s].t)latest[s]=t;
+        }
+        for(const s of Object.keys(latest)){
+          const t=latest[s];
+          finnhubLastTick[s]={price:t.p,time:t.t,volume:t.v};
+          onFinnhubTick(s,t.p,t.t,t.v);
+        }
+      }
+    }catch{}
+  });
+  finnhubWS.addEventListener('close',()=>{
+    console.log('Finnhub WS geschlossen — Reconnect in 5s');
+    finnhubSubscribed.clear();
+    if(finnhubReconnectTimer)clearTimeout(finnhubReconnectTimer);
+    finnhubReconnectTimer=setTimeout(()=>startFinnhubStream(),5000);
+  });
+  finnhubWS.addEventListener('error',e=>{console.warn('Finnhub WS error',e);});
+}
+function updateFinnhubSubscriptions(){
+  if(!finnhubWS||finnhubWS.readyState!==WebSocket.OPEN)return;
+  const want=new Set();
+  if(isFinnhubEligible(currentSymbol))want.add(currentSymbol);
+  for(const s of watchlist){if(isFinnhubEligible(s))want.add(s);}
+  for(const s of finnhubSubscribed){
+    if(!want.has(s)){
+      finnhubWS.send(JSON.stringify({type:'unsubscribe',symbol:s}));
+      finnhubSubscribed.delete(s);
+    }
+  }
+  for(const s of want){
+    if(!finnhubSubscribed.has(s)){
+      finnhubWS.send(JSON.stringify({type:'subscribe',symbol:s}));
+      finnhubSubscribed.add(s);
+    }
+  }
+}
+function onFinnhubTick(sym,price,tMs,vol){
+  // 1) Watchlist-Preislabel live aktualisieren
+  const id=sym.replace(/\W/g,'_');
+  const cur=getCurrency(sym);
+  const pEl=document.getElementById('wlp-'+id);
+  if(pEl){
+    const oldTxt=pEl.textContent;
+    const newTxt=fmtNum(price)+' '+cur;
+    if(oldTxt!==newTxt){
+      pEl.textContent=newTxt;
+      pEl.classList.remove('flash-up','flash-dn');
+      void pEl.offsetWidth;
+      pEl.classList.add('flash-up');
+      setTimeout(()=>pEl.classList.remove('flash-up'),800);
+    }
+  }
+  // Watchlist-Cache updaten (damit bei Re-Render nicht alter Wert erscheint)
+  const cache=loadWLCache();
+  if(cache[sym]){
+    cache[sym].p=fmtNum(price)+' '+cur;
+    saveWLCache(cache);
+  }
+  // 2) Wenn aktuelles Chart-Symbol → Kerzen-Aggregation + Chart-Update
+  if(sym===currentSymbol&&candles.length>0){
+    const result=applyTickToCandles(candles,price,tMs,vol,currentTF);
+    if(result==='skip')return;
+    if(mainChart&&mainChart.data.datasets[0]){
+      const ds=mainChart.data.datasets[0].data;
+      if(result==='new'){
+        // Neue Kerze: viewStart ggf. mitziehen (wir wollen den neuen Kerzen sehen)
+        // Chart komplett neu zeichnen ist zuverlässiger als mit viewStart zu rechnen
+        updateView();
+      }else{
+        // In-place Update der letzten sichtbaren Kerze
+        if(ds.length>0){
+          const last=candles[candles.length-1];
+          ds[ds.length-1]={x:ds[ds.length-1].x,o:last.o,h:last.h,l:last.l,c:last.c};
+          mainChart.update('none');
+        }
+      }
+    }
+    const last=candles[candles.length-1];
+    const prev=candles.length>1?candles[candles.length-2]:last;
+    document.getElementById('cur-price').textContent=fmtPrice(price,sym);
+    const chg=price-prev.c,pct=prev.c>0?chg/prev.c*100:0;
+    const ce=document.getElementById('price-chg');
+    if(ce){
+      ce.textContent=(chg>=0?'+':'')+fmtNum(chg)+' '+cur+' ('+(chg>=0?'+':'')+fmtNum(pct)+'%)';
+      ce.className=chg>=0?'up':'dn';
+    }
+    const dot=document.getElementById('live-dot');
+    if(dot){dot.classList.remove('pulsing');void dot.offsetWidth;dot.classList.add('pulsing');}
+    // Flash-Animation bei Preisänderung
+    const priceEl=document.getElementById('cur-price');
+    if(priceEl){
+      const flashClass=chg>=0?'flash-up':'flash-dn';
+      priceEl.classList.remove('flash-up','flash-dn');
+      void priceEl.offsetWidth;
+      priceEl.classList.add(flashClass);
+      setTimeout(()=>priceEl.classList.remove(flashClass),800);
+    }
+    redrawOC();
+  }
+}
+function stopFinnhubStream(){
+  if(finnhubReconnectTimer){clearTimeout(finnhubReconnectTimer);finnhubReconnectTimer=null;}
+  if(finnhubWS){try{finnhubWS.close();}catch{}finnhubWS=null;}
+  finnhubSubscribed.clear();
+}
+
 function startLiveRefresh(){
   if(liveInterval)clearInterval(liveInterval);
   // Tab im Hintergrund → langsamer pollen (Datenvolumen sparen)
@@ -4024,13 +4135,14 @@ function startLiveRefresh(){
           if(q.high!=null&&q.high>last.h)last.h=q.high;
           if(q.low!=null&&q.low<last.l)last.l=q.low;
           if(q.volume!=null)last.v=q.volume;
-          // Chart-Update: cpPlugin liest direkt aus candles[], daher genügt update('none')
-          if(autoFit&&mainChart){
-            const{min,max}=calcYRange();
-            mainChart.options.scales.y.min=min;
-            mainChart.options.scales.y.max=max;
+          // Chart-Update wenn mainChart existiert
+          if(mainChart&&mainChart.data.datasets[0]){
+            const ds=mainChart.data.datasets[0].data;
+            if(ds.length>0){
+              ds[ds.length-1]={x:ds[ds.length-1].x,o:last.o,h:last.h,l:last.l,c:last.c};
+              mainChart.update('none');
+            }
           }
-          if(mainChart)mainChart.update('none');
           // Overlay (Zeichnungen, Fib, etc.) auch neu zeichnen
           redrawOC();
         }
@@ -4053,7 +4165,7 @@ function startLiveRefresh(){
         const chg=last.c-prev.c,pct=prev.c>0?chg/prev.c*100:0;
         const ce=document.getElementById('price-chg');
         const curLive=getCurrency(currentSymbol);
-        ce.textContent=(chg>=0?'+':'')+chg.toFixed(2)+' '+curLive+' ('+(chg>=0?'+':'')+pct.toFixed(2)+'%)';
+        ce.textContent=(chg>=0?'+':'')+fmtNum(chg)+' '+curLive+' ('+(chg>=0?'+':'')+fmtNum(pct)+'%)';
         ce.className=chg>=0?'up':'dn';
         // Flash-Animation bei Preis-Änderung
         if(Math.abs(newPrice-oldPrice)>0.001){
@@ -4231,7 +4343,7 @@ const initTF=localStorage.getItem('zen_lastTF')||'d1';
 currentSymbol=initSym;currentTF=initTF==='w1'?'d1':initTF;
 document.getElementById('sym-in').value=currentSymbol;
 document.querySelectorAll('[data-tf]').forEach(b=>{b.classList.toggle('ab',b.dataset.tf===currentTF);b.classList.toggle('btn',true);});
-fetchData(currentSymbol,currentTF).then(()=>startLiveRefresh());
+fetchData(currentSymbol,currentTF).then(()=>{startLiveRefresh();startFinnhubStream();});
 
 // ── Auto-Sync Cloud-Alarme ──────────────────────────────────
 // 1. Sofort beim Start (nach 3s um loadState+fetchData zu lassen)
@@ -4446,68 +4558,110 @@ function triggerMACDAlarm(sym,tf,type,macdLine,signalLine,price){
   const dirText=type==='bullish'?'Bullish Cross (Kauf-Signal)':'Bearish Cross (Verkaufs-Signal)';
   const emoji=type==='bullish'?'📈':'📉';
   const msg=sym+' ('+tf+') MACD '+dirText+' '+emoji+' — MACD='+macdLine.toFixed(3)+' Signal='+signalLine.toFixed(3);
-  console.log('MACD-Alarm:',msg);
-  if(!alarmSetting('macd').enabled)return;
-  recordAlarm('MACD-'+type,sym,tf,msg);
+  console.log('MACD-Alarm:',msg);recordAlarm('MACD-'+type,sym,tf,msg);
   setStatus('🔔 MACD: '+msg,type==='bullish'?'ok':'err');
-  speak(speakableSymbol(sym)+': MACD '+(type==='bullish'?'bullisches Kreuz, Kaufsignal':'bärisches Kreuz, Verkaufssignal'),{cancel:true});
-  fireAlarm('macd','🔔 MACD-Alarm',msg,true,{symbol:sym,tf,smaType:'MACD-'+type,price,smaValue:macdLine});
+  try{playAlarmSound();}catch{}
+  const speechText=speakableSymbol(sym)+': MACD '+(type==='bullish'?'bullisches Kreuz, Kaufsignal':'bärisches Kreuz, Verkaufssignal');
+  speak(speechText,{cancel:true});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf,smaType:'MACD-'+type,price,smaValue:macdLine,message:msg});
+  }
 }
 function triggerBBAlarm(sym,tf,dir,price,bandLevel){
   const dirText=dir==='oben'?'oberes Band durchbrochen':'unteres Band durchbrochen';
   const emoji=dir==='oben'?'🚀':'⬇️';
   const msg=sym+' ('+tf+') Bollinger '+dirText+' '+emoji+' — Preis: '+price.toFixed(2)+' · Band: '+bandLevel.toFixed(2);
-  console.log('BB-Alarm:',msg);
-  if(!alarmSetting('bb').enabled)return;
-  recordAlarm('BB-'+dir,sym,tf,msg);
+  console.log('BB-Alarm:',msg);recordAlarm('BB-'+dir,sym,tf,msg);
   setStatus('🔔 BB: '+msg,dir==='oben'?'ok':'err');
-  speak(speakableSymbol(sym)+': Bollinger-Band '+(dir==='oben'?'oben ausgebrochen':'unten ausgebrochen'),{cancel:true});
-  fireAlarm('bb','🔔 Bollinger-Band',msg,true,{symbol:sym,tf,smaType:'BB-'+dir,price,smaValue:bandLevel});
+  try{playAlarmSound();}catch{}
+  const speechText=speakableSymbol(sym)+': Bollinger-Band '+(dir==='oben'?'oben ausgebrochen':'unten ausgebrochen');
+  speak(speechText,{cancel:true});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf,smaType:'BB-'+dir,price,smaValue:bandLevel,message:msg});
+  }
 }
 function triggerStochAlarm(sym,tf,extrem,stochK,price){
   const emoji=extrem==='überkauft'?'🔥':'❄️';
   const msg=sym+' ('+tf+') Stoch RSI '+extrem+' '+emoji+' — K='+stochK.toFixed(1)+' · Preis: '+price.toFixed(2);
-  console.log('Stoch-Alarm:',msg);
-  if(!alarmSetting('srsi').enabled)return;
-  recordAlarm('SRSI-'+extrem,sym,tf,msg);
+  console.log('Stoch-Alarm:',msg);recordAlarm('SRSI-'+extrem,sym,tf,msg);
   setStatus('🔔 Stoch RSI: '+msg,extrem==='überkauft'?'err':'ok');
+  try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+': Stochastischer RSI '+extrem,{cancel:true});
-  fireAlarm('srsi','🔔 Stoch RSI',msg,true,{symbol:sym,tf,smaType:'Stoch-'+extrem,price,smaValue:stochK});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf,smaType:'Stoch-'+extrem,price,smaValue:stochK,message:msg});
+  }
 }
 function triggerDailyMoveAlarm(sym,change,price){
   const pct=(change*100).toFixed(2);
   const dir=change>=0?'gestiegen':'gefallen';
   const emoji=change>=0?'📈':'📉';
   const msg=sym+' heute '+emoji+' '+pct+'% '+dir+' — Preis: '+price.toFixed(2);
-  console.log('Tages-Alarm:',msg);
-  if(!alarmSetting('daymove').enabled)return;
-  recordAlarm('Tages-Move',sym,'D1',msg);
+  console.log('Tages-Alarm:',msg);recordAlarm('Tages-Move',sym,'D1',msg);
   setStatus('🔔 '+msg,change>=0?'ok':'err');
+  try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+' heute '+Math.abs(pct)+' Prozent '+dir,{cancel:true});
-  fireAlarm('daymove','🔔 Tages-Bewegung',msg,true,{symbol:sym,tf:'D1',smaType:'Tages-Move '+pct+'%',price,smaValue:0});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf:'D1',smaType:'Tages-Move '+pct+'%',price,smaValue:0,message:msg});
+  }
 }
 function triggerVolumeAlarm(sym,currentVol,avgVol){
   const ratio=(currentVol/avgVol).toFixed(1);
   const msg=sym+' ungewöhnlich hohes Volumen: '+ratio+'x Durchschnitt';
-  console.log('Volumen-Alarm:',msg);
-  if(!alarmSetting('volume').enabled)return;
-  recordAlarm('Volumen',sym,'D1',msg);
+  console.log('Volumen-Alarm:',msg);recordAlarm('Volumen',sym,'D1',msg);
   setStatus('🔔 '+msg,'ok');
+  try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+' ungewöhnlich hohes Volumen, '+ratio+' mal Durchschnitt',{cancel:true});
-  fireAlarm('volume','🔔 Volumen',msg,true,{symbol:sym,tf:'D1',smaType:'Volumen '+ratio+'x',price:0,smaValue:currentVol});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf:'D1',smaType:'Volumen '+ratio+'x',price:0,smaValue:currentVol,message:msg});
+  }
 }
 function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
   const msg=sym+' ('+tf+') berührt '+smaType+' @ '+smaValue.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
-  console.log('SMA-Alarm:',msg);
-  // SMA50 und SMA200 haben getrennte Settings
-  const settingId=(smaType==='SMA50')?'sma50':(smaType==='SMA200')?'sma200':'sma50';
-  if(!alarmSetting(settingId).enabled)return;
-  recordAlarm(smaType,sym,tf,msg);
+  console.log('SMA-Alarm:',msg);recordAlarm(smaType,sym,tf,msg);
   setStatus('🔔 SMA-Alarm: '+msg,'ok');
+  try{playAlarmSound();}catch{}
   const tfSpeech=tf==='D1'?'Tagesbasis':tf==='M1'?'Monatsbasis':tf;
   const smaSpeech=smaType.replace('SMA','SMA ');
   speak(speakableSymbol(sym)+': '+smaSpeech+' auf '+tfSpeech+' erreicht',{cancel:true});
-  fireAlarm(settingId,'🔔 '+smaType+'-Alarm',msg,true,{symbol:sym,tf,smaType,price,smaValue});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf,smaType,price,smaValue,message:msg});
+  }
 }
 
 // ── Alarm-Historie (lokal, max. 50 Einträge) ──────────────────
@@ -4661,23 +4815,50 @@ async function checkDrawingTouchesAll(){
 function triggerDrawingTouchAlarm(sym,lineType,levelPrice,currentPrice){
   const msg=sym+' berührt '+lineType+' @ '+levelPrice.toFixed(2)+' (Preis: '+currentPrice.toFixed(2)+')';
   console.log('Drawing-Touch:',msg);
-  // Typ-ID anhand des lineType bestimmen
-  let typeId='sr';
-  if(lineType.startsWith('Fib'))typeId='fib';
-  else if(lineType.toLowerCase().includes('trend'))typeId='trendline';
-  if(!alarmSetting(typeId).enabled)return;
-  recordAlarm(typeId,sym,'Touch',msg);
   setStatus('🔔 '+msg,'ok');
+  try{playAlarmSound();}catch{}
+  // Sprachausgabe
   const speechLine=lineType.replace('Fib ','Fibonacci ').replace('%',' Prozent').replace('S/R','Support Resistance');
   speak(speakableSymbol(sym)+' berührt '+speechLine,{cancel:true});
-  const title=typeId==='fib'?'🔔 Fibonacci-Level':(typeId==='trendline'?'🔔 Trendlinie':'🔔 S/R-Linie');
-  fireAlarm(typeId,title,msg,true,{symbol:sym,tf:'Touch',smaType:lineType,price:currentPrice,smaValue:levelPrice});
+  try{
+    const pop=document.getElementById('alarm-popup');
+    const body=document.getElementById('pop-body');
+    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
+  }catch{}
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email){
+    cloudRequest('notifySma',{symbol:sym,tf:'Touch',smaType:lineType,price:currentPrice,smaValue:levelPrice,message:msg});
+  }
 }
 // Parallel zu SMA-Check laufen lassen: alle 5 Min
 setTimeout(()=>{
   checkDrawingTouchesAll();
   setInterval(checkDrawingTouchesAll,5*60*1000);
 },8000); // 8s Verzögerung damit drawings geladen sind
+
+// ── Finnhub-Key-UI ────────────────────────────────────────────
+document.getElementById('finnhub-key-btn').addEventListener('click',()=>{
+  const cur=getFinnhubKey();
+  const msg=cur
+    ?'Aktueller Finnhub-Key: '+cur.slice(0,6)+'…'+cur.slice(-4)+'\n\nNeuen Key eingeben (leer = unverändert, "x" = löschen):'
+    :'Finnhub API-Key eingeben (kostenlos unter https://finnhub.io/register).\nNötig für echte Live-Ticks bei US-Aktien (NYSE/NASDAQ).\nOhne Key läuft alles weiter über Yahoo (15 min delayed).';
+  const k=prompt(msg,'');
+  if(k===null)return;
+  if(k.trim()==='x'||k.trim()==='X'){localStorage.removeItem('zen_finnhub_key');stopFinnhubStream();alert('Finnhub-Key gelöscht.');return;}
+  if(k.trim()){setFinnhubKey(k);alert('Finnhub-Key gespeichert. Live-Stream startet.');}
+});
+// Button-Farbe zeigt Status
+setInterval(()=>{
+  const btn=document.getElementById('finnhub-key-btn');
+  if(!btn)return;
+  if(finnhubWS&&finnhubWS.readyState===WebSocket.OPEN){
+    btn.style.color='#22c55e';btn.title='Finnhub Live aktiv ('+finnhubSubscribed.size+' Symbole)';
+  }else if(getFinnhubKey()){
+    btn.style.color='#f59e0b';btn.title='Finnhub-Key gesetzt, aber nicht verbunden';
+  }else{
+    btn.style.color='';btn.title='Kein Finnhub-Key — Yahoo-Polling aktiv (delayed)';
+  }
+},2000);
 </script>
 </body>
 </html>
