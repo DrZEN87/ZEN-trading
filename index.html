@@ -4049,6 +4049,12 @@ function startLiveRefresh(){
           if(mainChart)mainChart.update('none');
           // Overlay (Zeichnungen, Fib, etc.) auch neu zeichnen
           redrawOC();
+      }
+      // Price-Update UI
+      if(candles.length>0){
+        const last=candles[candles.length-1];
+        const prev=candles.length>1?candles[candles.length-2]:last;
+        const newPrice=last.c;
         const oldPrice=lastKnownPrice;
         document.getElementById('cur-price').textContent=fmtPrice(last.c);
         // Live-Dot pulsen lassen (zeigt dass gerade ein Update kam)
