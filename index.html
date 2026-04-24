@@ -3130,7 +3130,32 @@ document.getElementById('del-selected-btn').addEventListener('click',()=>{
   async function searchSymbols(query){
     if(abortCtrl)abortCtrl.abort();
     abortCtrl=new AbortController();
-    const url=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0&lang=de-DE&region=DE`;
+    async function searchSymbols(query){
+    if(abortCtrl)abortCtrl.abort();
+    abortCtrl=new AbortController();
+    // Breite Suche ohne Region-Filter um sowohl US als auch DE zu bekommen
+    const url=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=15&newsCount=0`;
+    for(const p of proxies){
+      try{
+        const resp=await fetch(p+encodeURIComponent(url),{signal:abortCtrl.signal});
+        if(!resp.ok)continue;
+        const data=await resp.json();
+        const quotes=data.quotes||[];
+        // Sortierung: NYSE/NASDAQ zuerst, dann Xetra (.DE), dann Rest
+        const exchRank=e=>{
+          if(!e)return 5;
+          const eu=e.toLowerCase();
+          if(eu.includes('nyse')||eu.includes('nasdaq')||eu.includes('nms'))return 1;
+          if(eu.includes('xetra')||eu.includes('gts')||eu.includes('ger'))return 2;
+          if(eu==='ebs'||eu==='sto'||eu==='osl'||eu==='cph')return 3;
+          return 4;
+        };
+        quotes.sort((a,b)=>exchRank(a.exchDisp||a.exchange)-exchRank(b.exchDisp||b.exchange));
+        return quotes.slice(0,10);
+      }catch(e){if(e.name==='AbortError')return null;}
+    }
+    return [];
+  }
     for(const p of proxies){
       try{
         const resp=await fetch(p+encodeURIComponent(url),{signal:abortCtrl.signal});
