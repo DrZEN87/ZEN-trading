@@ -6,6 +6,13 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
 <meta http-equiv="Pragma" content="no-cache"/>
 <meta http-equiv="Expires" content="0"/>
+<meta name="theme-color" content="#0f0f12"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="ZEN-Trading"/>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjE4IiBmaWxsPSIjMGYwZjEyIi8+PHRleHQgeD0iNTAiIHk9IjY4IiBmb250LXNpemU9IjYwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7wn4+FPC90ZXh0Pjwvc3ZnPg=="/>
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjE4IiBmaWxsPSIjMGYwZjEyIi8+PHRleHQgeD0iNTAiIHk9IjY4IiBmb250LXNpemU9IjYwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7wn4+FPC90ZXh0Pjwvc3ZnPg=="/>
+<link rel="manifest" id="pwa-manifest"/>
 <title>ZEN-Trading</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -204,6 +211,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   </div>
   <button class="btn ag" id="add-wl-btn">+ Watchlist</button>
   <button class="btn" id="finnhub-key-btn" title="Finnhub API-Key für Live-Daten (US-Aktien)" style="margin-left:4px">🔑 Live</button>
+  <button class="btn" id="install-app-btn" title="ZEN-Trading als App installieren" style="margin-left:4px;display:none">📲 Installieren</button>
   <div class="sep"></div>
   <span class="tlbl">Zeit</span>
   <button class="btn" data-tf="5m">5m</button>
@@ -356,6 +364,77 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 </div>
 
 <script>
+
+// ─────────────────────────────────────────────────────────────
+// PWA: Manifest dynamisch erzeugen + Install-Event abfangen
+// ─────────────────────────────────────────────────────────────
+(function setupPWA(){
+  // Icon: Sonne-Emoji auf dunklem Hintergrund, skalierbar
+  const iconSVG=(size)=>{
+    return 'data:image/svg+xml;base64,'+btoa(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}"><rect width="${size}" height="${size}" rx="${size*0.18}" fill="#0f0f12"/><text x="${size/2}" y="${size*0.68}" font-size="${size*0.6}" text-anchor="middle">🌅</text></svg>`
+    );
+  };
+  const manifest={
+    name:'ZEN-Trading',
+    short_name:'ZEN',
+    description:'Eigene Trading-Plattform mit Live-Charts',
+    start_url:location.pathname,
+    scope:location.pathname,
+    display:'standalone',
+    background_color:'#0f0f12',
+    theme_color:'#0f0f12',
+    orientation:'any',
+    icons:[
+      {src:iconSVG(192),sizes:'192x192',type:'image/svg+xml',purpose:'any'},
+      {src:iconSVG(512),sizes:'512x512',type:'image/svg+xml',purpose:'any'},
+      {src:iconSVG(512),sizes:'512x512',type:'image/svg+xml',purpose:'maskable'}
+    ]
+  };
+  try{
+    const blob=new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});
+    const url=URL.createObjectURL(blob);
+    const link=document.getElementById('pwa-manifest');
+    if(link)link.href=url;
+  }catch(e){console.warn('PWA manifest init failed',e);}
+
+  // Service Worker registrieren falls sw.js im gleichen Verzeichnis liegt
+  // (Nötig für "Install"-Prompt in Chrome/Brave/Edge)
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      console.log('✓ Service Worker registriert',reg.scope);
+    }).catch(err=>{
+      // Kein SW gefunden → Install-Prompt wird nicht feuern. Kein Fehler, nur Info.
+      console.log('ℹ️ Kein Service Worker (sw.js fehlt) — Install-Button zeigt Fallback-Anleitung');
+    });
+  }
+
+  // beforeinstallprompt abfangen (nur Chromium-Browser: Brave, Chrome, Edge, Opera)
+  window._zenInstallPrompt=null;
+  window.addEventListener('beforeinstallprompt',e=>{
+    e.preventDefault();
+    window._zenInstallPrompt=e;
+    const btn=document.getElementById('install-app-btn');
+    if(btn)btn.style.display='';
+  });
+  window.addEventListener('appinstalled',()=>{
+    window._zenInstallPrompt=null;
+    const btn=document.getElementById('install-app-btn');
+    if(btn)btn.style.display='none';
+  });
+
+  // Button IMMER sichtbar machen (auch ohne Prompt), damit User den Fallback nutzen kann
+  document.addEventListener('DOMContentLoaded',()=>{
+    const btn=document.getElementById('install-app-btn');
+    if(!btn)return;
+    // Nicht anzeigen wenn bereits installiert (Standalone-Modus)
+    if(window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone){
+      btn.style.display='none';
+    }else{
+      btn.style.display='';
+    }
+  });
+})();
 
 // Polyfill for ctx.roundRect (not in all browsers)
 if(!CanvasRenderingContext2D.prototype.roundRect){
@@ -872,8 +951,15 @@ async function fetchData(sym,tf,silent=false,_retries=3){
       if(currentSymbol===sym){chartEvents=ev;redrawOC();}
     }).catch(()=>{});
     // Restore saved view for this symbol, or default to last 120
+    // ABER: beim allerersten Laden pro Session nicht restoren, sondern aktuelle Ansicht zeigen
     const saved=symbolViews[sym+'_'+tf];
-    if(saved&&saved.viewEnd<=n-1){
+    if(saved&&saved.viewEnd<=n-1&&!window._zenFirstLoadDone){
+      // Erstes Laden: ignoriere gespeicherten View → zeige aktuelle Kerzen
+      yOverride=null;autoFit=true;
+      document.getElementById('autofit-btn').classList.add('on');
+      const show=Math.min(365,n);
+      viewStart=n-show;viewEnd=n-1;ensureRightPad();
+    }else if(saved&&saved.viewEnd<=n-1){
       viewStart=saved.viewStart;viewEnd=saved.viewEnd;
       yOverride=saved.yOverride||null;
       autoFit=saved.autoFit!==undefined?saved.autoFit:true;
@@ -884,6 +970,8 @@ async function fetchData(sym,tf,silent=false,_retries=3){
       const show=Math.min(365,n);
       viewStart=n-show;viewEnd=n-1;ensureRightPad();
     }
+    // Flag setzen nach erstem erfolgreichen Load — ab jetzt wieder restoren
+    window._zenFirstLoadDone=true;
     renderAll();
     // Try to fetch company name if not known yet
     if(!getSymName(sym))fetchSymName(sym);
@@ -2846,9 +2934,13 @@ mainWrap.addEventListener('wheel',e=>{
 // ── Pan + Y drag ──────────────────────────────────────────────
 mainWrap.addEventListener('mousedown',e=>{
   if(!mainChart)return;
-  const rect=mainWrap.getBoundingClientRect();const rx=e.clientX-rect.left;const ca=mainChart.chartArea;
+  const rect=mainWrap.getBoundingClientRect();const rx=e.clientX-rect.left;const ry=e.clientY-rect.top;const ca=mainChart.chartArea;
   if(ca&&rx>ca.right){e.preventDefault();e.stopPropagation();yDragging=true;yDragStartY=e.clientY;yDragMinStart=mainChart.scales.y.min;yDragMaxStart=mainChart.scales.y.max;mainWrap.style.cursor='ns-resize';autoFit=false;document.getElementById('autofit-btn').classList.remove('on');return;}
   if(drawMode!=='pointer')return;
+  // Wenn die Maus über einer Zeichnung ist: Chart-Pan NICHT starten (Drawing-Drag übernimmt via ovCanvas)
+  if(ca&&rx>=ca.left&&rx<=ca.right&&ry>=ca.top&&ry<=ca.bottom){
+    if(findDrawingAtPoint(rx,ry,ca))return;
+  }
   isDragging=true;dragStartX=e.clientX;dragStartY=e.clientY;dragViewStart=viewStart;dragViewEnd=viewEnd;
   if(mainChart){dragYMin=mainChart.scales.y.min;dragYMax=mainChart.scales.y.max;}
   mainWrap.style.cursor='grabbing';
@@ -2867,6 +2959,8 @@ window.addEventListener('mousemove',e=>{
     if(mainChart)mainChart.resize();
     syncOC();return;
   }
+  // Wenn gerade eine Zeichnung gezogen wird: keinen Chart-Pan + kein Y-Drag
+  if(dragState)return;
   if(yDragging&&mainChart){const dy=e.clientY-yDragStartY;const range=yDragMaxStart-yDragMinStart;const mid=(yDragMaxStart+yDragMinStart)/2;const newRange=range*(1+dy/200);yOverride={min:mid-newRange/2,max:mid+newRange/2};mainChart.options.scales.y.min=yOverride.min;mainChart.options.scales.y.max=yOverride.max;mainChart.update('none');return;}
   if(!isDragging)return;
   const dx=e.clientX-dragStartX;
@@ -3006,7 +3100,9 @@ ovCanvas.addEventListener('mousedown',e=>{
   };
   dragMoved=false;
   selectedDrawing=hit;
+  // WICHTIG: Event nicht zum Chart-Pan-Handler bubblen lassen
   e.preventDefault();
+  e.stopPropagation();
 });
 ovCanvas.addEventListener('mousemove',e=>{
   const rect=ovCanvas.getBoundingClientRect();const rx=e.clientX-rect.left,ry=e.clientY-rect.top;
@@ -5122,6 +5218,36 @@ setInterval(()=>{
     btn.style.color='';btn.title='Kein Finnhub-Key — Yahoo-Polling aktiv (delayed)';
   }
 },2000);
+
+// ── Install-App-Button (PWA) ───────────────────────────────────
+// Sichtbarkeit wird in setupPWA() oben gesteuert.
+// Button feuert beforeinstallprompt wenn verfügbar, sonst Fallback-Anleitung.
+(function initInstallButton(){
+  const btn=document.getElementById('install-app-btn');
+  if(!btn)return;
+  btn.addEventListener('click',async()=>{
+    const p=window._zenInstallPrompt;
+    if(!p){
+      const ua=navigator.userAgent;
+      if(/iPhone|iPad|iPod/.test(ua)){
+        alert('So installierst du ZEN-Trading auf iOS:\n1. Safari öffnen\n2. Teilen-Button tippen\n3. "Zum Home-Bildschirm"');
+      }else if(/Firefox/.test(ua)){
+        alert('Firefox unterstützt PWA-Install nicht.\nAlternative: in Brave/Chrome/Edge öffnen und dort installieren.');
+      }else{
+        alert('Install-Prompt ist noch nicht bereit.\n\nGründe:\n• sw.js fehlt neben der index.html (→ nötig für Install-Prompt)\n• Seite noch nicht lang genug angezeigt (Chrome verlangt ~30s Interaktion)\n• Bereits installiert\n\nFallback: Brave-Menü ≡ → "Seite als App installieren".');
+      }
+      return;
+    }
+    p.prompt();
+    const choice=await p.userChoice;
+    if(choice.outcome==='accepted'){
+      setStatus('App wird installiert …','ok');
+      setTimeout(()=>setStatus('Bereit','idle'),3000);
+    }
+    window._zenInstallPrompt=null;
+    btn.style.display='none';
+  });
+})();
 </script>
 </body>
 </html>
