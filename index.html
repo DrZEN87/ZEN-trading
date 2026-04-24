@@ -157,8 +157,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 </div>
 
 <!-- Profile Modal -->
-<div id="profile-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:2000;align-items:center;justify-content:center">
-  <div style="background:#111827;border:1px solid #334155;border-radius:10px;padding:24px;min-width:420px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.5)">
+<div id="profile-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:2000;align-items:center;justify-content:center;overflow-y:auto;padding:20px 0">
+  <div style="background:#111827;border:1px solid #334155;border-radius:10px;padding:24px;min-width:420px;max-width:90vw;max-height:calc(100vh - 40px);overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.5);margin:auto">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
@@ -182,6 +182,31 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
       <div>• <b style="color:#cbd5e1">Alarme + Email-Versand:</b> benötigt E-Mail-Adresse</div>
       <div>• <b style="color:#cbd5e1">KI-Analyse:</b> benötigt Gemini API-Key</div>
       <div>• <b style="color:#cbd5e1">Cloud-Sync:</b> Zeichnungen, Watchlist, Alarme werden an deine E-Mail gekoppelt gespeichert</div>
+    </div>
+    <!-- ═══ Alarm-Einstellungen pro Typ ═══ -->
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:16px">🔔</span>
+        <h3 style="margin:0;color:#e2e8f0;font-size:14px;font-weight:600">Alarm-Einstellungen</h3>
+      </div>
+      <div style="background:#0f172a;border:1px solid #334155;border-radius:6px;overflow:hidden">
+        <table id="alarm-settings-table" style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#111827">
+              <th style="padding:8px 10px;text-align:left;color:#cbd5e1;font-weight:600;border-bottom:1px solid #334155">Typ</th>
+              <th style="padding:8px 10px;text-align:center;color:#cbd5e1;font-weight:600;border-bottom:1px solid #334155;width:58px">Aktiv</th>
+              <th style="padding:8px 10px;text-align:center;color:#cbd5e1;font-weight:600;border-bottom:1px solid #334155;width:62px">Popup</th>
+              <th style="padding:8px 10px;text-align:center;color:#cbd5e1;font-weight:600;border-bottom:1px solid #334155;width:60px">E-Mail</th>
+            </tr>
+          </thead>
+          <tbody id="alarm-settings-tbody"></tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;font-size:11px">
+        <button type="button" id="alarm-settings-all-on" style="flex:1;padding:5px 8px;background:transparent;border:1px solid #334155;border-radius:4px;color:#94a3b8;cursor:pointer">Alle an</button>
+        <button type="button" id="alarm-settings-all-off" style="flex:1;padding:5px 8px;background:transparent;border:1px solid #334155;border-radius:4px;color:#94a3b8;cursor:pointer">Alle aus</button>
+        <button type="button" id="alarm-settings-email-off" style="flex:1;padding:5px 8px;background:transparent;border:1px solid #334155;border-radius:4px;color:#94a3b8;cursor:pointer">Alle Mails aus</button>
+      </div>
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button id="profile-logout" style="padding:8px 14px;background:transparent;border:1px solid #475569;border-radius:5px;color:#94a3b8;cursor:pointer;font-size:12px">Abmelden</button>
@@ -459,6 +484,42 @@ let showVol=true,showVolProfile=true,autoFit=true;
 let currentTF='d1',currentSymbol='SAP.DE',chartType='candles';
 let mainChart=null,volChart=null,rsiChart=null,srsiChart=null,macdChart=null,atrChart=null;
 let alarmInterval=null;
+// ── Zentrale Alarm-Settings pro Typ (Aktiv / Popup / E-Mail) ──
+const ALARM_TYPES=[
+  {key:'price',      icon:'🔔', label:'Preis-Alarm (manuell gesetzt)'},
+  {key:'sma50',      icon:'📉', label:'SMA 50 Berührung'},
+  {key:'sma200',     icon:'📉', label:'SMA 200 Berührung'},
+  {key:'macd',       icon:'📊', label:'MACD-Kreuzung'},
+  {key:'bb',         icon:'🎯', label:'Bollinger-Band Ausbruch'},
+  {key:'stoch',      icon:'⚡', label:'Stoch RSI Extremwerte'},
+  {key:'rsi',        icon:'⚡', label:'RSI überkauft/überverkauft'},
+  {key:'volume',     icon:'📊', label:'Volumen-Anomalie'},
+  {key:'dailymove',  icon:'📈', label:'5% Tages-Bewegung'},
+  {key:'sr',         icon:'━',  label:'S/R-Linie berührt'},
+  {key:'fib',        icon:'φ',  label:'Fibonacci-Level berührt'},
+  {key:'trendline',  icon:'╱',  label:'Trendlinie berührt'}
+];
+function getAlarmSettings(){
+  try{
+    const saved=JSON.parse(localStorage.getItem('zen_alarm_settings')||'{}');
+    const out={};
+    ALARM_TYPES.forEach(t=>{
+      out[t.key]=saved[t.key]||{active:true,popup:true,email:true};
+    });
+    return out;
+  }catch{
+    const out={};
+    ALARM_TYPES.forEach(t=>{out[t.key]={active:true,popup:true,email:true};});
+    return out;
+  }
+}
+function saveAlarmSettings(s){
+  try{localStorage.setItem('zen_alarm_settings',JSON.stringify(s));}catch{}
+}
+// Policy-Check: soll Alarm-Typ überhaupt ausgelöst werden?
+function alarmActive(typeKey){return getAlarmSettings()[typeKey]?.active!==false;}
+function alarmShowPopup(typeKey){return getAlarmSettings()[typeKey]?.popup!==false;}
+function alarmSendEmail(typeKey){return getAlarmSettings()[typeKey]?.email!==false;}
 let viewStart=0,viewEnd=0,yOverride=null;
 let symbolViews={}; // remember zoom/view per symbol
 // ── Company name lookup ──────────────────────────────────────
@@ -3517,12 +3578,24 @@ document.getElementById('del-selected-btn').addEventListener('click',()=>{
 })();
 
 // ── Alarm ─────────────────────────────────────────────────────
+// Universelles Popup für ALLE Alarm-Typen (Preis, RSI, MACD, BB, Stoch, SMA, Vol, Tages, Fib, Trendline, S/R)
+function showAlarmPopup(title,message){
+  const pop=document.getElementById('al-popup');
+  if(!pop)return;
+  const titleEl=pop.querySelector('.pop-title');
+  const bodyEl=document.getElementById('pop-body');
+  const metaEl=document.getElementById('pop-meta');
+  const bar=document.getElementById('pop-bar');
+  if(titleEl)titleEl.textContent='🔔 '+(title||'Alarm ausgelöst');
+  if(bodyEl)bodyEl.textContent=message||'';
+  if(metaEl)metaEl.textContent=new Date().toLocaleString('de-DE');
+  if(bar){bar.style.animation='none';requestAnimationFrame(()=>requestAnimationFrame(()=>{bar.style.animation='barDown 8s linear forwards';}));}
+  pop.style.display='flex';
+  if(popupTimer)clearTimeout(popupTimer);
+  popupTimer=setTimeout(()=>pop.style.display='none',8000);
+}
 function showPopup(alarm){
-  document.getElementById('pop-body').textContent=alarm.sym+' ist '+(alarm.dir==='above'?'über':'unter')+' '+getCurrency(alarm.sym)+alarm.price.toFixed(2);
-  document.getElementById('pop-meta').textContent=new Date().toLocaleString('de-DE');
-  const bar=document.getElementById('pop-bar');bar.style.animation='none';requestAnimationFrame(()=>requestAnimationFrame(()=>{bar.style.animation='barDown 8s linear forwards';}));
-  document.getElementById('al-popup').style.display='flex';
-  if(popupTimer)clearTimeout(popupTimer);popupTimer=setTimeout(()=>document.getElementById('al-popup').style.display='none',8000);
+  showAlarmPopup('Preis-Alarm ausgelöst',alarm.sym+' ist '+(alarm.dir==='above'?'über':'unter')+' '+getCurrency(alarm.sym)+alarm.price.toFixed(2));
 }
 document.getElementById('pop-close').addEventListener('click',()=>{document.getElementById('al-popup').style.display='none';if(popupTimer)clearTimeout(popupTimer);});
 function addAlarm(price,dir){
@@ -3533,11 +3606,15 @@ function addAlarm(price,dir){
   if(dup){setStatus('⚠ Alarm schon gesetzt','err');return;}
   alarms.push({price,dir,sym:currentSymbol,id:now});
   renderAlarmTags();
-  if(!alarmInterval)alarmInterval=setInterval(checkAlarms,8000);
+  startAlarmLoop();
   // Always push to cloud if email is set
   if(localStorage.getItem('zen_alarm_email')){
     cloudAddAlarm(currentSymbol,dir,price);
   }
+}
+// Intervall starten (läuft wenn entweder Preis-Alarme ODER Zeichnungen mit aktiviertem Fib/TL/SR da sind)
+function startAlarmLoop(){
+  if(!alarmInterval)alarmInterval=setInterval(checkAlarms,8000);
 }
 function renderAlarmTags(){
   const el=document.getElementById('al-list');
@@ -3546,6 +3623,7 @@ function renderAlarmTags(){
 }
 function checkAlarms(){
   if(!candles.length)return;
+  if(!alarmActive('price'))return; // Typ deaktiviert → gar nicht prüfen
   const cur=candles[candles.length-1].c;
   const triggeredIds=[];
   alarms.forEach(a=>{
@@ -3554,7 +3632,7 @@ function checkAlarms(){
       if(!a.triggered){
         a.triggered=true;
         playAlarmSound();
-        showPopup(a);
+        if(alarmShowPopup('price'))showPopup(a);
         const cur2=getCurrency(a.sym);
         const msg=a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2);
         setStatus('🔔 Alarm: '+msg,'err');
@@ -3564,7 +3642,7 @@ function checkAlarms(){
         // Sprachausgabe: "Apple Alarm: 100 Dollar überschritten"
         const richtung=a.dir==='above'?'überschritten':'unterschritten';
         speak(speakableSymbol(a.sym)+' Alarm: '+a.price.toFixed(2)+' '+currencyName(cur2)+' '+richtung,{cancel:true});
-        sendAlarmEmail(a);
+        if(alarmSendEmail('price'))sendAlarmEmail(a);
         // Cloud: mark as triggered (will be auto-removed on next check)
         if(localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
         triggeredIds.push(a.id);
@@ -3579,6 +3657,8 @@ function checkAlarms(){
       redrawOC();
     },2000); // 2s delay so user sees the alarm line briefly
   }
+  // Zeichnungs-Alarme (Fib / Trendline / S-R) im gleichen Intervall prüfen
+  try{checkDrawingAlarms();}catch(e){console.warn('Drawing alarms error',e);}
 }
 async function cloudDeleteAlarm(sym,price){
   try{
@@ -3614,6 +3694,7 @@ function saveRsiAlarmState(){try{localStorage.setItem('zen_rsiAlarmState',JSON.s
 async function checkRsiAlarms(){
   const statusEl=document.getElementById('al-rsi-status');
   if(!watchlist.length){statusEl.textContent='Watchlist leer';return;}
+  if(!alarmActive('rsi')){statusEl.textContent='RSI-Alarm deaktiviert (Profil)';return;}
   statusEl.textContent='Prüfe RSI…';
   for(const sym of watchlist){
     try{
@@ -3631,12 +3712,12 @@ async function checkRsiAlarms(){
       if(now!==prev&&now!=='neutral'){
         const alarm={sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true,id:Date.now()+Math.random()};
         playAlarmSound();
-        showRsiPopup(sym,rsi,now);
+        if(alarmShowPopup('rsi'))showRsiPopup(sym,rsi,now);
         const rsiMsg=sym+' '+(now==='overbought'?'überkauft':'überverkauft')+' (RSI '+rsi.toFixed(1)+')';
         setStatus('🔔 RSI-Alarm: '+rsiMsg,'err');
         if(typeof recordAlarm==='function')recordAlarm('RSI-'+now,sym,'D1',rsiMsg);
         if(Notification.permission==='granted')new Notification('RSI-Alarm: '+sym,{body:(now==='overbought'?'Überkauft':'Überverkauft')+' (RSI '+rsi.toFixed(1)+')'});
-        sendAlarmEmail({sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true});
+        if(alarmSendEmail('rsi'))sendAlarmEmail({sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true,type:'rsi',message:rsiMsg});
       }
       rsiAlarmState[sym]=now;
       saveRsiAlarmState();
@@ -3647,11 +3728,7 @@ async function checkRsiAlarms(){
 }
 function showRsiPopup(sym,rsi,type){
   const isOver=type==='overbought';
-  document.getElementById('pop-body').textContent=sym+' ist '+(isOver?'überkauft':'überverkauft')+' — RSI '+rsi.toFixed(1);
-  document.getElementById('pop-meta').textContent='RSI(14) '+(isOver?'≥ 70':'≤ 30')+' · '+new Date().toLocaleString('de-DE');
-  const bar=document.getElementById('pop-bar');bar.style.animation='none';requestAnimationFrame(()=>requestAnimationFrame(()=>{bar.style.animation='barDown 8s linear forwards';}));
-  document.getElementById('al-popup').style.display='flex';
-  if(popupTimer)clearTimeout(popupTimer);popupTimer=setTimeout(()=>document.getElementById('al-popup').style.display='none',8000);
+  showAlarmPopup('RSI-Alarm',sym+' ist '+(isOver?'überkauft':'überverkauft')+' — RSI '+rsi.toFixed(1)+' (RSI(14) '+(isOver?'≥ 70':'≤ 30')+')');
 }
 function startRsiAlarms(){
   if(rsiAlarmInterval)clearInterval(rsiAlarmInterval);
@@ -3673,6 +3750,10 @@ document.getElementById('al-rsi-enabled').addEventListener('change',e=>{
 });
 // Load state on startup
 setTimeout(loadRsiAlarmState,3000);
+// Alarm-Loop auch starten falls Zeichnungen existieren (für Fib/TL/SR-Alarme)
+setTimeout(()=>{
+  if(drawings.length>0)startAlarmLoop();
+},3500);
 
 // ── Cloud-Alarme (Google Apps Script Backend) ────────────────
 const CLOUD_WEBHOOK_URL='https://script.google.com/macros/s/AKfycbwFVvK46TJ-nlFU3c_9LwTNyOWHZtPAsnj8pPDiZEi1M5-1zUzYLs74R28dM6RFT0-r/exec';
@@ -3863,6 +3944,7 @@ async function syncCloudDrawings(){
     status.textContent='';
     modal.style.display='flex';
     setTimeout(()=>emailIn.focus(),100);
+    if(typeof renderAlarmSettingsTable==='function')renderAlarmSettingsTable();
   }
   function closeModal(){modal.style.display='none';}
   document.getElementById('profile-btn').addEventListener('click',openModal);
@@ -3920,6 +4002,49 @@ async function syncCloudDrawings(){
     closeModal();
     setTimeout(()=>location.reload(),300);
   });
+  // ══ Alarm-Settings-Tabelle ══
+  function renderAlarmSettingsTable(){
+    const tbody=document.getElementById('alarm-settings-tbody');
+    if(!tbody)return;
+    const s=getAlarmSettings();
+    tbody.innerHTML=ALARM_TYPES.map(t=>{
+      const row=s[t.key];
+      return `<tr data-key="${t.key}" style="border-bottom:1px solid #1e293b">
+        <td style="padding:8px 10px;color:#e2e8f0"><span style="margin-right:6px;display:inline-block;width:16px;text-align:center">${t.icon}</span>${t.label}</td>
+        <td style="padding:8px 10px;text-align:center"><input type="checkbox" class="as-active" ${row.active?'checked':''} style="cursor:pointer;width:15px;height:15px;accent-color:#2563eb"></td>
+        <td style="padding:8px 10px;text-align:center"><input type="checkbox" class="as-popup" ${row.popup?'checked':''} style="cursor:pointer;width:15px;height:15px;accent-color:#2563eb"></td>
+        <td style="padding:8px 10px;text-align:center"><input type="checkbox" class="as-email" ${row.email?'checked':''} style="cursor:pointer;width:15px;height:15px;accent-color:#2563eb"></td>
+      </tr>`;
+    }).join('');
+    // Change-Handler pro Row
+    tbody.querySelectorAll('tr').forEach(tr=>{
+      const key=tr.getAttribute('data-key');
+      const active=tr.querySelector('.as-active');
+      const popup=tr.querySelector('.as-popup');
+      const email=tr.querySelector('.as-email');
+      [active,popup,email].forEach(cb=>{
+        cb.addEventListener('change',()=>{
+          const cur=getAlarmSettings();
+          cur[key]={active:active.checked,popup:popup.checked,email:email.checked};
+          saveAlarmSettings(cur);
+        });
+      });
+    });
+  }
+  // Quick-Buttons
+  document.getElementById('alarm-settings-all-on').addEventListener('click',()=>{
+    const s={};ALARM_TYPES.forEach(t=>{s[t.key]={active:true,popup:true,email:true};});
+    saveAlarmSettings(s);renderAlarmSettingsTable();
+  });
+  document.getElementById('alarm-settings-all-off').addEventListener('click',()=>{
+    const s={};ALARM_TYPES.forEach(t=>{s[t.key]={active:false,popup:false,email:false};});
+    saveAlarmSettings(s);renderAlarmSettingsTable();
+  });
+  document.getElementById('alarm-settings-email-off').addEventListener('click',()=>{
+    const cur=getAlarmSettings();
+    ALARM_TYPES.forEach(t=>{cur[t.key].email=false;});
+    saveAlarmSettings(cur);renderAlarmSettingsTable();
+  });
   // Markierung: hat der User bereits eine E-Mail? Button-Farbe anpassen
   function updateProfileBtnState(){
     const btn=document.getElementById('profile-btn');
@@ -3932,7 +4057,23 @@ async function syncCloudDrawings(){
   // Expose for after save
   window.updateProfileBtnState=updateProfileBtnState;
 })();
-function sendAlarmEmail(alarm){return;} // stub — Apps Script sendet E-Mails
+// Preis-/RSI-Alarm-Email via Apps Script senden
+function sendAlarmEmail(alarm){
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(!email)return;
+  // Preis-Alarm (dir: above/below, price)
+  if(alarm.isRsi){
+    cloudRequest('notifySma',{
+      symbol:alarm.sym,tf:'D1',smaType:'RSI-'+(alarm.dir==='above'?'überkauft':'überverkauft'),
+      price:alarm.price,smaValue:alarm.price,
+      message:alarm.message||(alarm.sym+' RSI '+(alarm.dir==='above'?'überkauft':'überverkauft'))
+    });
+  }else{
+    cloudRequest('notifyTrigger',{
+      symbol:alarm.sym,price:alarm.price,direction:alarm.dir
+    });
+  }
+}
 
 // Hinweis-Check für features die Email/Key brauchen
 function requireProfileFor(feature){
@@ -4826,6 +4967,7 @@ async function checkSMATouchesAll(){
 }
 // ── Neue Alarm-Trigger-Funktionen ─────────────────────────────
 function triggerMACDAlarm(sym,tf,type,macdLine,signalLine,price){
+  if(!alarmActive('macd'))return;
   const dirText=type==='bullish'?'Bullish Cross (Kauf-Signal)':'Bearish Cross (Verkaufs-Signal)';
   const emoji=type==='bullish'?'📈':'📉';
   const msg=sym+' ('+tf+') MACD '+dirText+' '+emoji+' — MACD='+macdLine.toFixed(3)+' Signal='+signalLine.toFixed(3);
@@ -4834,17 +4976,14 @@ function triggerMACDAlarm(sym,tf,type,macdLine,signalLine,price){
   try{playAlarmSound();}catch{}
   const speechText=speakableSymbol(sym)+': MACD '+(type==='bullish'?'bullisches Kreuz, Kaufsignal':'bärisches Kreuz, Verkaufssignal');
   speak(speechText,{cancel:true});
-  try{
-    const pop=document.getElementById('alarm-popup');
-    const body=document.getElementById('pop-body');
-    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
-  }catch{}
+  if(alarmShowPopup('macd'))showAlarmPopup('MACD-Alarm',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
-  if(email){
+  if(email&&alarmSendEmail('macd')){
     cloudRequest('notifySma',{symbol:sym,tf,smaType:'MACD-'+type,price,smaValue:macdLine,message:msg});
   }
 }
 function triggerBBAlarm(sym,tf,dir,price,bandLevel){
+  if(!alarmActive('bb'))return;
   const dirText=dir==='oben'?'oberes Band durchbrochen':'unteres Band durchbrochen';
   const emoji=dir==='oben'?'🚀':'⬇️';
   const msg=sym+' ('+tf+') Bollinger '+dirText+' '+emoji+' — Preis: '+price.toFixed(2)+' · Band: '+bandLevel.toFixed(2);
@@ -4853,34 +4992,28 @@ function triggerBBAlarm(sym,tf,dir,price,bandLevel){
   try{playAlarmSound();}catch{}
   const speechText=speakableSymbol(sym)+': Bollinger-Band '+(dir==='oben'?'oben ausgebrochen':'unten ausgebrochen');
   speak(speechText,{cancel:true});
-  try{
-    const pop=document.getElementById('alarm-popup');
-    const body=document.getElementById('pop-body');
-    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
-  }catch{}
+  if(alarmShowPopup('bb'))showAlarmPopup('Bollinger-Band Ausbruch',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
-  if(email){
+  if(email&&alarmSendEmail('bb')){
     cloudRequest('notifySma',{symbol:sym,tf,smaType:'BB-'+dir,price,smaValue:bandLevel,message:msg});
   }
 }
 function triggerStochAlarm(sym,tf,extrem,stochK,price){
+  if(!alarmActive('stoch'))return;
   const emoji=extrem==='überkauft'?'🔥':'❄️';
   const msg=sym+' ('+tf+') Stoch RSI '+extrem+' '+emoji+' — K='+stochK.toFixed(1)+' · Preis: '+price.toFixed(2);
   console.log('Stoch-Alarm:',msg);recordAlarm('SRSI-'+extrem,sym,tf,msg);
   setStatus('🔔 Stoch RSI: '+msg,extrem==='überkauft'?'err':'ok');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+': Stochastischer RSI '+extrem,{cancel:true});
-  try{
-    const pop=document.getElementById('alarm-popup');
-    const body=document.getElementById('pop-body');
-    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
-  }catch{}
+  if(alarmShowPopup('stoch'))showAlarmPopup('Stoch RSI '+extrem,msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
-  if(email){
+  if(email&&alarmSendEmail('stoch')){
     cloudRequest('notifySma',{symbol:sym,tf,smaType:'Stoch-'+extrem,price,smaValue:stochK,message:msg});
   }
 }
 function triggerDailyMoveAlarm(sym,change,price){
+  if(!alarmActive('dailymove'))return;
   const pct=(change*100).toFixed(2);
   const dir=change>=0?'gestiegen':'gefallen';
   const emoji=change>=0?'📈':'📉';
@@ -4889,34 +5022,30 @@ function triggerDailyMoveAlarm(sym,change,price){
   setStatus('🔔 '+msg,change>=0?'ok':'err');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+' heute '+Math.abs(pct)+' Prozent '+dir,{cancel:true});
-  try{
-    const pop=document.getElementById('alarm-popup');
-    const body=document.getElementById('pop-body');
-    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
-  }catch{}
+  if(alarmShowPopup('dailymove'))showAlarmPopup('5% Tages-Bewegung',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
-  if(email){
+  if(email&&alarmSendEmail('dailymove')){
     cloudRequest('notifySma',{symbol:sym,tf:'D1',smaType:'Tages-Move '+pct+'%',price,smaValue:0,message:msg});
   }
 }
 function triggerVolumeAlarm(sym,currentVol,avgVol){
+  if(!alarmActive('volume'))return;
   const ratio=(currentVol/avgVol).toFixed(1);
   const msg=sym+' ungewöhnlich hohes Volumen: '+ratio+'x Durchschnitt';
   console.log('Volumen-Alarm:',msg);recordAlarm('Volumen',sym,'D1',msg);
   setStatus('🔔 '+msg,'ok');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+' ungewöhnlich hohes Volumen, '+ratio+' mal Durchschnitt',{cancel:true});
-  try{
-    const pop=document.getElementById('alarm-popup');
-    const body=document.getElementById('pop-body');
-    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
-  }catch{}
+  if(alarmShowPopup('volume'))showAlarmPopup('Volumen-Anomalie',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
-  if(email){
+  if(email&&alarmSendEmail('volume')){
     cloudRequest('notifySma',{symbol:sym,tf:'D1',smaType:'Volumen '+ratio+'x',price:0,smaValue:currentVol,message:msg});
   }
 }
 function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
+  // smaType ist z.B. "SMA50" oder "SMA200" → Key bestimmen
+  const typeKey=smaType.includes('200')?'sma200':(smaType.includes('50')?'sma50':'sma50');
+  if(!alarmActive(typeKey))return;
   const msg=sym+' ('+tf+') berührt '+smaType+' @ '+smaValue.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
   console.log('SMA-Alarm:',msg);recordAlarm(smaType,sym,tf,msg);
   setStatus('🔔 SMA-Alarm: '+msg,'ok');
@@ -4924,15 +5053,113 @@ function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
   const tfSpeech=tf==='D1'?'Tagesbasis':tf==='M1'?'Monatsbasis':tf;
   const smaSpeech=smaType.replace('SMA','SMA ');
   speak(speakableSymbol(sym)+': '+smaSpeech+' auf '+tfSpeech+' erreicht',{cancel:true});
-  try{
-    const pop=document.getElementById('alarm-popup');
-    const body=document.getElementById('pop-body');
-    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
-  }catch{}
+  if(alarmShowPopup(typeKey))showAlarmPopup(smaType+' Berührung',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
-  if(email){
+  if(email&&alarmSendEmail(typeKey)){
     cloudRequest('notifySma',{symbol:sym,tf,smaType,price,smaValue,message:msg});
   }
+}
+
+// ── Fib / Trendline / S-R Touch-Alarme ─────────────────────────
+// Hysterese-State: pro Drawing-ID zuletzt ausgelöster Zeitstempel (um Spam zu vermeiden)
+const drawingAlarmState={}; // { "drawingId_level": lastTriggerTs }
+const DRAWING_ALARM_COOLDOWN=60*60*1000; // 1h pro Level/Drawing
+function drawingAlarmAllowed(key){
+  const last=drawingAlarmState[key]||0;
+  if(Date.now()-last<DRAWING_ALARM_COOLDOWN)return false;
+  drawingAlarmState[key]=Date.now();
+  return true;
+}
+function triggerSRAlarm(sym,price,srPrice,drawingId){
+  if(!alarmActive('sr'))return;
+  if(!drawingAlarmAllowed('sr_'+drawingId))return;
+  const msg=sym+' berührt S/R-Linie @ '+srPrice.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
+  console.log('SR-Alarm:',msg);recordAlarm('SR-Touch',sym,'',msg);
+  setStatus('🔔 S/R: '+msg,'ok');
+  try{playAlarmSound();}catch{}
+  speak(speakableSymbol(sym)+': Support Resistance bei '+srPrice.toFixed(2)+' berührt',{cancel:true});
+  if(alarmShowPopup('sr'))showAlarmPopup('S/R-Linie berührt',msg);
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email&&alarmSendEmail('sr')){
+    cloudRequest('notifySma',{symbol:sym,tf:currentTF.toUpperCase(),smaType:'S/R-Touch',price,smaValue:srPrice,message:msg});
+  }
+}
+function triggerFibAlarm(sym,price,fibLevel,fibPrice,drawingId){
+  if(!alarmActive('fib'))return;
+  if(!drawingAlarmAllowed('fib_'+drawingId+'_'+fibLevel))return;
+  const msg=sym+' berührt Fib '+(fibLevel*100).toFixed(1)+'% @ '+fibPrice.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
+  console.log('Fib-Alarm:',msg);recordAlarm('Fib-'+(fibLevel*100).toFixed(1),sym,'',msg);
+  setStatus('🔔 Fib: '+msg,'ok');
+  try{playAlarmSound();}catch{}
+  speak(speakableSymbol(sym)+': Fibonacci '+(fibLevel*100).toFixed(0)+' Prozent berührt',{cancel:true});
+  if(alarmShowPopup('fib'))showAlarmPopup('Fibonacci-Level berührt',msg);
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email&&alarmSendEmail('fib')){
+    cloudRequest('notifySma',{symbol:sym,tf:currentTF.toUpperCase(),smaType:'Fib '+(fibLevel*100).toFixed(1)+'%',price,smaValue:fibPrice,message:msg});
+  }
+}
+function triggerTrendlineAlarm(sym,price,tlPrice,drawingId){
+  if(!alarmActive('trendline'))return;
+  if(!drawingAlarmAllowed('tl_'+drawingId))return;
+  const msg=sym+' berührt Trendlinie @ '+tlPrice.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
+  console.log('TL-Alarm:',msg);recordAlarm('Trendlinie',sym,'',msg);
+  setStatus('🔔 Trendlinie: '+msg,'ok');
+  try{playAlarmSound();}catch{}
+  speak(speakableSymbol(sym)+': Trendlinie bei '+tlPrice.toFixed(2)+' berührt',{cancel:true});
+  if(alarmShowPopup('trendline'))showAlarmPopup('Trendlinie berührt',msg);
+  const email=localStorage.getItem('zen_alarm_email')||'';
+  if(email&&alarmSendEmail('trendline')){
+    cloudRequest('notifySma',{symbol:sym,tf:currentTF.toUpperCase(),smaType:'Trendlinie',price,smaValue:tlPrice,message:msg});
+  }
+}
+// Prüfschleife: wird bei jedem Preis-Update aufgerufen
+// Toleranz: 0.3% des Preises als "Berührung" (Candle-Body reicht ran)
+function checkDrawingAlarms(){
+  if(!candles.length)return;
+  const cur=candles[candles.length-1].c;
+  const lastCandle=candles[candles.length-1];
+  const tolerance=cur*0.003; // 0.3%
+  drawings.forEach(d=>{
+    if(d.sym!==currentSymbol)return;
+    // S/R-Linie (horizontal)
+    if(d.type==='support'&&alarmActive('sr')){
+      if(Math.abs(lastCandle.h-d.price)<=tolerance||Math.abs(lastCandle.l-d.price)<=tolerance||
+         (lastCandle.l<=d.price&&lastCandle.h>=d.price)){
+        triggerSRAlarm(currentSymbol,cur,d.price,d.id);
+      }
+    }
+    // Trendlinie (zwei Punkte → Preis an aktueller Zeit-Idx interpolieren)
+    if(d.type==='trendline'&&alarmActive('trendline')){
+      const curIdx=candles.length-1;
+      if(d.p1&&d.p2&&d.p2.idx!==d.p1.idx){
+        const slope=(d.p2.price-d.p1.price)/(d.p2.idx-d.p1.idx);
+        const tlPriceNow=d.p1.price+slope*(curIdx-d.p1.idx);
+        // Nur prüfen wenn aktueller Idx zwischen/nach den Punkten (keine Extrapolation zu weit)
+        const maxIdx=Math.max(d.p1.idx,d.p2.idx);
+        if(curIdx>=Math.min(d.p1.idx,d.p2.idx)&&(!d.segment||curIdx<=maxIdx+200)){
+          if(Math.abs(lastCandle.h-tlPriceNow)<=tolerance||Math.abs(lastCandle.l-tlPriceNow)<=tolerance||
+             (lastCandle.l<=tlPriceNow&&lastCandle.h>=tlPriceNow)){
+            triggerTrendlineAlarm(currentSymbol,cur,tlPriceNow,d.id);
+          }
+        }
+      }
+    }
+    // Fibonacci (Levels aus p1/p2 berechnen)
+    if(d.type==='fib'&&alarmActive('fib')){
+      if(d.p1&&d.p2){
+        const hi=Math.max(d.p1.price,d.p2.price),lo=Math.min(d.p1.price,d.p2.price);
+        const range=hi-lo;
+        const levels=[0,0.236,0.382,0.5,0.618,0.786,1.0];
+        levels.forEach(lv=>{
+          const fibPrice=lo+range*lv;
+          if(Math.abs(lastCandle.h-fibPrice)<=tolerance||Math.abs(lastCandle.l-fibPrice)<=tolerance||
+             (lastCandle.l<=fibPrice&&lastCandle.h>=fibPrice)){
+            triggerFibAlarm(currentSymbol,cur,lv,fibPrice,d.id);
+          }
+        });
+      }
+    }
+  });
 }
 
 // ── Alarm-Historie (lokal, max. 50 Einträge) ──────────────────
@@ -5084,20 +5311,26 @@ async function checkDrawingTouchesAll(){
   }
 }
 function triggerDrawingTouchAlarm(sym,lineType,levelPrice,currentPrice){
+  // Key aus lineType ableiten: "Fib 38.2%" → fib, "Trendlinie" → trendline, "S/R" → sr
+  let typeKey='sr';
+  if(/fib/i.test(lineType))typeKey='fib';
+  else if(/trend/i.test(lineType))typeKey='trendline';
+  if(!alarmActive(typeKey))return;
   const msg=sym+' berührt '+lineType+' @ '+levelPrice.toFixed(2)+' (Preis: '+currentPrice.toFixed(2)+')';
   console.log('Drawing-Touch:',msg);
   setStatus('🔔 '+msg,'ok');
+  // Auch in Historie speichern (war vorher nicht der Fall!)
+  if(typeof recordAlarm==='function'){
+    const histType=typeKey==='fib'?'Fib-Touch':typeKey==='trendline'?'Trendlinie':'SR-Touch';
+    recordAlarm(histType,sym,'',msg);
+  }
   try{playAlarmSound();}catch{}
   // Sprachausgabe
   const speechLine=lineType.replace('Fib ','Fibonacci ').replace('%',' Prozent').replace('S/R','Support Resistance');
   speak(speakableSymbol(sym)+' berührt '+speechLine,{cancel:true});
-  try{
-    const pop=document.getElementById('alarm-popup');
-    const body=document.getElementById('pop-body');
-    if(pop&&body){body.textContent=msg;pop.style.display='flex';}
-  }catch{}
+  if(alarmShowPopup(typeKey))showAlarmPopup(lineType+' berührt',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
-  if(email){
+  if(email&&alarmSendEmail(typeKey)){
     cloudRequest('notifySma',{symbol:sym,tf:'Touch',smaType:lineType,price:currentPrice,smaValue:levelPrice,message:msg});
   }
 }
