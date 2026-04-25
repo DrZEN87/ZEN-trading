@@ -3578,26 +3578,66 @@ document.getElementById('del-selected-btn').addEventListener('click',()=>{
 })();
 
 // ── Alarm ─────────────────────────────────────────────────────
-// Universelles Popup für ALLE Alarm-Typen (Preis, RSI, MACD, BB, Stoch, SMA, Vol, Tages, Fib, Trendline, S/R)
-function showAlarmPopup(title,message){
+// Popup-Queue: jede Meldung wird 5x angezeigt (3s pro Anzeige), nacheinander
+const POPUP_REPEAT=5;
+const POPUP_DURATION_MS=3000;
+const popupQueue=[];
+let popupActive=false;
+function _runPopupQueue(){
+  if(popupActive)return;
+  const next=popupQueue.shift();
+  if(!next)return;
+  popupActive=true;
   const pop=document.getElementById('al-popup');
-  if(!pop)return;
+  if(!pop){popupActive=false;return;}
   const titleEl=pop.querySelector('.pop-title');
   const bodyEl=document.getElementById('pop-body');
   const metaEl=document.getElementById('pop-meta');
   const bar=document.getElementById('pop-bar');
-  if(titleEl)titleEl.textContent='🔔 '+(title||'Alarm ausgelöst');
-  if(bodyEl)bodyEl.textContent=message||'';
+  if(titleEl)titleEl.textContent='🔔 '+(next.title||'Alarm ausgelöst')+' ('+next.repeatIdx+'/'+POPUP_REPEAT+')';
+  if(bodyEl)bodyEl.textContent=next.message||'';
   if(metaEl)metaEl.textContent=new Date().toLocaleString('de-DE');
-  if(bar){bar.style.animation='none';requestAnimationFrame(()=>requestAnimationFrame(()=>{bar.style.animation='barDown 8s linear forwards';}));}
+  if(bar){
+    bar.style.animation='none';
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      bar.style.animation='barDown '+(POPUP_DURATION_MS/1000)+'s linear forwards';
+    }));
+  }
   pop.style.display='flex';
   if(popupTimer)clearTimeout(popupTimer);
-  popupTimer=setTimeout(()=>pop.style.display='none',8000);
+  popupTimer=setTimeout(()=>{
+    pop.style.display='none';
+    popupActive=false;
+    // Kurze Pause zwischen Popups damit man Wechsel sieht
+    setTimeout(_runPopupQueue,150);
+  },POPUP_DURATION_MS);
+}
+// Universelles Popup für ALLE Alarm-Typen — fügt 5 Wiederholungen in die Queue
+function showAlarmPopup(title,message){
+  for(let i=1;i<=POPUP_REPEAT;i++){
+    popupQueue.push({title,message,repeatIdx:i});
+  }
+  _runPopupQueue();
+}
+// Manuelles Schließen-Handler: aktuelles Popup weg + restliche Wiederholungen DIESER Meldung droppen
+function dismissCurrentPopup(){
+  const pop=document.getElementById('al-popup');
+  if(pop)pop.style.display='none';
+  if(popupTimer)clearTimeout(popupTimer);
+  // Nur Wiederholungen der gleichen Meldung droppen — andere Alarme bleiben in Queue
+  if(popupQueue.length){
+    const cur=popupQueue[0];
+    while(popupQueue.length&&popupQueue[0].title===cur.title&&popupQueue[0].message===cur.message){
+      popupQueue.shift();
+    }
+  }
+  popupActive=false;
+  setTimeout(_runPopupQueue,150);
 }
 function showPopup(alarm){
   showAlarmPopup('Preis-Alarm ausgelöst',alarm.sym+' ist '+(alarm.dir==='above'?'über':'unter')+' '+getCurrency(alarm.sym)+alarm.price.toFixed(2));
 }
-document.getElementById('pop-close').addEventListener('click',()=>{document.getElementById('al-popup').style.display='none';if(popupTimer)clearTimeout(popupTimer);});
+document.getElementById('pop-close').addEventListener('click',dismissCurrentPopup);
 function addAlarm(price,dir){
   if(isNaN(price)||price<=0)return;
   // Duplicate protection: ignore if same symbol+price+dir added in last 2s
@@ -3883,36 +3923,49 @@ async function cloudClearDrawings(sym){
 async function cloudFetchDrawings(){
   try{
     const email=localStorage.getItem('zen_alarm_email')||'';
-    if(!email)return null;
+    if(!email){console.warn('[Drawings-Fetch] Keine E-Mail im Profil — überspringe');return null;}
     const url=CLOUD_WEBHOOK_URL+'?action=listDrawings&email='+encodeURIComponent(email)+'&token='+encodeURIComponent(CLOUD_TOKEN);
     const resp=await fetch(url);
-    if(!resp.ok)return null;
+    if(!resp.ok){console.warn('[Drawings-Fetch] HTTP '+resp.status);return null;}
     const data=await resp.json();
     if(data.status==='ok'&&Array.isArray(data.drawings))return data.drawings;
+    console.warn('[Drawings-Fetch] Antwort ohne drawings:',data);
     return null;
-  }catch(e){console.warn('Draw fetch error',e);return null;}
+  }catch(e){console.warn('[Drawings-Fetch] Exception:',e);return null;}
 }
 async function syncCloudDrawings(){
-  const cloud=await cloudFetchDrawings();
-  if(!cloud)return;
-  // Cloud is source of truth — replace local drawings
-  drawings=cloud.map(c=>({
-    type:c.type,
-    sym:c.sym,
-    id:c.id,
-    p1:c.p1,p2:c.p2,
-    price:c.price,
-    startIdx:c.startIdx,
-    idx:c.idx,
-    time:c.time,
-    full:c.full,
-    offsetPx:c.offsetPx,
-    offsetPrice:c.offsetPrice,
-    segment:c.segment,
-    text:c.text,
-    label:c.label,
-  }));
-  redrawOC();
+  try{
+    const cloud=await cloudFetchDrawings();
+    if(!cloud){
+      console.warn('[Drawings-Sync] cloudFetchDrawings lieferte null — bleibe bei lokalen Drawings ('+drawings.length+' Stk)');
+      return;
+    }
+    console.log('[Drawings-Sync] '+cloud.length+' Zeichnungen aus Cloud geladen (lokal vorher: '+drawings.length+')');
+    // Cloud is source of truth — replace local drawings
+    drawings=cloud.map(c=>({
+      type:c.type,
+      sym:c.sym,
+      id:c.id,
+      p1:c.p1,p2:c.p2,
+      price:c.price,
+      startIdx:c.startIdx,
+      idx:c.idx,
+      time:c.time,
+      full:c.full,
+      offsetPx:c.offsetPx,
+      offsetPrice:c.offsetPrice,
+      segment:c.segment,
+      text:c.text,
+      label:c.label,
+    }));
+    // Sofort in localStorage cachen, damit beim nächsten Start (auch ohne Cloud-Verbindung) alle Drawings da sind
+    try{localStorage.setItem('zen_drawings',JSON.stringify(drawings));}catch{}
+    redrawOC();
+    setStatus('☁ '+drawings.length+' Zeichnungen aus Cloud geladen','ok');
+  }catch(e){
+    console.error('[Drawings-Sync] Fehler:',e);
+    setStatus('⚠ Cloud-Sync fehlgeschlagen — lokale Zeichnungen bleiben','err');
+  }
 }
 // Cloud checkbox
 (function(){
@@ -3929,7 +3982,16 @@ async function syncCloudDrawings(){
       document.getElementById('al-cloud-status').style.color='var(--text3)';
     }
   });
-  document.getElementById('al-cloud-sync').addEventListener('click',cloudListAlarms);
+  document.getElementById('al-cloud-sync').addEventListener('click',async()=>{
+    setStatus('☁ Synchronisiere…','ok');
+    try{
+      await Promise.all([
+        cloudListAlarms(),
+        syncCloudWatchlist(),
+        syncCloudDrawings()
+      ]);
+    }catch(e){console.warn('Sync error',e);}
+  });
 })();
 
 // ── Profile Modal (Email + Gemini API-Key) ─────────────────────
