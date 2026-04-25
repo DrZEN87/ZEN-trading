@@ -3578,9 +3578,9 @@ document.getElementById('del-selected-btn').addEventListener('click',()=>{
 })();
 
 // ── Alarm ─────────────────────────────────────────────────────
-// Popup-Queue: jede Meldung wird 5x angezeigt (3s pro Anzeige), nacheinander
-const POPUP_REPEAT=5;
-const POPUP_DURATION_MS=3000;
+// Popup-Queue: jede Meldung wird 1x angezeigt (5s), bei mehreren Alarmen nacheinander
+const POPUP_REPEAT=1;
+const POPUP_DURATION_MS=5000;
 const popupQueue=[];
 let popupActive=false;
 function _runPopupQueue(){
@@ -3594,7 +3594,7 @@ function _runPopupQueue(){
   const bodyEl=document.getElementById('pop-body');
   const metaEl=document.getElementById('pop-meta');
   const bar=document.getElementById('pop-bar');
-  if(titleEl)titleEl.textContent='🔔 '+(next.title||'Alarm ausgelöst')+' ('+next.repeatIdx+'/'+POPUP_REPEAT+')';
+  if(titleEl)titleEl.textContent='🔔 '+(next.title||'Alarm ausgelöst')+(POPUP_REPEAT>1?' ('+next.repeatIdx+'/'+POPUP_REPEAT+')':'');
   if(bodyEl)bodyEl.textContent=next.message||'';
   if(metaEl)metaEl.textContent=new Date().toLocaleString('de-DE');
   if(bar){
@@ -3862,9 +3862,18 @@ async function cloudListAlarms(){
 }
 
 // ── Cloud-Sync: Watchlist ────────────────────────────────────
+// Flag: wurde die Watchlist seit dem Start mindestens einmal erfolgreich aus der Cloud geladen?
+// Verhindert dass eine leere lokale Watchlist eine vorhandene Cloud-Watchlist überschreibt.
+let _watchlistSyncedFromCloud=false;
 async function cloudPushWatchlist(){
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(!email)return;
+  // Schutz vor Race-Bug: niemals eine leere Watchlist pushen, wenn wir noch nicht
+  // wissen ob die Cloud-Watchlist Daten hat. Erst nach erstem erfolgreichen Sync erlauben.
+  if((!watchlist||watchlist.length===0)&&!_watchlistSyncedFromCloud){
+    console.warn('[Watchlist-Push] Lokal leer und Cloud-Stand unbekannt → Push abgebrochen (Schutz vor versehentlichem Löschen)');
+    return;
+  }
   await cloudRequest('setWatchlist',{symbols:watchlist});
 }
 async function cloudFetchWatchlist(){
@@ -3881,6 +3890,8 @@ async function cloudFetchWatchlist(){
 }
 async function syncCloudWatchlist(){
   const cloudWL=await cloudFetchWatchlist();
+  // Cloud-Stand erfolgreich abgefragt (auch wenn leer) → Push-Schutz aufheben
+  if(cloudWL!==null)_watchlistSyncedFromCloud=true;
   if(!cloudWL||cloudWL.length===0)return; // empty or error → keep local
   watchlist=cloudWL;
   saveWL();
