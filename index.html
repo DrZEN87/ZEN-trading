@@ -876,6 +876,8 @@ async function fetchYahooEvents(sym){
 }
 async function fetchData(sym,tf,silent=false,_retries=3){
   if(!silent)setStatus('Lade '+sym+'…','loading');
+  // Offenes Event-Tooltip schließen — sonst zeigt es alte Daten beim Symbolwechsel
+  try{showEventTooltip(null);}catch{}
 
   // Hard timeout: hide loader after 25s no matter what
   const safetyTimer=setTimeout(()=>{
@@ -1676,7 +1678,10 @@ function drawEventIcons(ctx,ca){
     const viewLastT=candles[Math.min(candles.length-1,viewEnd)]?.t.getTime();
     if(viewFirstT==null||viewLastT==null)return null;
     const tfMs={'5m':300000,'1h':3600000,'4h':14400000,d1:86400000,m1:2592000000}[currentTF]||86400000;
-    if(ts<viewFirstT-tfMs*2||ts>viewLastT+tfMs*5)return null;
+    // Großzügiger Puffer in die Zukunft, damit kommende Earnings-Termine
+    // (bis ~60 Tage entfernt) als Icon auf der x-Achse extrapoliert werden können
+    const futureBuffer=Math.max(tfMs*5,90*86400000);
+    if(ts<viewFirstT-tfMs*2||ts>viewLastT+futureBuffer)return null;
     // Finde Kerzen vor/nach ts
     let loIdx=-1,hiIdx=-1;
     for(let i=0;i<candles.length;i++){
@@ -1787,20 +1792,8 @@ function drawEventIcons(ctx,ca){
     ctx.fillText('E',px,y0);
     eventIconZones.push({x:px,y:y0,r:10,type:'earnings',data:e,color:col});
   });
-  // Zukünftiges Earnings-Event als Badge rechts oben
-  const futureEarning=(chartEvents.earnings||[]).find(e=>e.future&&e.timestamp>lastT);
-  if(futureEarning){
-    const days=Math.round((futureEarning.timestamp-Date.now())/86400000);
-    if(days>=0&&days<=60){
-      const badgeText='📊 Earnings in '+days+' Tagen';
-      ctx.font='bold 11px system-ui';
-      const w=ctx.measureText(badgeText).width+14;
-      ctx.fillStyle=days<=7?'rgba(239,68,68,.9)':'rgba(251,191,36,.85)';
-      ctx.fillRect(ca.right-w-10,ca.top+6,w,22);
-      ctx.fillStyle='#fff';ctx.textAlign='center';
-      ctx.fillText(badgeText,ca.right-10-w/2,ca.top+18);
-    }
-  }
+  // (Der frühere Badge "Earnings in N Tagen" oben rechts wurde entfernt —
+  //  das pinke Icon auf der x-Achse zeigt zukünftige Termine inzwischen direkt.)
   ctx.restore();
 }
 function redrawOC(){
@@ -2967,16 +2960,23 @@ mainWrap.addEventListener('dblclick',e=>{
 // ── Overlay ───────────────────────────────────────────────────
 const ovCanvas=document.getElementById('ov-canvas');
 // Event-Tooltip (wie TradingView) für Dividenden/Earnings-Icons
+// State: sticky=true → durch Klick geöffnet, schließt erst bei Außen-Klick
+let eventTooltipSticky=false;
 function showEventTooltip(zone,mouseX,mouseY){
   let tip=document.getElementById('event-tooltip');
   if(!zone){
     if(tip)tip.style.display='none';
+    eventTooltipSticky=false;
     return;
   }
   if(!tip){
     tip=document.createElement('div');
     tip.id='event-tooltip';
-    tip.style.cssText='position:fixed;background:rgba(15,23,42,.97);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:12px;color:#fff;pointer-events:none;z-index:1000;min-width:200px;box-shadow:0 4px 20px rgba(0,0,0,.5)';
+    tip.style.cssText='position:fixed;background:rgba(15,23,42,.97);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:12px;color:#fff;z-index:1000;min-width:200px;box-shadow:0 4px 20px rgba(0,0,0,.5);pointer-events:auto';
+    // Klicks im Tooltip nicht zum document-Listener bubblen lassen,
+    // sonst würde das eigene Klicken im Tooltip ihn sofort wieder schließen.
+    tip.addEventListener('mousedown',e=>e.stopPropagation());
+    tip.addEventListener('click',e=>e.stopPropagation());
     document.body.appendChild(tip);
   }
   const d=zone.data;
@@ -3030,6 +3030,22 @@ function showEventTooltip(zone,mouseX,mouseY){
   if(y<10)y=mouseY+15;
   tip.style.left=x+'px';tip.style.top=y+'px';
 }
+// ── Klick auf Event-Icon → sticky Tooltip öffnen ──
+// Dieser Listener muss VOR dem mousedown-Drag-Handler stehen, damit
+// stopImmediatePropagation() bei Icon-Treffern den Drag verhindert.
+ovCanvas.addEventListener('mousedown',e=>{
+  if(e.button!==0)return;
+  const rect=ovCanvas.getBoundingClientRect();
+  const rx=e.clientX-rect.left,ry=e.clientY-rect.top;
+  const hit=eventIconZones.find(z=>Math.hypot(rx-z.x,ry-z.y)<=z.r+2);
+  if(!hit)return;
+  // Icon getroffen → Tooltip sticky öffnen, weitere Handler stoppen
+  showEventTooltip(hit,e.clientX,e.clientY);
+  eventTooltipSticky=true;
+  e.preventDefault();
+  e.stopPropagation();          // verhindert globalen document-Listener (würde sonst sofort schließen)
+  e.stopImmediatePropagation(); // verhindert den nachfolgenden Drag-mousedown am Canvas
+});
 ovCanvas.addEventListener('mousedown',e=>{
   if(e.button!==0)return; // nur linke Maustaste
   if(drawMode!=='pointer')return; // nur im Pointer-Modus
@@ -3097,9 +3113,8 @@ ovCanvas.addEventListener('mousemove',e=>{
     return;
   }
   snapPoint=(drawMode!=='pointer'&&drawMode!=='alarm')?findSnap(rx,ry):null;
-  // Hover über Event-Icon → Tooltip anzeigen
+  // Hover-Detection für Cursor-Hint (Tooltip selbst öffnet erst bei Klick)
   const hitEvent=eventIconZones.find(z=>Math.hypot(rx-z.x,ry-z.y)<=z.r+2);
-  showEventTooltip(hitEvent,e.clientX,e.clientY);
   // Cursor: pointer/grab when hovering a drawing, crosshair when drawing
   if(drawMode==='pointer'&&mousePos?.inChart&&mainChart?.chartArea){
     const overDraw=findDrawingAtPoint(rx,ry,mainChart.chartArea);
@@ -3148,7 +3163,7 @@ ovCanvas.addEventListener('mouseup',e=>{
   setTimeout(()=>{dragMoved=false;},50);
   redrawOC();
 });
-ovCanvas.addEventListener('mouseleave',()=>{mousePos=null;snapPoint=null;showEventTooltip(null);redrawOC();});
+ovCanvas.addEventListener('mouseleave',()=>{mousePos=null;snapPoint=null;redrawOC();});
 ovCanvas.addEventListener('contextmenu',e=>{
   e.preventDefault();
   const rect=ovCanvas.getBoundingClientRect();
@@ -5466,6 +5481,20 @@ document.getElementById('tts-voice-btn').addEventListener('click',()=>{
 });
 
 // ═════════════════════════════════════════════════════════════
+// GLOBALER KLICK-AUSSERHALB-HANDLER für Event-Tooltip
+// ═════════════════════════════════════════════════════════════
+// Schließt das Event-Tooltip, wenn irgendwo außerhalb geklickt wird.
+// Klicks auf das Tooltip selbst und auf Icons (mousedown stoppt Bubbling)
+// erreichen diesen Handler nicht.
+document.addEventListener('mousedown',e=>{
+  if(!eventTooltipSticky)return;
+  const tip=document.getElementById('event-tooltip');
+  if(tip&&tip.contains(e.target))return; // Klick im Tooltip → ignorieren
+  // Klick außerhalb → Tooltip schließen
+  showEventTooltip(null);
+});
+
+// ═════════════════════════════════════════════════════════════
 // EARNINGS-CACHE-HELPER (Sheet-First → Finnhub-Refresh)
 // ═════════════════════════════════════════════════════════════
 // Diese Helper sind hier am Ende platziert, weil sie auf
@@ -5476,33 +5505,16 @@ document.getElementById('tts-voice-btn').addEventListener('click',()=>{
 async function fetchFinnhubEarnings(sym){
   const key=getFinnhubKey();
   if(!key){console.log('[Earnings] Kein Finnhub-Key, überspringe Refresh');return null;}
+  // Strategie:
+  // 1. Calendar (4 Jahre rückwärts + 60 Tage vorwärts) liefert REPORTING-Datum,
+  //    EPS-Werte, Schätzwerte → das ist die primäre Quelle (matcht TradingView).
+  // 2. /stock/earnings liefert nur das Quartalsende, aber zuverlässige
+  //    surprisePercent-Werte → wird als Fallback fürs Mergen genutzt.
   const out=[];
-  // 1. Historische Earnings (letzte ~4 Quartale)
+  const byReportDate=new Map(); // Tag-genauer Key → Event
+  // 1. Calendar: voller Zeitraum (Reporting-Datum)
   try{
-    const url=`https://finnhub.io/api/v1/stock/earnings?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
-    const resp=await fetch(url);
-    if(resp.ok){
-      const rows=await resp.json();
-      if(Array.isArray(rows)){
-        rows.forEach(r=>{
-          const ts=Date.parse(r.period);
-          if(!ts||isNaN(ts))return;
-          const epsActual=r.actual!=null?Number(r.actual):null;
-          const epsEstimate=r.estimate!=null?Number(r.estimate):null;
-          let surprise=r.surprisePercent!=null?Number(r.surprisePercent):null;
-          // Sanity-Recompute, falls API-Surprise fehlt oder grob abweicht
-          if(epsActual!=null&&epsEstimate!=null&&epsEstimate!==0){
-            const calc=((epsActual-epsEstimate)/Math.abs(epsEstimate))*100;
-            if(surprise==null||Math.abs(calc-surprise)>5)surprise=calc;
-          }
-          out.push({timestamp:ts,epsActual,epsEstimate,surprise,future:false});
-        });
-      }
-    }else{console.log('[Earnings] Finnhub history HTTP '+resp.status);}
-  }catch(e){console.log('[Earnings] Finnhub history failed:',e.message);}
-  // 2. Earnings-Kalender (kommendes Earnings-Datum, 60 Tage Fenster)
-  try{
-    const from=new Date().toISOString().slice(0,10);
+    const from=new Date(Date.now()-4*365*86400000).toISOString().slice(0,10);
     const toDate=new Date(Date.now()+60*86400000).toISOString().slice(0,10);
     const calUrl=`https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${toDate}&symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
     const resp=await fetch(calUrl);
@@ -5513,18 +5525,63 @@ async function fetchFinnhubEarnings(sym){
         rows.forEach(r=>{
           const ts=Date.parse(r.date);
           if(!ts||isNaN(ts))return;
-          out.push({
+          const epsActual=r.epsActual!=null?Number(r.epsActual):null;
+          const epsEstimate=r.epsEstimate!=null?Number(r.epsEstimate):null;
+          let surprise=null;
+          if(epsActual!=null&&epsEstimate!=null&&epsEstimate!==0){
+            surprise=((epsActual-epsEstimate)/Math.abs(epsEstimate))*100;
+          }
+          const ev={
             timestamp:ts,
-            epsEstimate:r.epsEstimate!=null?Number(r.epsEstimate):null,
-            epsActual:r.epsActual!=null?Number(r.epsActual):null,
-            surprise:null,
-            future:ts>Date.now()
-          });
+            epsActual,epsEstimate,surprise,
+            future:ts>Date.now(),
+            // Quartalsende für späteres Matching mit /stock/earnings
+            _periodKey:r.year&&r.quarter?`${r.year}Q${r.quarter}`:null
+          };
+          byReportDate.set(Math.floor(ts/86400000),ev);
+        });
+      }
+    }else{console.log('[Earnings] Finnhub calendar HTTP '+resp.status);}
+  }catch(e){console.log('[Earnings] Finnhub calendar failed:',e.message);}
+  // 2. /stock/earnings: nutzen für zuverlässige surprisePercent-Werte
+  // (matched per Quartal/Jahr aus dem Calendar-Result)
+  try{
+    const url=`https://finnhub.io/api/v1/stock/earnings?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
+    const resp=await fetch(url);
+    if(resp.ok){
+      const rows=await resp.json();
+      if(Array.isArray(rows)){
+        // Map: Quartals-Key → API-Surprise
+        const surpriseByQuarter=new Map();
+        rows.forEach(r=>{
+          if(r.surprisePercent==null||!r.period)return;
+          // r.period ist Quartalsende, z.B. "2025-12-31"
+          const d=new Date(r.period);
+          const q=Math.floor(d.getMonth()/3)+1;
+          const key=`${d.getFullYear()}Q${q}`;
+          surpriseByQuarter.set(key,Number(r.surprisePercent));
+        });
+        // Calendar-Events anreichern, wenn der API-Surprise verlässlicher wirkt
+        byReportDate.forEach(ev=>{
+          if(!ev._periodKey)return;
+          const apiSurprise=surpriseByQuarter.get(ev._periodKey);
+          if(apiSurprise!=null){
+            // Wenn der eigene Calc-Wert fehlt oder grob abweicht, API-Wert nehmen
+            if(ev.surprise==null||Math.abs(ev.surprise-apiSurprise)>5){
+              ev.surprise=apiSurprise;
+            }
+          }
         });
       }
     }
-  }catch(e){console.log('[Earnings] Finnhub calendar failed:',e.message);}
-  console.log('[Earnings] Finnhub liefert '+out.length+' Events für '+sym);
+  }catch(e){console.log('[Earnings] Finnhub stock/earnings failed:',e.message);}
+  // Aufräumen + sortieren
+  byReportDate.forEach(ev=>{
+    delete ev._periodKey;
+    out.push(ev);
+  });
+  out.sort((a,b)=>a.timestamp-b.timestamp);
+  console.log('[Earnings] Finnhub liefert '+out.length+' Events für '+sym+' (Reporting-Daten)');
   return out;
 }
 
