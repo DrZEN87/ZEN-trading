@@ -836,58 +836,51 @@ async function fetchYahooEvents(sym){
       }
     }catch{}
   }
-  // 2. Earnings: NASDAQ API (frei, ohne Auth, gleiche Quelle wie nasdaq.com)
+  // 2. Earnings: Yahoo quoteSummary (Adjusted-EPS, matcht TradingView)
   // Für internationale Symbole (SAP.DE, etc.) → Basis-Kürzel nutzen (SAP)
   const baseSym=sym.split('.')[0].split('-')[0].toUpperCase();
-  // Earnings-Historie der letzten 4 Jahre
-  const histUrl=`https://api.nasdaq.com/api/company/${encodeURIComponent(baseSym)}/earnings-surprise`;
-  const histResp=await proxyFetch(histUrl);
-  if(histResp){
+  const qsUrl=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(baseSym)}?modules=earningsHistory,calendarEvents,earnings`;
+  const qsResp=await proxyFetch(qsUrl);
+  if(qsResp){
     try{
-      const data=await histResp.json();
-      const rows=data?.data?.earningsSurpriseTable?.rows;
-      if(Array.isArray(rows)){
-        rows.forEach(r=>{
-          // Datum-Format: "9/30/2024"
-          const dateParts=(r.dateReported||'').split('/');
-          if(dateParts.length!==3)return;
-          const [m,d,y]=dateParts.map(x=>parseInt(x));
-          const ts=new Date(y,m-1,d).getTime();
-          const toNum=s=>{if(!s||s==='N/A')return null;const v=parseFloat(String(s).replace(/[$,()%]/g,''));return isNaN(v)?null:v;};
-          const epsActual=toNum(r.eps);
-          const epsEstimate=toNum(r.consensusForecast);
-          const surprisePct=toNum(r.percentageSurprise);
+      const data=await qsResp.json();
+      const result=data?.quoteSummary?.result?.[0];
+      // 1. Historie (Adjusted-EPS gegen Konsens, wie bei TradingView)
+      const hist=result?.earningsHistory?.history;
+      if(Array.isArray(hist)){
+        hist.forEach(h=>{
+          const ts=(h.quarter?.raw||0)*1000;
+          if(!ts)return;
+          const epsActual=h.epsActual?.raw??null;
+          const epsEstimate=h.epsEstimate?.raw??null;
+          let surprise=h.surprisePercent?.raw!=null?h.surprisePercent.raw*100:null;
+          // Sanity-Check: bei null oder grober Abweichung selbst neu rechnen
+          if(epsActual!=null&&epsEstimate!=null&&epsEstimate!==0){
+            const calc=((epsActual-epsEstimate)/Math.abs(epsEstimate))*100;
+            if(surprise==null||Math.abs(calc-surprise)>5)surprise=calc;
+          }
           events.earnings.push({
             timestamp:ts,
             epsActual,epsEstimate,
-            surprise:surprisePct,
+            surprise,
             future:false
           });
         });
       }
-    }catch(e){console.log('[Events] '+sym+' NASDAQ history failed:',e.message);}
-  }
-  // Zukünftiger Earnings-Termin aus NASDAQ "earnings-date"
-  const futureUrl=`https://api.nasdaq.com/api/company/${encodeURIComponent(baseSym)}/earnings-date`;
-  const futureResp=await proxyFetch(futureUrl);
-  if(futureResp){
-    try{
-      const data=await futureResp.json();
-      const rows=data?.data?.earningsDateTable?.rows;
-      if(Array.isArray(rows)){
-        rows.forEach(r=>{
-          const raw=r.date||r.reportDate;
-          if(!raw)return;
-          const ts=Date.parse(raw);
-          if(!ts||isNaN(ts))return;
+      // 2. Zukünftiger Earnings-Termin aus calendarEvents
+      const cal=result?.calendarEvents?.earnings;
+      const earningsDates=cal?.earningsDate;
+      if(Array.isArray(earningsDates)&&earningsDates.length){
+        const ts=(earningsDates[0]?.raw||0)*1000;
+        if(ts){
           events.earnings.push({
             timestamp:ts,
-            epsEstimate:parseFloat(String(r.consensusEps||'').replace(/[$,]/g,''))||null,
+            epsEstimate:cal?.earningsAverage?.raw??null,
             future:ts>Date.now()
           });
-        });
+        }
       }
-    }catch{}
+    }catch(e){console.log('[Events] '+sym+' Yahoo earnings failed:',e.message);}
   }
   // Deduplizieren
   const earningsMap=new Map();
