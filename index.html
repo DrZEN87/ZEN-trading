@@ -887,17 +887,38 @@ async function fetchYahooEvents(sym){
   // Refresh-Logik: jünger als 6h und kein anstehendes Earnings <14 Tage → Cache reicht
   const cacheFresh=cached&&cached.updatedAt&&(Date.now()-cached.updatedAt)<6*3600000;
   const upcomingSoon=cached&&cached.events&&cached.events.some(e=>e.future&&e.timestamp-Date.now()<14*86400000);
-  if(!cacheFresh||upcomingSoon){
+  // Erkennen, wenn der Cache aus einer alten Schema-Version stammt (ohne Revenue-Felder)
+  // → dann trotz Frische refreshen, damit Umsatz-Daten nachgeladen werden
+  const cacheMissingRevenue=cached&&cached.events&&cached.events.length>0&&
+    cached.events.filter(e=>!e.future).every(e=>e.revActual==null&&e.revEstimate==null);
+  if(!cacheFresh||upcomingSoon||cacheMissingRevenue){
+    if(cacheMissingRevenue)console.log('[Events] '+sym+' Cache hat keine Revenue-Daten — refresh erzwungen');
     // Finnhub-Refresh im Hintergrund (blockiert nicht, aber wir warten kurz)
     const fresh=await fetchFinnhubEarnings(baseSym);
     if(fresh&&fresh.length){
-      // Mit existierenden Cache-Events mergen (Tag-genau dedup, neue überschreiben alte)
+      // Mit existierenden Cache-Events mergen (Tag-genau dedup)
+      // Strategie: Bestehende Felder NICHT mit null überschreiben — wenn Finnhub
+      // einen Wert nicht (mehr) liefert, alten Cache-Wert behalten
       const byKey=new Map();
       events.earnings.forEach(e=>byKey.set(Math.floor(e.timestamp/86400000),e));
-      fresh.forEach(e=>byKey.set(Math.floor(e.timestamp/86400000),e));
+      fresh.forEach(f=>{
+        const k=Math.floor(f.timestamp/86400000);
+        const existing=byKey.get(k);
+        if(existing){
+          // Feldweise mergen: fresh hat Vorrang, aber null/undefined nicht überschreiben
+          const merged={...existing};
+          ['epsActual','epsEstimate','surprise','revActual','revEstimate','revSurprise','future','timestamp'].forEach(field=>{
+            if(f[field]!=null)merged[field]=f[field];
+          });
+          byKey.set(k,merged);
+        }else{
+          byKey.set(k,f);
+        }
+      });
       events.earnings=Array.from(byKey.values());
-      // Ins Sheet schreiben (fire-and-forget, kein await nötig)
-      cloudSaveEarnings(baseSym,fresh);
+      // Ins Sheet schreiben — die gemergten Events, nicht nur die fresh-Events
+      // (sonst gehen Felder verloren, die nur im Cache waren)
+      cloudSaveEarnings(baseSym,events.earnings);
     }
   }
   // Deduplizieren
@@ -5935,6 +5956,15 @@ async function fetchFinnhubEarnings(sym){
   });
   out.sort((a,b)=>a.timestamp-b.timestamp);
   console.log('[Earnings] Finnhub liefert '+out.length+' Events für '+sym+' (Reporting-Daten)');
+  // Debug: Wieviele haben Revenue-Daten?
+  const withRev=out.filter(e=>e.revActual!=null||e.revEstimate!=null).length;
+  if(out.length>0){
+    console.log('[Earnings] Davon mit Revenue-Daten: '+withRev+'/'+out.length);
+    if(withRev<out.length){
+      const missing=out.filter(e=>e.revActual==null&&e.revEstimate==null).map(e=>new Date(e.timestamp).toISOString().slice(0,10));
+      console.log('[Earnings] Ohne Revenue: '+missing.join(', '));
+    }
+  }
   return out;
 }
 
