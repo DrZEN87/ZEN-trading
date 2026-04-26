@@ -836,51 +836,29 @@ async function fetchYahooEvents(sym){
       }
     }catch{}
   }
-  // 2. Earnings: Yahoo quoteSummary (Adjusted-EPS, matcht TradingView)
+  // 2. Earnings: Sheet-Cache zuerst (instant), dann Finnhub-Refresh im Hintergrund
   // Für internationale Symbole (SAP.DE, etc.) → Basis-Kürzel nutzen (SAP)
   const baseSym=sym.split('.')[0].split('-')[0].toUpperCase();
-  const qsUrl=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(baseSym)}?modules=earningsHistory,calendarEvents,earnings`;
-  const qsResp=await proxyFetch(qsUrl);
-  if(qsResp){
-    try{
-      const data=await qsResp.json();
-      const result=data?.quoteSummary?.result?.[0];
-      // 1. Historie (Adjusted-EPS gegen Konsens, wie bei TradingView)
-      const hist=result?.earningsHistory?.history;
-      if(Array.isArray(hist)){
-        hist.forEach(h=>{
-          const ts=(h.quarter?.raw||0)*1000;
-          if(!ts)return;
-          const epsActual=h.epsActual?.raw??null;
-          const epsEstimate=h.epsEstimate?.raw??null;
-          let surprise=h.surprisePercent?.raw!=null?h.surprisePercent.raw*100:null;
-          // Sanity-Check: bei null oder grober Abweichung selbst neu rechnen
-          if(epsActual!=null&&epsEstimate!=null&&epsEstimate!==0){
-            const calc=((epsActual-epsEstimate)/Math.abs(epsEstimate))*100;
-            if(surprise==null||Math.abs(calc-surprise)>5)surprise=calc;
-          }
-          events.earnings.push({
-            timestamp:ts,
-            epsActual,epsEstimate,
-            surprise,
-            future:false
-          });
-        });
-      }
-      // 2. Zukünftiger Earnings-Termin aus calendarEvents
-      const cal=result?.calendarEvents?.earnings;
-      const earningsDates=cal?.earningsDate;
-      if(Array.isArray(earningsDates)&&earningsDates.length){
-        const ts=(earningsDates[0]?.raw||0)*1000;
-        if(ts){
-          events.earnings.push({
-            timestamp:ts,
-            epsEstimate:cal?.earningsAverage?.raw??null,
-            future:ts>Date.now()
-          });
-        }
-      }
-    }catch(e){console.log('[Events] '+sym+' Yahoo earnings failed:',e.message);}
+  const cached=await cloudFetchEarnings(baseSym);
+  if(cached&&Array.isArray(cached.events)){
+    cached.events.forEach(e=>events.earnings.push(e));
+    console.log('[Events] '+sym+' Cache-Hit: '+cached.events.length+' Earnings, Alter: '+(cached.updatedAt?Math.round((Date.now()-cached.updatedAt)/3600000)+'h':'?'));
+  }
+  // Refresh-Logik: jünger als 6h und kein anstehendes Earnings <14 Tage → Cache reicht
+  const cacheFresh=cached&&cached.updatedAt&&(Date.now()-cached.updatedAt)<6*3600000;
+  const upcomingSoon=cached&&cached.events&&cached.events.some(e=>e.future&&e.timestamp-Date.now()<14*86400000);
+  if(!cacheFresh||upcomingSoon){
+    // Finnhub-Refresh im Hintergrund (blockiert nicht, aber wir warten kurz)
+    const fresh=await fetchFinnhubEarnings(baseSym);
+    if(fresh&&fresh.length){
+      // Mit existierenden Cache-Events mergen (Tag-genau dedup, neue überschreiben alte)
+      const byKey=new Map();
+      events.earnings.forEach(e=>byKey.set(Math.floor(e.timestamp/86400000),e));
+      fresh.forEach(e=>byKey.set(Math.floor(e.timestamp/86400000),e));
+      events.earnings=Array.from(byKey.values());
+      // Ins Sheet schreiben (fire-and-forget, kein await nötig)
+      cloudSaveEarnings(baseSym,fresh);
+    }
   }
   // Deduplizieren
   const earningsMap=new Map();
@@ -5486,6 +5464,96 @@ document.getElementById('tts-voice-btn').addEventListener('click',()=>{
     alert('Ungültige Eingabe.');
   }
 });
+
+// ═════════════════════════════════════════════════════════════
+// EARNINGS-CACHE-HELPER (Sheet-First → Finnhub-Refresh)
+// ═════════════════════════════════════════════════════════════
+// Diese Helper sind hier am Ende platziert, weil sie auf
+// CLOUD_WEBHOOK_URL, CLOUD_TOKEN und getFinnhubKey() zugreifen,
+// die weiter oben als const/function definiert sind.
+
+// ── Finnhub Earnings (Adjusted-EPS, matcht TradingView/Wall Street) ──
+async function fetchFinnhubEarnings(sym){
+  const key=getFinnhubKey();
+  if(!key){console.log('[Earnings] Kein Finnhub-Key, überspringe Refresh');return null;}
+  const out=[];
+  // 1. Historische Earnings (letzte ~4 Quartale)
+  try{
+    const url=`https://finnhub.io/api/v1/stock/earnings?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
+    const resp=await fetch(url);
+    if(resp.ok){
+      const rows=await resp.json();
+      if(Array.isArray(rows)){
+        rows.forEach(r=>{
+          const ts=Date.parse(r.period);
+          if(!ts||isNaN(ts))return;
+          const epsActual=r.actual!=null?Number(r.actual):null;
+          const epsEstimate=r.estimate!=null?Number(r.estimate):null;
+          let surprise=r.surprisePercent!=null?Number(r.surprisePercent):null;
+          // Sanity-Recompute, falls API-Surprise fehlt oder grob abweicht
+          if(epsActual!=null&&epsEstimate!=null&&epsEstimate!==0){
+            const calc=((epsActual-epsEstimate)/Math.abs(epsEstimate))*100;
+            if(surprise==null||Math.abs(calc-surprise)>5)surprise=calc;
+          }
+          out.push({timestamp:ts,epsActual,epsEstimate,surprise,future:false});
+        });
+      }
+    }else{console.log('[Earnings] Finnhub history HTTP '+resp.status);}
+  }catch(e){console.log('[Earnings] Finnhub history failed:',e.message);}
+  // 2. Earnings-Kalender (kommendes Earnings-Datum, 60 Tage Fenster)
+  try{
+    const from=new Date().toISOString().slice(0,10);
+    const toDate=new Date(Date.now()+60*86400000).toISOString().slice(0,10);
+    const calUrl=`https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${toDate}&symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
+    const resp=await fetch(calUrl);
+    if(resp.ok){
+      const data=await resp.json();
+      const rows=data?.earningsCalendar;
+      if(Array.isArray(rows)){
+        rows.forEach(r=>{
+          const ts=Date.parse(r.date);
+          if(!ts||isNaN(ts))return;
+          out.push({
+            timestamp:ts,
+            epsEstimate:r.epsEstimate!=null?Number(r.epsEstimate):null,
+            epsActual:r.epsActual!=null?Number(r.epsActual):null,
+            surprise:null,
+            future:ts>Date.now()
+          });
+        });
+      }
+    }
+  }catch(e){console.log('[Earnings] Finnhub calendar failed:',e.message);}
+  console.log('[Earnings] Finnhub liefert '+out.length+' Events für '+sym);
+  return out;
+}
+
+// ── Sheet-Cache: Earnings aus Google Apps Script lesen ──
+async function cloudFetchEarnings(sym){
+  try{
+    const url=CLOUD_WEBHOOK_URL+'?action=getEarnings&symbol='+encodeURIComponent(sym)+'&token='+encodeURIComponent(CLOUD_TOKEN);
+    const resp=await fetch(url);
+    if(!resp.ok)return null;
+    const data=await resp.json();
+    if(data.ok&&Array.isArray(data.events))return {events:data.events,updatedAt:data.updatedAt||0};
+    return null;
+  }catch(e){console.log('[Earnings] Cloud-Cache fetch failed:',e.message);return null;}
+}
+
+// ── Sheet-Cache: Earnings ins Apps Script schreiben (fire-and-forget) ──
+async function cloudSaveEarnings(sym,events){
+  try{
+    const payload={action:'saveEarnings',symbol:sym,events:events,token:CLOUD_TOKEN};
+    await fetch(CLOUD_WEBHOOK_URL,{
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify(payload)
+    });
+    console.log('[Earnings] Cache aktualisiert: '+sym+' ('+events.length+' Events)');
+  }catch(e){console.log('[Earnings] Cloud-Cache save failed:',e.message);}
+}
+
 </script>
 </body>
 </html>
