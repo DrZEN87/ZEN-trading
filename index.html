@@ -306,7 +306,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 <div id="main-row">
   <div id="chart-area">
     <div id="price-bar">
-      <span id="sym-lbl" style="display:inline-flex;align-items:center;gap:8px">—</span>
+      <span id="sym-lbl">—</span>
       <span id="cur-price">—</span>
       <span id="live-dot" title="Live-Preis aktiv" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b;margin-left:4px;transition:background .2s"></span>
       <span id="delay-badge" style="font-size:10px;padding:2px 6px;border-radius:3px;background:rgba(148,163,184,.15);color:#94a3b8;margin-left:4px;display:none" title="Datenquelle und Verzögerung"></span>
@@ -545,81 +545,6 @@ let nameCache={};
 try{const nc=localStorage.getItem('zen_nameCache');if(nc)nameCache=JSON.parse(nc);}catch{}
 function getSymName(sym){return nameCache[sym]||KNOWN_NAMES[sym]||'';}
 function setSymName(sym,name){if(name&&name.length>1){nameCache[sym]=name;try{localStorage.setItem('zen_nameCache',JSON.stringify(nameCache));}catch{}}}
-
-// ── Symbol-Logos ─────────────────────────────────────────────
-// Cache-Struktur: { "AAPL": {url:"https://...", website:"apple.com", letter:"A", color:"#3b82f6"} }
-let logoCache={};
-try{const lc=localStorage.getItem('zen_logoCache');if(lc)logoCache=JSON.parse(lc);}catch{}
-const LOGO_COLORS=['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#14b8a6'];
-function logoColorFor(sym){
-  // Hash → konsistente Farbe pro Symbol
-  let h=0;for(let i=0;i<sym.length;i++)h=(h*31+sym.charCodeAt(i))|0;
-  return LOGO_COLORS[Math.abs(h)%LOGO_COLORS.length];
-}
-function saveLogoCache(){try{localStorage.setItem('zen_logoCache',JSON.stringify(logoCache));}catch{}}
-// Liefert: erste verfügbare Logo-URL oder null (Fallback ist dann der Buchstabe)
-function getLogoUrl(sym){
-  const c=logoCache[sym];
-  if(!c)return null;
-  if(c.url)return c.url;
-  if(c.website)return 'https://www.google.com/s2/favicons?domain='+encodeURIComponent(c.website)+'&sz=64';
-  return null;
-}
-// Async: Logo + Website für Symbol von Yahoo holen, in Cache schreiben
-async function fetchSymLogo(sym){
-  if(!sym)return;
-  const c=logoCache[sym];
-  // Schon mal versucht (auch wenn fehlgeschlagen)? → nicht nochmal in dieser Session
-  if(c&&c.tried)return;
-  // Initial-Cache anlegen
-  logoCache[sym]={tried:true,letter:(sym[0]||'?').toUpperCase(),color:logoColorFor(sym)};
-  const proxies=['https://corsproxy.io/?','https://api.allorigins.win/raw?url=','https://api.codetabs.com/v1/proxy?quest='];
-  // 1) Yahoo Quote-Summary liefert assetProfile.website + ggf. logo_url
-  const url='https://query2.finance.yahoo.com/v10/finance/quoteSummary/'+encodeURIComponent(sym)+'?modules=assetProfile,price';
-  for(const p of proxies){
-    try{
-      const resp=await fetch(p+encodeURIComponent(url));
-      if(!resp.ok)continue;
-      const data=await resp.json();
-      const result=data?.quoteSummary?.result?.[0];
-      if(!result)continue;
-      const profile=result.assetProfile||{};
-      const price=result.price||{};
-      let website=profile.website||'';
-      // Domain extrahieren (z.B. "https://www.sap.com" → "sap.com")
-      if(website){
-        try{
-          const u=new URL(website);
-          website=u.hostname.replace(/^www\./,'');
-        }catch{
-          website=website.replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0];
-        }
-      }
-      // Yahoo liefert manchmal direkt logoUrl (mehr für Crypto/Indizes)
-      const logoUrl=price.logoUrl||profile.logo_url||null;
-      logoCache[sym]={
-        tried:true,
-        url:logoUrl,
-        website:website||null,
-        letter:(sym[0]||'?').toUpperCase(),
-        color:logoColorFor(sym)
-      };
-      saveLogoCache();
-      return;
-    }catch{}
-  }
-  saveLogoCache(); // auch bei Fehler "tried" speichern
-}
-// Render-Helper: HTML-Snippet für ein Logo (img mit Fallback auf Buchstaben-Div)
-function logoHtml(sym,size){
-  size=size||20;
-  const url=getLogoUrl(sym);
-  const c=logoCache[sym]||{letter:(sym[0]||'?').toUpperCase(),color:logoColorFor(sym)};
-  const fallback='<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;background:'+c.color+';color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:'+Math.round(size*0.5)+'px;font-weight:700;flex-shrink:0;line-height:1">'+c.letter+'</div>';
-  if(!url)return fallback;
-  // Fallback bei Bild-Fehler: Buchstabe einblenden (zur Laufzeit ersetzen)
-  return '<img src="'+url+'" alt="" style="width:'+size+'px;height:'+size+'px;border-radius:50%;object-fit:contain;background:#fff;flex-shrink:0" onerror="this.outerHTML=\''+fallback.replace(/'/g,"\\'")+'\'">';
-}
 // Async name fetch via Yahoo search API
 async function fetchSymName(sym){
   if(getSymName(sym))return;
@@ -1025,9 +950,8 @@ async function fetchData(sym,tf,silent=false,_retries=3){
     viewStart=n-show;viewEnd=n-1;ensureRightPad();
     window._zenFirstLoadDone=true;
     renderAll();
-    // Try to fetch company name + logo if not known yet
+    // Try to fetch company name if not known yet
     if(!getSymName(sym))fetchSymName(sym);
-    if(!logoCache[sym])fetchSymLogo(sym).then(()=>{renderAll();renderWL();});
     const from=candles[0].t.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
     const to=candles[n-1].t.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
     // Calculate avg gap for status
@@ -1557,7 +1481,7 @@ function renderAll(){
   const prev=candles.length>1?candles[candles.length-2]:last;
   const chg=last.c-prev.c,pct=prev.c>0?chg/prev.c*100:0;
   const symName=getSymName(currentSymbol);
-  document.getElementById('sym-lbl').innerHTML=logoHtml(currentSymbol,22)+'<span>'+currentSymbol+(symName?' · '+symName:'')+'</span>';
+  document.getElementById('sym-lbl').textContent=currentSymbol+(symName?' · '+symName:'');
   updateDelayBadge();
   document.getElementById('cur-price').textContent=fmtPrice(last.c);
   const ce=document.getElementById('price-chg');
@@ -4252,16 +4176,6 @@ function loadWL(){
   setTimeout(updateWLPrices,500);
   // Fetch company names for all watchlist symbols
   setTimeout(()=>watchlist.forEach(s=>{if(!getSymName(s))fetchSymName(s);}),2000);
-  // Fetch logos für Watchlist-Symbole, gestaffelt damit Yahoo nicht throttled
-  setTimeout(async()=>{
-    for(const s of watchlist){
-      if(!logoCache[s]){
-        await fetchSymLogo(s);
-        await new Promise(r=>setTimeout(r,400));
-      }
-    }
-    renderWL();
-  },3000);
 }
 function saveWL(){
   try{localStorage.setItem('cp-wl8',JSON.stringify(watchlist));}catch{}
@@ -4292,14 +4206,11 @@ function renderWL(){
     const pctTxt=c.pct||'';
     const col=c.col||'var(--text3)';
     return `<div class="wl-item${s===currentSymbol?' active':''}" data-sym="${s}" data-idx="${idx}" draggable="true">
-      <div class="wl-row" style="align-items:center;gap:8px">
-        <span class="wl-logo">${logoHtml(s,18)}</span>
-        <div style="flex:1;min-width:0;display:flex;align-items:baseline;justify-content:space-between;gap:6px">
-          <span class="wl-name">${displayName}</span>
-          ${name?`<span class="wl-sym">${s}</span>`:''}
-        </div>
+      <div class="wl-row">
+        <span class="wl-name">${displayName}</span>
+        ${name?`<span class="wl-sym">${s}</span>`:''}
       </div>
-      <div class="wl-row" style="padding-left:26px">
+      <div class="wl-row">
         <span class="wl-price" id="wlp-${id}">${pTxt}</span>
         <span class="wl-chg" id="wlc-${id}">
           <span class="wl-chg-abs" id="wla-${id}" style="color:#e2e8f0">${absTxt}</span>
@@ -4365,10 +4276,7 @@ function setWLChg(sym,priceText,absText,pctText,color){
 }
 document.getElementById('add-wl-btn').addEventListener('click',()=>{
   const s=document.getElementById('sym-in').value.trim().toUpperCase();
-  if(s&&!watchlist.includes(s)){
-    watchlist.push(s);saveWL();renderWL();updateWLPrices();updateFinnhubSubscriptions();
-    if(!logoCache[s])fetchSymLogo(s).then(()=>renderWL());
-  }
+  if(s&&!watchlist.includes(s)){watchlist.push(s);saveWL();renderWL();updateWLPrices();updateFinnhubSubscriptions();}
 });
 
 window.addEventListener('resize',()=>{syncOC();redrawOC();});
@@ -5372,7 +5280,6 @@ function renderAlarmHistory(){
     else if(t.includes('Fib'))  {icon='φ'; col='#ec4899';}
     return `<div style="padding:10px 16px;border-bottom:1px solid #1e293b;display:flex;gap:10px;align-items:flex-start;${isRecent?'background:rgba(59,130,246,.05)':''}">
       <div style="font-size:16px;line-height:1;margin-top:1px;color:${col};min-width:18px;text-align:center">${icon}</div>
-      <div style="margin-top:1px">${logoHtml(entry.sym,20)}</div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;justify-content:space-between;gap:8px">
           <b style="color:#e2e8f0;font-size:12px">${entry.sym}${entry.tf?' ('+entry.tf+')':''}</b>
