@@ -630,6 +630,20 @@ function fmtPrice(v,sym){
 function fmtNum(v){
   return Number(v).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
+// Formatiert große Geldbeträge mit Suffix (T/M/B/T) wie bei TradingView/Yahoo
+// 2_750_000 → "2,75 M USD", 78_053_000_000 → "78,05 B USD"
+function formatRevenue(v,cur){
+  const abs=Math.abs(Number(v));
+  const sign=v<0?'-':'';
+  let val,suffix;
+  if(abs>=1e12){val=abs/1e12;suffix=' T';}
+  else if(abs>=1e9){val=abs/1e9;suffix=' B';}
+  else if(abs>=1e6){val=abs/1e6;suffix=' M';}
+  else if(abs>=1e3){val=abs/1e3;suffix=' K';}
+  else{val=abs;suffix='';}
+  const formatted=val.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return sign+formatted+suffix+(cur?' '+cur:'');
+}
 
 // Multiple CORS proxies — tried in order until one works
 // ── Data fetching ────────────────────────────────────────────
@@ -3005,6 +3019,22 @@ function showEventTooltip(zone,mouseX,mouseY){
     if(d.surprise!=null){
       const sCol=d.surprise>=0?'rgba(34,197,94,1)':'rgba(239,68,68,1)';
       html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Überraschung:</span><b style="color:'+sCol+'">'+(d.surprise>=0?'+':'')+d.surprise.toFixed(2)+'%</b></div>';
+    }
+    // Umsatz-Block (wenn vorhanden)
+    if(d.revActual!=null||d.revEstimate!=null){
+      html+='<div style="border-top:1px solid var(--border);margin:8px 0 6px;padding-top:6px;font-size:10px;color:var(--text3);letter-spacing:.5px">UMSATZ</div>';
+      if(d.revActual!=null){
+        html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Gemeldet:</span><b>'+formatRevenue(d.revActual,cur)+'</b></div>';
+      }
+      if(d.revEstimate!=null){
+        html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Geschätzt:</span><b>'+formatRevenue(d.revEstimate,cur)+'</b></div>';
+      }
+      if(d.revSurprise!=null){
+        const rsCol=d.revSurprise>=0?'rgba(34,197,94,1)':'rgba(239,68,68,1)';
+        const diff=d.revActual!=null&&d.revEstimate!=null?d.revActual-d.revEstimate:null;
+        const diffStr=diff!=null?(' ('+(diff>=0?'+':'')+formatRevenue(diff,cur)+')'):'';
+        html+='<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Überraschung:</span><b style="color:'+rsCol+'">'+(d.revSurprise>=0?'+':'')+d.revSurprise.toFixed(2)+'%'+diffStr+'</b></div>';
+      }
     }
     if(isFuture){
       const days=Math.round((d.timestamp-Date.now())/86400000);
@@ -5531,9 +5561,17 @@ async function fetchFinnhubEarnings(sym){
           if(epsActual!=null&&epsEstimate!=null&&epsEstimate!==0){
             surprise=((epsActual-epsEstimate)/Math.abs(epsEstimate))*100;
           }
+          // Revenue-Daten (in USD, absolute Werte) — Finnhub liefert raw Dollar-Beträge
+          const revActual=r.revenueActual!=null?Number(r.revenueActual):null;
+          const revEstimate=r.revenueEstimate!=null?Number(r.revenueEstimate):null;
+          let revSurprise=null;
+          if(revActual!=null&&revEstimate!=null&&revEstimate!==0){
+            revSurprise=((revActual-revEstimate)/Math.abs(revEstimate))*100;
+          }
           const ev={
             timestamp:ts,
             epsActual,epsEstimate,surprise,
+            revActual,revEstimate,revSurprise,
             future:ts>Date.now(),
             // Quartalsende für späteres Matching mit /stock/earnings
             _periodKey:r.year&&r.quarter?`${r.year}Q${r.quarter}`:null
