@@ -1862,7 +1862,16 @@ function redrawOC(){
     if(drawMode==='trendline'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){const ext=extLineRight(p1.x,p1.y,useP.x,useP.y,ca.right);dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,C.trend,1.5,[]);dpt(ctx,p1.x,p1.y,C.trend);}}
     if(drawMode==='trendseg'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){dline(ctx,p1.x,p1.y,useP.x,useP.y,C.trend,1.5,[4,3]);dpt(ctx,p1.x,p1.y,C.trend);}}
     if(drawMode==='measure'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){const col=usePrice>=drawTemp[0].price?'#26a69a':'#ef5350';ctx.save();ctx.strokeStyle=col;ctx.lineWidth=1;ctx.setLineDash([4,3]);ctx.strokeRect(Math.min(p1.x,useP.x),Math.min(p1.y,useP.y),Math.abs(useP.x-p1.x),Math.abs(useP.y-p1.y));ctx.setLineDash([]);ctx.restore();}}
-    if(drawMode==='channel'){if(drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){const ext=extLine(p1.x,p1.y,useP.x,useP.y,ca.left,ca.right);dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,C.chan,1.5,[]);dpt(ctx,p1.x,p1.y,C.chan);}}if(drawStep===2&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){const e1=extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);dline(ctx,e1.x1,e1.y1,e1.x2,e1.y2,C.chan,1.5,[]);const mid=(p1.y+p2.y)/2;const offset=mp.ry-mid;const e2=extLine(p1.x,p1.y+offset,p2.x,p2.y+offset,ca.left,ca.right);ctx.save();ctx.globalAlpha=.5;dline(ctx,e2.x1,e2.y1,e2.x2,e2.y2,C.chan,1,[5,3]);ctx.restore();}}}
+    if(drawMode==='channel'){if(drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1){const ext=extLine(p1.x,p1.y,useP.x,useP.y,ca.left,ca.right);dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,C.chan,1.5,[]);dpt(ctx,p1.x,p1.y,C.chan);}}if(drawStep===2&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){const e1=extLine(p1.x,p1.y,p2.x,p2.y,ca.left,ca.right);dline(ctx,e1.x1,e1.y1,e1.x2,e1.y2,C.chan,1.5,[]);
+      // Offset = Y-Differenz zwischen Maus und der Hauptlinie an der X-Position der Maus
+      // (dadurch verläuft die Vorschau-Linie exakt durch den Mauszeiger)
+      const slope=(p2.x!==p1.x)?(p2.y-p1.y)/(p2.x-p1.x):0;
+      const lineYAtMouseX=p1.y+slope*(useP.x-p1.x);
+      const offset=useP.y-lineYAtMouseX;
+      const e2=extLine(p1.x,p1.y+offset,p2.x,p2.y+offset,ca.left,ca.right);ctx.save();ctx.globalAlpha=.5;dline(ctx,e2.x1,e2.y1,e2.x2,e2.y2,C.chan,1,[5,3]);ctx.restore();
+      // Snap-Indikator am Cursor (zeigt, wo die Linie tatsächlich verankert wird)
+      dpt(ctx,useP.x,useP.y,C.chan);
+    }}}
     if(drawMode==='fib'&&drawStep===1&&drawTemp){const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price);if(p1)drawFibLevels(ctx,ca,drawTemp[0].price,usePrice,p1.x,useP.x,p=>y.getPixelForValue(p));}
     if(drawMode==='support'||drawMode==='supportfull'){const last=candles[candles.length-1];const col=usePrice>=last.c?C.resist:C.support;const xFrom=drawMode==='support'?useP.x:ca.left;ctx.save();ctx.globalAlpha=.55;dline(ctx,xFrom,useP.y,ca.right,useP.y,col,1.5,[]);ctx.fillStyle=col;ctx.font='10px system-ui';ctx.fillText((usePrice>=last.c?'R':'S')+' '+fmtPrice(usePrice),xFrom+6,useP.y-4);ctx.restore();}
     if(drawMode==='alarm'){ctx.save();ctx.globalAlpha=.55;dline(ctx,ca.left,mp.ry,ca.right,mp.ry,C.alarm,1,[5,3]);ctx.fillStyle=C.alarm;ctx.font='10px system-ui';ctx.fillText('🔔 '+fmtPrice(mp.price),ca.left+6,mp.ry-4);ctx.restore();}
@@ -2351,26 +2360,19 @@ ${topHighs.map(h=>`  - idx=${h.idx}, price=${h.price.toFixed(2)}, date=${h.date}
 Swing-Tiefs (signifikante Tiefpunkte):
 ${topLows.map(l=>`  - idx=${l.idx}, price=${l.price.toFixed(2)}, date=${l.date}`).join('\n')}
 
-DEINE AUFGABE: Identifiziere die AKTUELL RELEVANTEN Strukturen im Chart.
+DEINE AUFGABE: Identifiziere Support/Resistanz und ggf. Chartmuster.
+(TRENDLINIEN werden vom lokalen Algorithmus berechnet — du musst keine angeben.)
 
 NACH CHARTTECHNIK-LEHRE (Edwards & Magee, Murphy):
 
-1. TRENDLINIEN — STRIKTE Regeln:
-   - Eine Trendlinie ist NUR VALIDE wenn sie MINDESTENS 2-3 Swing-Punkte berührt
-   - Abwärtstrend: verbinde fallende Swing-Hochs (aus obiger Liste)
-   - Aufwärtstrend: verbinde steigende Swing-Tiefs (aus obiger Liste)
-   - Bevorzuge die JÜNGSTE Trendlinie (mit den letzten 3-4 Swings)
-   - Wähle p1_idx und p1_price GENAU aus den Swing-Listen oben
-   - "segment":true wenn die Linie gebrochen wurde (Preis darüber/darunter geschlossen) — zeichne dann nur bis zum Bruchpunkt
-
-2. SUPPORT/RESISTANZ — horizontale Niveaus:
+1. SUPPORT/RESISTANZ — horizontale Niveaus:
    - Level das MINDESTENS 2x getestet wurde (zeige nur starke Levels)
    - Support: UNTER aktuellem Preis (${lastC.toFixed(2)}), meist nahe historischen Tiefs
    - Resistanz: ÜBER aktuellem Preis, meist nahe historischen Hochs
    - Ein vormaliger Support wird nach Bruch zur Resistanz und umgekehrt
    - Runde Zahlen ($10, $25, $50...) sind oft psychologische Levels
 
-3. CHARTMUSTER — suche nach (nur nennen wenn KLAR sichtbar):
+2. CHARTMUSTER — suche nach (nur nennen wenn KLAR sichtbar):
    - Doppelter Boden / Doppeltes Top: 2 Tiefs/Hochs nahe gleichem Preis (Umkehr)
    - Kopf-Schulter / inverse Kopf-Schulter: 3 Hochs/Tiefs, mittleres am extremsten (Umkehr)
    - Aufsteigendes Dreieck: steigende Tiefs + horizontale Hochs (meist bullish)
@@ -2392,12 +2394,11 @@ ${JSON.stringify(ohlcData)}
 
 Antworte ausschließlich mit validem JSON:
 {
-  "trendlines":[{"p1_idx":<int>,"p1_price":<float>,"p2_idx":<int>,"p2_price":<float>,"label":"<Aufwärtstrend|Abwärtstrend>","segment":<true|false>}],
   "support_resistance":[{"price":<float>,"label":"<Support|Resistanz> $<preis>","type":"<support|resistance>"}],
   "patterns":[{"name":"<Musername>","description":"<kurze Erklärung>","bias":"<bullish|bearish|neutral>"}]
 }
 
-Maximum: 2 Trendlinien, 3 S/R-Linien, 2 Chartmuster. Fibonacci wird automatisch berechnet.`;
+Maximum: 4 S/R-Linien, 2 Chartmuster. Trendlinien und Fibonacci werden lokal berechnet.`;
 
   try{
     let raw='';
@@ -2521,14 +2522,130 @@ Maximum: 2 Trendlinien, 3 S/R-Linien, 2 Chartmuster. Fibonacci wird automatisch 
       }
       return{idx:bestIdx,price:bestPrice,time:candles[bestIdx].t.getTime()};
     }
-    (result.trendlines||[]).forEach(t=>{
-      const isUp=String(t.label||'').toLowerCase().includes('auf')||String(t.label||'').toLowerCase().includes('up');
-      const p1=snapToSwing(t.p1_idx,t.p1_price,!isUp);
-      const p2=snapToSwing(t.p2_idx,t.p2_price,!isUp);
-      if(!p1||!p2)return;
-      if(Math.abs(p2.idx-p1.idx)<5)return;
-      aiDrawings.push({type:'trendline',p1,p2,label:t.label,segment:t.segment===true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
+    // ─────────────────────────────────────────────────────────
+    // TRENDLINIEN — lokaler Algorithmus mit Berührungspunkt-Validierung
+    // (deterministisch, präzise, geometrische Korrektheit garantiert)
+    //
+    // Methode: Alle Paare von Swing-Lows (für Aufwärts-) bzw. Swing-Highs
+    // (für Abwärtstrend) bilden je eine Linie. Für jede Linie wird gezählt,
+    // wie viele weitere Swings sie berührt. Toleranz proportional zur
+    // Preisrange. Linien mit ≥3 Berührungen werden zugelassen, gerankt nach
+    // Berührungsanzahl. Ungültige Linien (Preis bricht durch) werden verworfen.
+    // ─────────────────────────────────────────────────────────
+    const findTrendlines=()=>{
+      if(!slice||slice.length<10)return[];
+      const priceRange=maxPrice-minPrice;
+      // Toleranz: 0.4% der Range — klein genug für Präzision, groß genug
+      // damit Wicks die Linie auch bei kleinem Rauschen berühren
+      const tol=priceRange*0.004;
+      // Maximaler erlaubter "Bruch": wenn eine Kerze weiter als 0.6% durch
+      // die Linie schießt, ist die Linie ungültig (Linie wurde gebrochen)
+      const breakTol=priceRange*0.006;
+      const lines=[];
+
+      function evaluateLine(p1,p2,swings,direction){
+        // direction: 'up' für Aufwärtstrend (Linie unter Preis, Lows berühren von oben)
+        //            'down' für Abwärtstrend (Linie über Preis, Highs berühren von unten)
+        if(p2.idx===p1.idx)return null;
+        const slope=(p2.price-p1.price)/(p2.idx-p1.idx);
+        // Steigungs-Plausibilität: Aufwärtstrend muss steigen, Abwärtstrend fallen
+        if(direction==='up'&&slope<=0)return null;
+        if(direction==='down'&&slope>=0)return null;
+        const yAt=idx=>p1.price+slope*(idx-p1.idx);
+        // 1. Berührungspunkte zählen (Swings nahe der Linie)
+        const touches=[];
+        for(const s of swings){
+          if(s.idx<p1.idx||s.idx>p2.idx*1.5)continue; // nur in/leicht über Range
+          const lineY=yAt(s.idx);
+          if(Math.abs(s.price-lineY)<=tol)touches.push(s);
+        }
+        if(touches.length<3)return null; // mindestens 3 Berührungen
+        // 2. Bruch-Test: keine Kerze darf signifikant durch die Linie schießen
+        // Aufwärtstrend: kein Tief darf weit UNTER der Linie liegen
+        // Abwärtstrend: kein Hoch darf weit ÜBER der Linie liegen
+        let broken=false,brokenAtIdx=null;
+        for(let i=0;i<slice.length;i++){
+          const idx=firstIdx+i;
+          if(idx<p1.idx||idx>lastIdx)continue;
+          const lineY=yAt(idx);
+          if(direction==='up'&&slice[i].l<lineY-breakTol){broken=true;brokenAtIdx=idx;break;}
+          if(direction==='down'&&slice[i].h>lineY+breakTol){broken=true;brokenAtIdx=idx;break;}
+        }
+        // Zeitspanne: Linie muss substanziell sein (mindestens 8% des sichtbaren Bereichs)
+        const span=p2.idx-p1.idx;
+        if(span<Math.max(8,N*0.08))return null;
+        return{p1,p2,slope,touches:touches.length,direction,broken,brokenAtIdx};
+      }
+
+      // Aufwärtstrend-Linien: alle Paare von Swing-Lows
+      for(let i=0;i<swingLows.length-1;i++){
+        for(let j=i+1;j<swingLows.length;j++){
+          const r=evaluateLine(swingLows[i],swingLows[j],swingLows,'up');
+          if(r)lines.push(r);
+        }
+      }
+      // Abwärtstrend-Linien: alle Paare von Swing-Highs
+      for(let i=0;i<swingHighs.length-1;i++){
+        for(let j=i+1;j<swingHighs.length;j++){
+          const r=evaluateLine(swingHighs[i],swingHighs[j],swingHighs,'down');
+          if(r)lines.push(r);
+        }
+      }
+      // Deduplizierung: Linien mit ähnlicher Steigung UND Y-Offset zusammenfassen,
+      // dabei jeweils die Variante mit MEHR Berührungen behalten
+      const dedup=[];
+      for(const cand of lines){
+        let merged=false;
+        for(const exist of dedup){
+          if(exist.direction!==cand.direction)continue;
+          // Y-Differenz an der Mitte des überlappenden Bereichs
+          const midIdx=(Math.max(exist.p1.idx,cand.p1.idx)+Math.min(exist.p2.idx,cand.p2.idx))/2;
+          const yE=exist.p1.price+exist.slope*(midIdx-exist.p1.idx);
+          const yC=cand.p1.price+cand.slope*(midIdx-cand.p1.idx);
+          if(Math.abs(yE-yC)<tol*2&&Math.abs(exist.slope-cand.slope)<priceRange/N*0.02){
+            // gleiche Linie — behalte die mit mehr Touches (oder größerem Span)
+            if(cand.touches>exist.touches||(cand.touches===exist.touches&&(cand.p2.idx-cand.p1.idx)>(exist.p2.idx-exist.p1.idx))){
+              Object.assign(exist,cand);
+            }
+            merged=true;break;
+          }
+        }
+        if(!merged)dedup.push(cand);
+      }
+      // Ranking: mehr Touches > längere Linie > jüngere Linie
+      dedup.sort((a,b)=>{
+        if(b.touches!==a.touches)return b.touches-a.touches;
+        const spanA=a.p2.idx-a.p1.idx,spanB=b.p2.idx-b.p1.idx;
+        if(spanB!==spanA)return spanB-spanA;
+        return b.p2.idx-a.p2.idx;
+      });
+      // Top 4: maximal je 2 Aufwärts- und 2 Abwärtstrendlinien
+      const out=[];
+      let upCount=0,downCount=0;
+      for(const l of dedup){
+        if(l.direction==='up'&&upCount>=2)continue;
+        if(l.direction==='down'&&downCount>=2)continue;
+        out.push(l);
+        if(l.direction==='up')upCount++;else downCount++;
+        if(out.length>=4)break;
+      }
+      return out;
+    };
+    const localLines=findTrendlines();
+    console.log('[KI] Lokal gefundene Trendlinien: '+localLines.length+' (mit ≥3 Berührungen)');
+    localLines.forEach(l=>{
+      const labelBase=l.direction==='up'?'Aufwärtstrend':'Abwärtstrend';
+      const label=`${labelBase} (${l.touches}× bestätigt)`;
+      // Wenn die Linie gebrochen wurde, nur als Segment bis zum Bruchpunkt zeichnen
+      const p1={idx:l.p1.idx,price:l.p1.price,time:candles[l.p1.idx].t.getTime()};
+      const p2Idx=l.broken?l.brokenAtIdx:l.p2.idx;
+      const p2Price=l.broken?l.p1.price+l.slope*(p2Idx-l.p1.idx):l.p2.price;
+      const p2={idx:p2Idx,price:p2Price,time:candles[p2Idx].t.getTime()};
+      aiDrawings.push({type:'trendline',p1,p2,label,segment:l.broken,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
     });
+    // KI-Trendlinien werden NICHT mehr akzeptiert — der lokale Algorithmus ist deterministisch
+    // und erzwingt das ≥3-Berührungspunkte-Kriterium. Falls die KI welche zurückgibt,
+    // ignorieren wir sie zugunsten der lokal validierten.
     (result.support_resistance||[]).forEach(s=>{
       const p=parseFloat(s.price);
       if(isNaN(p)||p<minPrice*0.8||p>maxPrice*1.2)return; // sanity check
@@ -2593,7 +2710,7 @@ Maximum: 2 Trendlinien, 3 S/R-Linien, 2 Chartmuster. Fibonacci wird automatisch 
     const elapsed=((Date.now()-aiStartTime)/1000).toFixed(1);
     const patterns=result.patterns||[];
     const patternTxt=patterns.length?' · '+patterns.map(p=>p.name).join(', '):'';
-    const summary='✦ '+provLabel+': '+(result.trendlines?.length||0)+' Trends · '+(result.support_resistance?.length||0)+' S/R · Fib'+patternTxt+' · '+elapsed+'s';
+    const summary='✦ '+provLabel+': '+localLines.length+' Trends · '+(result.support_resistance?.length||0)+' S/R · Fib'+patternTxt+' · '+elapsed+'s';
     setStatus(summary,'ok');
     // Hide old header hint if still used
     const hint=document.getElementById('ai-hint');
@@ -3266,7 +3383,17 @@ ovCanvas.addEventListener('click',e=>{
   if(drawMode==='support'||drawMode==='supportfull'){const d={type:'support',price:usePrice,startIdx:useIdx,time:idxToTime(useIdx),full:drawMode==='supportfull',id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);redrawOC();setDrawMode('pointer');return;}
   if(drawMode==='trendline'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();setDrawMode('pointer');}return;}
   if(drawMode==='trendseg'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},segment:true,id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();setDrawMode('pointer');}return;}
-  if(drawMode==='channel'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else if(drawStep===1){drawTemp.push({idx:useIdx,price:usePrice,time:idxToTime(useIdx)});drawStep=2;}else{const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){const d={type:'channel',p1:drawTemp[0],p2:drawTemp[1],offsetPx:usePx.y-(p1.y+p2.y)/2,offsetPrice:usePrice-((drawTemp[0].price+drawTemp[1].price)/2),id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);}drawTemp=null;drawStep=0;redrawOC();setDrawMode('pointer');}return;}
+  if(drawMode==='channel'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else if(drawStep===1){drawTemp.push({idx:useIdx,price:usePrice,time:idxToTime(useIdx)});drawStep=2;}else{const p1=idxToPx(drawTemp[0].idx,drawTemp[0].price),p2=idxToPx(drawTemp[1].idx,drawTemp[1].price);if(p1&&p2){
+    // Offset an X-Position des dritten Klicks berechnen (analog zur Vorschau)
+    const slope=(p2.x!==p1.x)?(p2.y-p1.y)/(p2.x-p1.x):0;
+    const lineYAtClickX=p1.y+slope*(usePx.x-p1.x);
+    const offsetPx=usePx.y-lineYAtClickX;
+    // Preis-Offset analog: Preis der Hauptlinie am Klick-Index gegen Klick-Preis
+    const priceSlope=(drawTemp[1].idx!==drawTemp[0].idx)?(drawTemp[1].price-drawTemp[0].price)/(drawTemp[1].idx-drawTemp[0].idx):0;
+    const linePriceAtClickIdx=drawTemp[0].price+priceSlope*(useIdx-drawTemp[0].idx);
+    const offsetPrice=usePrice-linePriceAtClickIdx;
+    const d={type:'channel',p1:drawTemp[0],p2:drawTemp[1],offsetPx:offsetPx,offsetPrice:offsetPrice,id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);
+  }drawTemp=null;drawStep=0;redrawOC();setDrawMode('pointer');}return;}
   if(drawMode==='fib'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'fib',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();setDrawMode('pointer');}return;}
   if(drawMode==='measure'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'measure',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();setDrawMode('pointer');}return;}
   if(drawMode==='text'){
