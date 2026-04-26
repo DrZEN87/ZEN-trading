@@ -5904,100 +5904,139 @@ document.addEventListener('mousedown',e=>{
 async function fetchFinnhubEarnings(sym){
   const key=getFinnhubKey();
   if(!key){console.log('[Earnings] Kein Finnhub-Key, überspringe Refresh');return null;}
-  // Strategie:
-  // 1. Calendar (4 Jahre rückwärts + 60 Tage vorwärts) liefert REPORTING-Datum,
-  //    EPS-Werte, Schätzwerte → das ist die primäre Quelle (matcht TradingView).
-  // 2. /stock/earnings liefert nur das Quartalsende, aber zuverlässige
-  //    surprisePercent-Werte → wird als Fallback fürs Mergen genutzt.
-  const out=[];
-  const byReportDate=new Map(); // Tag-genauer Key → Event
-  // 1. Calendar: voller Zeitraum (Reporting-Datum)
+  // ─────────────────────────────────────────────────────────
+  // Strategie (zwei Datenquellen kombinieren):
+  //
+  // 1. /stock/earnings (limit=8): Liefert verlässlich die letzten 8 Quartale
+  //    historisch. Datum = Quartalsende, mit EPS actual/estimate + surprise.
+  //    KEIN Reporting-Datum, KEIN Revenue. → Das ist unsere BASIS.
+  //
+  // 2. /calendar/earnings: Liefert REPORTING-Datum + REVENUE, aber nur kurze
+  //    Zeiträume (Free-Tier ~3-6 Monate pro Call). Wir machen 4 Calls in
+  //    6-Monats-Schritten über die letzten 2 Jahre. Was Calendar liefert,
+  //    UPGRADET die Quartalsende-Basis (per Quartals-Key gematcht).
+  //
+  // Ergebnis: ~8 historische Earnings, davon möglichst viele mit
+  // Reporting-Datum und Revenue-Daten.
+  // ─────────────────────────────────────────────────────────
+  const byQuarter=new Map(); // Quartals-Key (z.B. "2025Q4") → Event
+  const quarterKey=(year,quarter)=>year+'Q'+quarter;
+
+  // 1. BASIS: /stock/earnings — liefert letzte 8 Quartale zuverlässig
   try{
-    // Finnhub Calendar Free-Tier: zuverlässig sind ~2 Jahre Historie
-    const from=new Date(Date.now()-2*365*86400000).toISOString().slice(0,10);
-    const toDate=new Date(Date.now()+60*86400000).toISOString().slice(0,10);
-    const calUrl=`https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${toDate}&symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
-    const resp=await fetch(calUrl);
-    if(resp.ok){
-      const data=await resp.json();
-      const rows=data?.earningsCalendar;
-      if(Array.isArray(rows)){
-        rows.forEach(r=>{
-          const ts=Date.parse(r.date);
-          if(!ts||isNaN(ts))return;
-          const epsActual=r.epsActual!=null?Number(r.epsActual):null;
-          const epsEstimate=r.epsEstimate!=null?Number(r.epsEstimate):null;
-          let surprise=null;
-          if(epsActual!=null&&epsEstimate!=null&&epsEstimate!==0){
-            surprise=((epsActual-epsEstimate)/Math.abs(epsEstimate))*100;
-          }
-          // Revenue-Daten (in USD, absolute Werte) — Finnhub liefert raw Dollar-Beträge
-          const revActual=r.revenueActual!=null?Number(r.revenueActual):null;
-          const revEstimate=r.revenueEstimate!=null?Number(r.revenueEstimate):null;
-          let revSurprise=null;
-          if(revActual!=null&&revEstimate!=null&&revEstimate!==0){
-            revSurprise=((revActual-revEstimate)/Math.abs(revEstimate))*100;
-          }
-          const ev={
-            timestamp:ts,
-            epsActual,epsEstimate,surprise,
-            revActual,revEstimate,revSurprise,
-            future:ts>Date.now(),
-            // Quartalsende für späteres Matching mit /stock/earnings
-            _periodKey:r.year&&r.quarter?`${r.year}Q${r.quarter}`:null
-          };
-          byReportDate.set(Math.floor(ts/86400000),ev);
-        });
-      }
-    }else{console.log('[Earnings] Finnhub calendar HTTP '+resp.status);}
-  }catch(e){console.log('[Earnings] Finnhub calendar failed:',e.message);}
-  // 2. /stock/earnings: nutzen für zuverlässige surprisePercent-Werte
-  // (matched per Quartal/Jahr aus dem Calendar-Result)
-  try{
-    const url=`https://finnhub.io/api/v1/stock/earnings?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
+    const url=`https://finnhub.io/api/v1/stock/earnings?symbol=${encodeURIComponent(sym)}&limit=8&token=${encodeURIComponent(key)}`;
     const resp=await fetch(url);
     if(resp.ok){
       const rows=await resp.json();
       if(Array.isArray(rows)){
-        // Map: Quartals-Key → API-Surprise
-        const surpriseByQuarter=new Map();
         rows.forEach(r=>{
-          if(r.surprisePercent==null||!r.period)return;
-          // r.period ist Quartalsende, z.B. "2025-12-31"
+          if(!r.period)return;
+          const ts=Date.parse(r.period);
+          if(!ts||isNaN(ts))return;
           const d=new Date(r.period);
-          const q=Math.floor(d.getMonth()/3)+1;
-          const key=`${d.getFullYear()}Q${q}`;
-          surpriseByQuarter.set(key,Number(r.surprisePercent));
-        });
-        // Calendar-Events anreichern, wenn der API-Surprise verlässlicher wirkt
-        byReportDate.forEach(ev=>{
-          if(!ev._periodKey)return;
-          const apiSurprise=surpriseByQuarter.get(ev._periodKey);
-          if(apiSurprise!=null){
-            // Wenn der eigene Calc-Wert fehlt oder grob abweicht, API-Wert nehmen
-            if(ev.surprise==null||Math.abs(ev.surprise-apiSurprise)>5){
-              ev.surprise=apiSurprise;
-            }
+          const q=Math.floor(d.getUTCMonth()/3)+1;
+          const qk=quarterKey(d.getUTCFullYear(),q);
+          const epsActual=r.actual!=null?Number(r.actual):null;
+          const epsEstimate=r.estimate!=null?Number(r.estimate):null;
+          let surprise=r.surprisePercent!=null?Number(r.surprisePercent):null;
+          if(surprise==null&&epsActual!=null&&epsEstimate!=null&&epsEstimate!==0){
+            surprise=((epsActual-epsEstimate)/Math.abs(epsEstimate))*100;
           }
+          byQuarter.set(qk,{
+            timestamp:ts,
+            epsActual,epsEstimate,surprise,
+            revActual:null,revEstimate:null,revSurprise:null,
+            future:false,
+            _quarterKey:qk
+          });
         });
       }
-    }
-  }catch(e){console.log('[Earnings] Finnhub stock/earnings failed:',e.message);}
-  // Aufräumen + sortieren
-  byReportDate.forEach(ev=>{
-    delete ev._periodKey;
-    out.push(ev);
-  });
+    }else{console.log('[Earnings] /stock/earnings HTTP '+resp.status);}
+  }catch(e){console.log('[Earnings] /stock/earnings failed:',e.message);}
+  console.log('[Earnings] '+sym+' Basis aus /stock/earnings: '+byQuarter.size+' Quartale');
+
+  // 2. UPGRADE: Calendar in 6-Monats-Schritten über die letzten 2 Jahre + 60 Tage Zukunft
+  // Reporting-Datum + Revenue mergen, falls verfügbar
+  const ranges=[];
+  const now=Date.now();
+  // 4 Vergangenheits-Slots (je 6 Monate) + 1 Zukunfts-Slot
+  for(let i=0;i<4;i++){
+    const toMs=now-i*180*86400000;
+    const fromMs=toMs-180*86400000;
+    ranges.push({from:new Date(fromMs).toISOString().slice(0,10),to:new Date(toMs).toISOString().slice(0,10)});
+  }
+  ranges.push({from:new Date(now).toISOString().slice(0,10),to:new Date(now+90*86400000).toISOString().slice(0,10)});
+  let calendarHits=0,futureFromCalendar=null;
+  for(const range of ranges){
+    try{
+      const calUrl=`https://finnhub.io/api/v1/calendar/earnings?from=${range.from}&to=${range.to}&symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
+      const resp=await fetch(calUrl);
+      if(!resp.ok){console.log('[Earnings] Calendar HTTP '+resp.status+' für '+range.from+'..'+range.to);continue;}
+      const data=await resp.json();
+      const rows=data?.earningsCalendar;
+      if(!Array.isArray(rows))continue;
+      rows.forEach(r=>{
+        const ts=Date.parse(r.date);
+        if(!ts||isNaN(ts))return;
+        const qk=r.year&&r.quarter?quarterKey(r.year,r.quarter):null;
+        const epsActual=r.epsActual!=null?Number(r.epsActual):null;
+        const epsEstimate=r.epsEstimate!=null?Number(r.epsEstimate):null;
+        const revActual=r.revenueActual!=null?Number(r.revenueActual):null;
+        const revEstimate=r.revenueEstimate!=null?Number(r.revenueEstimate):null;
+        let revSurprise=null;
+        if(revActual!=null&&revEstimate!=null&&revEstimate!==0){
+          revSurprise=((revActual-revEstimate)/Math.abs(revEstimate))*100;
+        }
+        const isFuture=ts>now;
+        if(qk&&byQuarter.has(qk)){
+          // Upgrade: Reporting-Datum übernehmen, Revenue ergänzen
+          const ev=byQuarter.get(qk);
+          ev.timestamp=ts; // Quartalsende → Reporting-Datum
+          if(epsActual!=null)ev.epsActual=epsActual;
+          if(epsEstimate!=null)ev.epsEstimate=epsEstimate;
+          if(revActual!=null)ev.revActual=revActual;
+          if(revEstimate!=null)ev.revEstimate=revEstimate;
+          if(revSurprise!=null)ev.revSurprise=revSurprise;
+          ev.future=isFuture;
+          calendarHits++;
+        }else if(isFuture){
+          // Zukunft: nur durch Calendar bekannt (nicht in /stock/earnings enthalten)
+          let surprise=null;
+          if(epsActual!=null&&epsEstimate!=null&&epsEstimate!==0){
+            surprise=((epsActual-epsEstimate)/Math.abs(epsEstimate))*100;
+          }
+          futureFromCalendar={
+            timestamp:ts,
+            epsActual,epsEstimate,surprise,
+            revActual,revEstimate,revSurprise,
+            future:true
+          };
+        }else if(qk){
+          // Historisches Calendar-Event ohne /stock/earnings-Match
+          // (sollte selten passieren, aber wir nehmen es trotzdem mit)
+          let surprise=null;
+          if(epsActual!=null&&epsEstimate!=null&&epsEstimate!==0){
+            surprise=((epsActual-epsEstimate)/Math.abs(epsEstimate))*100;
+          }
+          byQuarter.set(qk,{
+            timestamp:ts,epsActual,epsEstimate,surprise,
+            revActual,revEstimate,revSurprise,future:false,_quarterKey:qk
+          });
+        }
+      });
+    }catch(e){console.log('[Earnings] Calendar failed für '+range.from+'..'+range.to+':',e.message);}
+  }
+  console.log('[Earnings] '+sym+' Calendar-Upgrades: '+calendarHits+' Quartale mit Reporting-Datum/Revenue');
+
+  // 3. Liste zusammenbauen + sortieren
+  const out=Array.from(byQuarter.values()).map(e=>{delete e._quarterKey;return e;});
+  if(futureFromCalendar)out.push(futureFromCalendar);
   out.sort((a,b)=>a.timestamp-b.timestamp);
-  console.log('[Earnings] Finnhub liefert '+out.length+' Events für '+sym+' (Reporting-Daten)');
-  // Debug: Wieviele haben Revenue-Daten?
+
+  console.log('[Earnings] Finnhub liefert '+out.length+' Events für '+sym);
   const withRev=out.filter(e=>e.revActual!=null||e.revEstimate!=null).length;
   if(out.length>0){
     console.log('[Earnings] Davon mit Revenue-Daten: '+withRev+'/'+out.length);
-    if(withRev<out.length){
-      const missing=out.filter(e=>e.revActual==null&&e.revEstimate==null).map(e=>new Date(e.timestamp).toISOString().slice(0,10));
-      console.log('[Earnings] Ohne Revenue: '+missing.join(', '));
-    }
   }
   return out;
 }
