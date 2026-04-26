@@ -574,6 +574,32 @@ let panelStep={},panelTemp={},panelMouse={};
 let popupTimer=null;
 let crossSignals=[];
 let aiDrawings=[];
+// ── KI-Zeichnungen lokal persistieren (pro Symbol) ──
+// localStorage statt Cloud, weil KI-Output bei jedem neuen Klick variiert
+// und Cloud-Sync für volatile/häufig-überschriebene Daten weniger sinnvoll ist
+function aiKey(sym){return 'zen_ai_drawings:'+(sym||currentSymbol||'').toUpperCase();}
+function saveAIDrawings(sym){
+  try{
+    const data=aiDrawings.filter(d=>!d.sym||d.sym===(sym||currentSymbol));
+    localStorage.setItem(aiKey(sym),JSON.stringify({savedAt:Date.now(),drawings:data}));
+  }catch(e){console.log('[AI] Persist failed:',e.message);}
+}
+function loadAIDrawings(sym){
+  try{
+    const raw=localStorage.getItem(aiKey(sym));
+    if(!raw)return[];
+    const obj=JSON.parse(raw);
+    // Optional: Verfallsdatum, KI-Linien älter als 30 Tage verwerfen
+    if(obj.savedAt&&Date.now()-obj.savedAt>30*86400000){
+      localStorage.removeItem(aiKey(sym));
+      return[];
+    }
+    return Array.isArray(obj.drawings)?obj.drawings:[];
+  }catch{return[];}
+}
+function clearAIDrawings(sym){
+  try{localStorage.removeItem(aiKey(sym));}catch{}
+}
 const RIGHT_PAD=0.15;
 const TF={'5m':{i:'5m',r:'5d'},'1h':{i:'1h',r:'1mo'},'4h':{i:'4h',r:'6mo'},d1:{i:'1d',r:'max'},w1:{i:'1wk',r:'max'},m1:{i:'1mo',r:'max'}};
 // Fibonacci-Levels: Retracement (0-100%) + Extensions (über 100% für Kursziele nach Ausbruch)
@@ -892,6 +918,16 @@ async function fetchData(sym,tf,silent=false,_retries=3){
   if(!silent)setStatus('Lade '+sym+'…','loading');
   // Offenes Event-Tooltip schließen — sonst zeigt es alte Daten beim Symbolwechsel
   try{showEventTooltip(null);}catch{}
+  // Gespeicherte KI-Zeichnungen für dieses Symbol wiederherstellen
+  try{
+    const restored=loadAIDrawings(sym);
+    if(restored.length){
+      // Drawings für andere Symbole behalten, nur die für das aktuelle ersetzen
+      aiDrawings=aiDrawings.filter(d=>d.sym&&d.sym!==sym.toUpperCase());
+      aiDrawings.push(...restored);
+      console.log('[AI] '+restored.length+' gespeicherte KI-Zeichnungen für '+sym+' geladen');
+    }
+  }catch(e){console.log('[AI] Restore failed:',e.message);}
 
   // Hard timeout: hide loader after 25s no matter what
   const safetyTimer=setTimeout(()=>{
@@ -2116,7 +2152,7 @@ function deleteSelectedDrawing(){
     if(d&&localStorage.getItem('zen_alarm_email'))cloudDeleteDrawing(d);
     drawings.splice(idx,1);
   }
-  else if(pool==='aiDrawings')aiDrawings.splice(idx,1);
+  else if(pool==='aiDrawings'){aiDrawings.splice(idx,1);saveAIDrawings(currentSymbol);}
   else if(pool==='alarms'){
     const a=alarms[idx];
     if(a&&localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
@@ -2187,11 +2223,11 @@ function drawObj(ctx,d,ca){
         if(idx==null)return;
         const px=idxToPx(idx,tp.price);
         if(!px)return;
-        // Größerer Ring um die Touch-Punkte, deutlich sichtbar
-        ctx.beginPath();ctx.arc(px.x,px.y,5,0,Math.PI*2);
+        // Dezente Touch-Punkte (kleiner als Endpoint-Marker)
+        ctx.beginPath();ctx.arc(px.x,px.y,3,0,Math.PI*2);
         ctx.fillStyle=col;ctx.fill();
-        ctx.beginPath();ctx.arc(px.x,px.y,5,0,Math.PI*2);
-        ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
+        ctx.beginPath();ctx.arc(px.x,px.y,3,0,Math.PI*2);
+        ctx.strokeStyle='rgba(255,255,255,.8)';ctx.lineWidth=1;ctx.stroke();
       });
       ctx.restore();
     }
@@ -2227,10 +2263,10 @@ function drawObj(ctx,d,ca){
         if(idx==null)return;
         const px=idxToPx(idx,tp.price);
         if(!px)return;
-        ctx.beginPath();ctx.arc(px.x,yp,5,0,Math.PI*2);
+        ctx.beginPath();ctx.arc(px.x,yp,3,0,Math.PI*2);
         ctx.fillStyle=col;ctx.fill();
-        ctx.beginPath();ctx.arc(px.x,yp,5,0,Math.PI*2);
-        ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
+        ctx.beginPath();ctx.arc(px.x,yp,3,0,Math.PI*2);
+        ctx.strokeStyle='rgba(255,255,255,.8)';ctx.lineWidth=1;ctx.stroke();
       });
       ctx.restore();
     }
@@ -2364,9 +2400,13 @@ async function runAIAnalysis(){
   const firstIdx=visStart;
   const lastIdx=visEnd;
 
-  // Lokale Swing-Erkennung (entlastet Gemini, liefert präzise Koordinaten)
-  function detectSwings(data,lookback){
+  // Lokale Swing-Erkennung — nur SIGNIFIKANTE Wendepunkte
+  // Ein Swing-Low gilt nur als markant, wenn der Preis sich danach UND davor
+  // um mindestens minMovePct % erholt/abgewertet hat. So fliegt Rauschen raus.
+  function detectSwings(data,lookback,minMovePct){
     const highs=[],lows=[];
+    const range=Math.max(...data.map(c=>c.h))-Math.min(...data.map(c=>c.l));
+    const minMove=range*minMovePct;
     for(let i=lookback;i<data.length-lookback;i++){
       const c=data[i];
       let isHigh=true,isLow=true;
@@ -2375,14 +2415,29 @@ async function runAIAnalysis(){
         if(data[i-j].l<=c.l||data[i+j].l<=c.l)isLow=false;
         if(!isHigh&&!isLow)break;
       }
+      // Signifikanz-Test: minMove vor UND nach dem Swing
+      if(isLow){
+        const lookRange=Math.min(20,Math.floor(data.length/4));
+        let maxBefore=-Infinity,maxAfter=-Infinity;
+        for(let k=Math.max(0,i-lookRange);k<i;k++)maxBefore=Math.max(maxBefore,data[k].h);
+        for(let k=i+1;k<Math.min(data.length,i+lookRange);k++)maxAfter=Math.max(maxAfter,data[k].h);
+        if(maxBefore-c.l<minMove||maxAfter-c.l<minMove)isLow=false;
+      }
+      if(isHigh){
+        const lookRange=Math.min(20,Math.floor(data.length/4));
+        let minBefore=Infinity,minAfter=Infinity;
+        for(let k=Math.max(0,i-lookRange);k<i;k++)minBefore=Math.min(minBefore,data[k].l);
+        for(let k=i+1;k<Math.min(data.length,i+lookRange);k++)minAfter=Math.min(minAfter,data[k].l);
+        if(c.h-minBefore<minMove||c.h-minAfter<minMove)isHigh=false;
+      }
       if(isHigh)highs.push({idx:firstIdx+i,price:c.h,date:c.t.toISOString().slice(0,10)});
       if(isLow)lows.push({idx:firstIdx+i,price:c.l,date:c.t.toISOString().slice(0,10)});
     }
     return{highs,lows};
   }
-  // Dynamischer Lookback basierend auf TF
-  const lookback=currentTF==='5m'?3:currentTF==='1h'?4:currentTF==='4h'?4:5;
-  const{highs:swingHighs,lows:swingLows}=detectSwings(slice,lookback);
+  // Lookback größer (markantere Swings), Signifikanz: 3% der Range Mindestbewegung
+  const lookback=currentTF==='5m'?5:currentTF==='1h'?6:currentTF==='4h'?6:8;
+  const{highs:swingHighs,lows:swingLows}=detectSwings(slice,lookback,0.03);
   // Nur die signifikantesten Swings (Top-Level, sonst wird Prompt zu lang)
   const topHighs=[...swingHighs].sort((a,b)=>b.price-a.price).slice(0,8).sort((a,b)=>a.idx-b.idx);
   const topLows=[...swingLows].sort((a,b)=>a.price-b.price).slice(0,8).sort((a,b)=>a.idx-b.idx);
@@ -2620,6 +2675,19 @@ Maximum: 4 S/R-Linien, 2 Chartmuster. Trendlinien und Fibonacci werden lokal ber
           if(Math.abs(s.price-lineY)<=tol)touches.push(s);
         }
         if(touches.length<3)return null; // mindestens 3 Berührungen
+        // 1b. Zeitliche Spreizung: Touches müssen über die Linien-Range verteilt sein
+        // Sonst zählen 3 Punkte in einer kurzen Konsolidierung als "valide Linie"
+        const span=p2.idx-p1.idx;
+        const minGap=Math.max(5,span*0.15); // mind. 15% des Spans zwischen Touches
+        const sortedTouches=[...touches].sort((a,b)=>a.idx-b.idx);
+        let validSpread=true;
+        for(let i=1;i<sortedTouches.length;i++){
+          if(sortedTouches[i].idx-sortedTouches[i-1].idx<minGap){validSpread=false;break;}
+        }
+        if(!validSpread)return null;
+        // 1c. Touches müssen mind. 50% des Linien-Spans überdecken
+        const touchSpan=sortedTouches[sortedTouches.length-1].idx-sortedTouches[0].idx;
+        if(touchSpan<span*0.5)return null;
         // 2. Bruch-Test: keine Kerze darf signifikant durch die Linie schießen
         // Aufwärtstrend: kein Tief darf weit UNTER der Linie liegen
         // Abwärtstrend: kein Hoch darf weit ÜBER der Linie liegen
@@ -2631,10 +2699,9 @@ Maximum: 4 S/R-Linien, 2 Chartmuster. Trendlinien und Fibonacci werden lokal ber
           if(direction==='up'&&slice[i].l<lineY-breakTol){broken=true;brokenAtIdx=idx;break;}
           if(direction==='down'&&slice[i].h>lineY+breakTol){broken=true;brokenAtIdx=idx;break;}
         }
-        // Zeitspanne: Linie muss substanziell sein (mindestens 8% des sichtbaren Bereichs)
-        const span=p2.idx-p1.idx;
-        if(span<Math.max(8,N*0.08))return null;
-        return{p1,p2,slope,touches:touches.length,touchList:touches,direction,broken,brokenAtIdx};
+        // Zeitspanne: Linie muss substanziell sein (mindestens 15% des sichtbaren Bereichs)
+        if(span<Math.max(10,N*0.15))return null;
+        return{p1,p2,slope,touches:touches.length,touchList:sortedTouches,direction,broken,brokenAtIdx};
       }
 
       // Aufwärtstrend-Linien: alle Paare von Swing-Lows
@@ -2727,23 +2794,30 @@ Maximum: 4 S/R-Linien, 2 Chartmuster. Trendlinien und Fibonacci werden lokal ber
     function findTouchesForLevel(level){
       if(!slice||!slice.length)return[];
       const tol=(maxPrice-minPrice)*0.005; // 0.5% der Range
+      // "Reversal-Distanz" — nach dem Touch muss sich der Preis um mind. 2% der Range
+      // wieder vom Level entfernen, sonst war es kein echter Test sondern Durchlauf
+      const reversalMin=(maxPrice-minPrice)*0.02;
       const touches=[];
       let lastTouchIdx=-Infinity;
       for(let i=0;i<slice.length;i++){
         const c=slice[i];
         const idx=firstIdx+i;
-        // Mindestabstand 3 Bars zum letzten Touch (sonst zählen aufeinanderfolgende
-        // Kerzen als ein einziger Test des Levels)
-        if(idx-lastTouchIdx<3)continue;
-        // Touch von oben (Resistance-Test): Hoch nahe Level, aber Body darunter
-        // Touch von unten (Support-Test): Tief nahe Level, aber Body darüber
+        // Mindestabstand 5 Bars zum letzten Touch
+        if(idx-lastTouchIdx<5)continue;
         const highNear=Math.abs(c.h-level)<=tol;
         const lowNear=Math.abs(c.l-level)<=tol;
-        if(highNear||lowNear){
-          const touchPrice=highNear?c.h:c.l;
-          touches.push({idx,price:touchPrice,time:c.t.getTime()});
-          lastTouchIdx=idx;
+        if(!highNear&&!lowNear)continue;
+        // Reversal-Test: Innerhalb von 5 Bars davor UND danach muss sich der
+        // Preis um mind. reversalMin vom Level entfernt haben (in einer Richtung)
+        const lookWin=5;
+        let maxDistAround=0;
+        for(let k=Math.max(0,i-lookWin);k<=Math.min(slice.length-1,i+lookWin);k++){
+          maxDistAround=Math.max(maxDistAround,Math.abs(slice[k].c-level));
         }
+        if(maxDistAround<reversalMin)continue; // war nur Durchlauf, kein Test
+        const touchPrice=highNear?c.h:c.l;
+        touches.push({idx,price:touchPrice,time:c.t.getTime()});
+        lastTouchIdx=idx;
       }
       return touches;
     }
@@ -2822,6 +2896,8 @@ Maximum: 4 S/R-Linien, 2 Chartmuster. Trendlinien und Fibonacci werden lokal ber
     const patternTxt=patterns.length?' · '+patterns.map(p=>p.name).join(', '):'';
     const summary='✦ '+provLabel+': '+localLines.length+' Trends · '+(result.support_resistance?.length||0)+' S/R · Fib'+patternTxt+' · '+elapsed+'s';
     setStatus(summary,'ok');
+    // KI-Zeichnungen für dieses Symbol persistieren (lokal)
+    saveAIDrawings(currentSymbol);
     // Hide old header hint if still used
     const hint=document.getElementById('ai-hint');
     if(hint)hint.style.display='none';
@@ -3663,6 +3739,8 @@ document.getElementById('undo-btn').addEventListener('click',()=>{if(drawings.le
 document.getElementById('clear-btn').addEventListener('click',()=>{
   // Clear also in cloud
   if(localStorage.getItem('zen_alarm_email'))cloudClearDrawings();
+  // Persistierte KI-Zeichnungen für aktuelles Symbol entfernen
+  clearAIDrawings(currentSymbol);
   drawings=[];aiDrawings=[];selectedDrawing=null;
   PANEL_KEYS.forEach(k=>panelDrawings[k]=[]);
   drawStep=0;drawTemp=null;
