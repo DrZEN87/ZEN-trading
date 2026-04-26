@@ -2144,13 +2144,58 @@ function drawObj(ctx,d,ca){
     if(!rp1||!rp2)return;
     const p1=idxToPx(rp1.idx,rp1.price),p2=idxToPx(rp2.idx,rp2.price);if(!p1||!p2)return;
     const col=isAI?C.aiTrend:C.trend;
-    // Segment mode: only between p1 and p2. Standard: from p1, extended right past p2.
     const isSeg=d.segment===true;
     const ext=isSeg?{x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y}:extLineRight(p1.x,p1.y,p2.x,p2.y,ca.right);
     if(isSel){ctx.save();ctx.strokeStyle='rgba(255,255,100,.25)';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(ext.x1,ext.y1);ctx.lineTo(ext.x2,ext.y2);ctx.stroke();ctx.restore();}
-    dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,isSel?'#ffe066':col,isSel?2:isAI?1.2:1.5,isAI&&!isSel?[6,3]:[]);
+    // Wenn gebrochen (KI-Trendlinie): solide bis Bruchpunkt, ab da gestrichelt weiter
+    // → so siehst du, wo die Linie verläuft FALLS sie gehalten hätte
+    if(isAI&&d.brokenAt&&!isSel){
+      const brokenIdx=d.brokenAt.time!=null?timeToIdx(d.brokenAt.time):d.brokenAt.idx;
+      if(brokenIdx!=null){
+        const slope=(p2.x!==p1.x)?(p2.y-p1.y)/(p2.x-p1.x):0;
+        // Bruchpunkt auf der Linie (extrapoliert)
+        const brokenVi=brokenIdx-viewStart;
+        const brokenX=mainChart?.scales?.x?.getPixelForValue(brokenVi);
+        if(brokenX!=null&&brokenX>=ext.x1&&brokenX<=ext.x2){
+          const brokenY=p1.y+slope*(brokenX-p1.x);
+          // Solide bis Bruch
+          dline(ctx,ext.x1,ext.y1,brokenX,brokenY,col,1.2,[]);
+          // Gestrichelt ab Bruch nach rechts (zeigt "wo die Linie wäre")
+          ctx.save();ctx.globalAlpha=0.5;
+          dline(ctx,brokenX,brokenY,ext.x2,ext.y2,col,1,[6,4]);
+          ctx.restore();
+          // Bruchmarkierung
+          ctx.save();ctx.fillStyle=col;ctx.strokeStyle='#fff';ctx.lineWidth=1.5;
+          ctx.beginPath();ctx.arc(brokenX,brokenY,4,0,Math.PI*2);ctx.fill();ctx.stroke();
+          ctx.restore();
+        }else{
+          // Bruchpunkt außerhalb der gezeichneten Range → normale Linie
+          dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,col,1.2,[6,3]);
+        }
+      }else{
+        dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,col,1.2,[6,3]);
+      }
+    }else{
+      dline(ctx,ext.x1,ext.y1,ext.x2,ext.y2,isSel?'#ffe066':col,isSel?2:isAI?1.2:1.5,isAI&&!isSel?[6,3]:[]);
+    }
     dpt(ctx,p1.x,p1.y,isSel?'#ffe066':col);dpt(ctx,p2.x,p2.y,isSel?'#ffe066':col);
-    if(isAI&&d.label){ctx.save();ctx.fillStyle=col;ctx.font='10px system-ui';ctx.fillText(d.label,p1.x+8,p1.y-5);ctx.restore();}
+    // Touch-Punkte zeichnen (KI-Trendlinien): zeigt Wertigkeit der Linie
+    if(isAI&&Array.isArray(d.touchPoints)){
+      ctx.save();
+      d.touchPoints.forEach(tp=>{
+        const idx=tp.time!=null?timeToIdx(tp.time):tp.idx;
+        if(idx==null)return;
+        const px=idxToPx(idx,tp.price);
+        if(!px)return;
+        // Größerer Ring um die Touch-Punkte, deutlich sichtbar
+        ctx.beginPath();ctx.arc(px.x,px.y,5,0,Math.PI*2);
+        ctx.fillStyle=col;ctx.fill();
+        ctx.beginPath();ctx.arc(px.x,px.y,5,0,Math.PI*2);
+        ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
+      });
+      ctx.restore();
+    }
+    if(isAI&&d.label){ctx.save();ctx.fillStyle=col;ctx.font='bold 10px system-ui';ctx.fillText(d.label,p1.x+8,p1.y-5);ctx.restore();}
     if(isSel){trashX=p2.x;trashY=p2.y;}
   }else if(d.type==='channel'){
     if(!rp1||!rp2)return;
@@ -2174,7 +2219,22 @@ function drawObj(ctx,d,ca){
     }
     if(isSel){ctx.save();ctx.strokeStyle='rgba(255,255,100,.25)';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(xFrom,yp);ctx.lineTo(ca.right,yp);ctx.stroke();ctx.restore();}
     dline(ctx,xFrom,yp,ca.right,yp,isSel?'#ffe066':col,isAI?1:1.5,[]);
-    ctx.fillStyle=isSel?'#ffe066':col;ctx.font=(isAI?'':'500 ')+'10px system-ui';
+    // Touch-Punkte zeichnen (KI-S/R-Linien): zeigt Wertigkeit
+    if(isAI&&Array.isArray(d.touchPoints)){
+      ctx.save();
+      d.touchPoints.forEach(tp=>{
+        const idx=tp.time!=null?timeToIdx(tp.time):tp.idx;
+        if(idx==null)return;
+        const px=idxToPx(idx,tp.price);
+        if(!px)return;
+        ctx.beginPath();ctx.arc(px.x,yp,5,0,Math.PI*2);
+        ctx.fillStyle=col;ctx.fill();
+        ctx.beginPath();ctx.arc(px.x,yp,5,0,Math.PI*2);
+        ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
+      });
+      ctx.restore();
+    }
+    ctx.fillStyle=isSel?'#ffe066':col;ctx.font=(isAI?'bold ':'500 ')+'10px system-ui';
     const lbl=isAI?d.label:(d.price>=last.c?'R':'S')+' '+fmtPrice(d.price);
     ctx.fillText(lbl,xFrom+6,yp-4);
     if(isSel){trashX=ca.right-10;trashY=yp;}
@@ -2574,7 +2634,7 @@ Maximum: 4 S/R-Linien, 2 Chartmuster. Trendlinien und Fibonacci werden lokal ber
         // Zeitspanne: Linie muss substanziell sein (mindestens 8% des sichtbaren Bereichs)
         const span=p2.idx-p1.idx;
         if(span<Math.max(8,N*0.08))return null;
-        return{p1,p2,slope,touches:touches.length,direction,broken,brokenAtIdx};
+        return{p1,p2,slope,touches:touches.length,touchList:touches,direction,broken,brokenAtIdx};
       }
 
       // Aufwärtstrend-Linien: alle Paare von Swing-Lows
@@ -2636,20 +2696,70 @@ Maximum: 4 S/R-Linien, 2 Chartmuster. Trendlinien und Fibonacci werden lokal ber
     localLines.forEach(l=>{
       const labelBase=l.direction==='up'?'Aufwärtstrend':'Abwärtstrend';
       const label=`${labelBase} (${l.touches}× bestätigt)`;
-      // Wenn die Linie gebrochen wurde, nur als Segment bis zum Bruchpunkt zeichnen
+      // Touch-Punkte für Visualisierung sammeln (mit time für TF-stabile Auflösung)
+      const touchPoints=l.touchList.map(t=>({
+        idx:t.idx,
+        price:t.price,
+        time:candles[t.idx]?.t.getTime()
+      }));
+      // Wichtig: KEIN Hard-Cut bei Bruch — die Linie wird IMMER bis zum rechten Rand
+      // verlängert (extLineRight im Renderer). Das `broken`-Flag wird nur dafür genutzt,
+      // den Bereich nach dem Bruch optisch zu kennzeichnen (gestrichelt).
       const p1={idx:l.p1.idx,price:l.p1.price,time:candles[l.p1.idx].t.getTime()};
-      const p2Idx=l.broken?l.brokenAtIdx:l.p2.idx;
-      const p2Price=l.broken?l.p1.price+l.slope*(p2Idx-l.p1.idx):l.p2.price;
-      const p2={idx:p2Idx,price:p2Price,time:candles[p2Idx].t.getTime()};
-      aiDrawings.push({type:'trendline',p1,p2,label,segment:l.broken,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
+      const p2={idx:l.p2.idx,price:l.p2.price,time:candles[l.p2.idx].t.getTime()};
+      const brokenAt=l.broken?{idx:l.brokenAtIdx,time:candles[l.brokenAtIdx]?.t.getTime()}:null;
+      aiDrawings.push({
+        type:'trendline',p1,p2,label,
+        touchPoints,         // alle Berührungspunkte (≥3)
+        brokenAt,            // null oder {idx,time} ab wo gebrochen
+        segment:false,       // wir extrapolieren immer nach rechts
+        ai:true,id:Date.now()+Math.random(),sym:currentSymbol
+      });
     });
     // KI-Trendlinien werden NICHT mehr akzeptiert — der lokale Algorithmus ist deterministisch
     // und erzwingt das ≥3-Berührungspunkte-Kriterium. Falls die KI welche zurückgibt,
     // ignorieren wir sie zugunsten der lokal validierten.
+    // ─────────────────────────────────────────────────────────
+    // SUPPORT/RESISTANCE — lokale Touch-Erkennung
+    // KI gibt Preis-Levels vor, lokal zählen wir, wie oft der Preis
+    // dieses Level berührt hat (Wicks/Bodies in Toleranz).
+    // ─────────────────────────────────────────────────────────
+    function findTouchesForLevel(level){
+      if(!slice||!slice.length)return[];
+      const tol=(maxPrice-minPrice)*0.005; // 0.5% der Range
+      const touches=[];
+      let lastTouchIdx=-Infinity;
+      for(let i=0;i<slice.length;i++){
+        const c=slice[i];
+        const idx=firstIdx+i;
+        // Mindestabstand 3 Bars zum letzten Touch (sonst zählen aufeinanderfolgende
+        // Kerzen als ein einziger Test des Levels)
+        if(idx-lastTouchIdx<3)continue;
+        // Touch von oben (Resistance-Test): Hoch nahe Level, aber Body darunter
+        // Touch von unten (Support-Test): Tief nahe Level, aber Body darüber
+        const highNear=Math.abs(c.h-level)<=tol;
+        const lowNear=Math.abs(c.l-level)<=tol;
+        if(highNear||lowNear){
+          const touchPrice=highNear?c.h:c.l;
+          touches.push({idx,price:touchPrice,time:c.t.getTime()});
+          lastTouchIdx=idx;
+        }
+      }
+      return touches;
+    }
     (result.support_resistance||[]).forEach(s=>{
       const p=parseFloat(s.price);
       if(isNaN(p)||p<minPrice*0.8||p>maxPrice*1.2)return; // sanity check
-      aiDrawings.push({type:'support',price:p,label:s.label,full:true,ai:true,id:Date.now()+Math.random(),sym:currentSymbol});
+      const touches=findTouchesForLevel(p);
+      if(touches.length<2)return; // mindestens 2 Tests sonst kein gültiges Level
+      const enhancedLabel=`${s.label} (${touches.length}× getestet)`;
+      aiDrawings.push({
+        type:'support',price:p,
+        label:enhancedLabel,
+        full:true,ai:true,
+        touchPoints:touches,
+        id:Date.now()+Math.random(),sym:currentSymbol
+      });
     });
     // Auto-Fib: zeitlich LETZTE große Bewegung, TradingView-Konvention
     // Erster Punkt (chronologisch) = 100%, zweiter Punkt = 0%
