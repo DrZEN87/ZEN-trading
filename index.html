@@ -891,48 +891,67 @@ async function fetchYahooEvents(sym){
   // → dann trotz Frische refreshen, damit Umsatz-Daten nachgeladen werden
   const cacheMissingRevenue=cached&&cached.events&&cached.events.length>0&&
     cached.events.filter(e=>!e.future).every(e=>e.revActual==null&&e.revEstimate==null);
-  // Erkennen, wenn der Cache "Geister-Einträge" mit Quartalsende-Daten hat
-  // (alte API lieferte period statt Reporting-Datum). Diese Einträge fallen auf
-  // klassische Quartalsenden 31.03/30.06/30.09/31.12 → mit Calendar-Daten ist
-  // ein Merge unmöglich (verschiedene Tag-Keys), also komplett ersetzen.
-  const isQuarterEnd=ts=>{
-    const d=new Date(ts);
-    const day=d.getUTCDate(),month=d.getUTCMonth()+1;
-    return (day===31&&[3,12].includes(month))||(day===30&&[6,9].includes(month));
-  };
-  const cacheHasGhostEntries=cached&&cached.events&&
-    cached.events.filter(e=>!e.future).some(e=>isQuarterEnd(e.timestamp)&&e.revActual==null);
 
-  if(!cacheFresh||upcomingSoon||cacheMissingRevenue||cacheHasGhostEntries){
-    if(cacheHasGhostEntries)console.log('[Events] '+sym+' Cache hat veraltete Quartalsende-Einträge — komplettes Replace nötig');
-    else if(cacheMissingRevenue)console.log('[Events] '+sym+' Cache hat keine Revenue-Daten — refresh erzwungen');
-    // Finnhub-Refresh
+  if(!cacheFresh||upcomingSoon||cacheMissingRevenue){
+    if(cacheMissingRevenue)console.log('[Events] '+sym+' Cache hat keine Revenue-Daten — refresh erzwungen');
     const fresh=await fetchFinnhubEarnings(baseSym);
     if(fresh&&fresh.length){
-      if(cacheHasGhostEntries){
-        // ATOMARES REPLACE: alte Geister-Einträge raus, nur fresh-Daten ins Sheet
-        events.earnings=fresh;
-        cloudReplaceEarnings(baseSym,fresh);
-      }else{
-        // NORMALER MERGE: Tag-genau dedup, fresh hat Vorrang aber überschreibt nicht mit null
-        const byKey=new Map();
-        events.earnings.forEach(e=>byKey.set(Math.floor(e.timestamp/86400000),e));
-        fresh.forEach(f=>{
-          const k=Math.floor(f.timestamp/86400000);
-          const existing=byKey.get(k);
-          if(existing){
-            const merged={...existing};
-            ['epsActual','epsEstimate','surprise','revActual','revEstimate','revSurprise','future','timestamp'].forEach(field=>{
-              if(f[field]!=null)merged[field]=f[field];
-            });
-            byKey.set(k,merged);
-          }else{
-            byKey.set(k,f);
+      // Quartals-Key (Jahr-Quartal) ist robuster als Tag-Key:
+      // Alte API lieferte 2025-12-31 (Quartalsende), neue API liefert 2026-02-26 (Reporting),
+      // beides ist "Q4 2025" → identifiziert sich über Quartal/Jahr eindeutig
+      const quarterKey=ts=>{
+        const d=new Date(ts);
+        const q=Math.floor(d.getUTCMonth()/3)+1;
+        return d.getUTCFullYear()+'Q'+q;
+      };
+      const isQuarterEnd=ts=>{
+        const d=new Date(ts);
+        const day=d.getUTCDate(),month=d.getUTCMonth()+1;
+        return (day===31&&[3,12].includes(month))||(day===30&&[6,9].includes(month));
+      };
+      // 1. Cache nach Quartals-Key indizieren
+      const cacheByQ=new Map();
+      events.earnings.forEach(e=>{
+        if(!e.future)cacheByQ.set(quarterKey(e.timestamp),e);
+      });
+      // 2. Fresh-Daten überschreiben gleiche Quartale, der Tag-Key wird auf Reporting-Datum aktualisiert
+      const finalByQ=new Map(cacheByQ);
+      const futureEvents=[];
+      let upgraded=0,added=0;
+      fresh.forEach(f=>{
+        if(f.future){futureEvents.push(f);return;}
+        const qk=quarterKey(f.timestamp);
+        const cacheEntry=cacheByQ.get(qk);
+        if(cacheEntry){
+          // Gleiches Quartal: Felder mergen, fresh hat Vorrang aber überschreibt nicht mit null
+          const merged={...cacheEntry};
+          ['epsActual','epsEstimate','surprise','revActual','revEstimate','revSurprise'].forEach(field=>{
+            if(f[field]!=null)merged[field]=f[field];
+          });
+          // Wenn der alte Cache-Eintrag ein Quartalsende war und der neue ein echtes
+          // Reporting-Datum, bevorzugen wir das Reporting-Datum
+          if(isQuarterEnd(cacheEntry.timestamp)&&!isQuarterEnd(f.timestamp)){
+            merged.timestamp=f.timestamp;
+            upgraded++;
           }
-        });
-        events.earnings=Array.from(byKey.values());
-        cloudSaveEarnings(baseSym,events.earnings);
-      }
+          finalByQ.set(qk,merged);
+        }else{
+          finalByQ.set(qk,f);
+          added++;
+        }
+      });
+      events.earnings=[...Array.from(finalByQ.values()),...futureEvents];
+      // Tag-Dedup als Sicherheitsnetz (falls dieselbe API zweimal denselben Termin liefert)
+      const dayDedup=new Map();
+      events.earnings.forEach(e=>dayDedup.set(Math.floor(e.timestamp/86400000),e));
+      events.earnings=Array.from(dayDedup.values());
+      if(upgraded>0)console.log('[Events] '+sym+' '+upgraded+' Quartalsende-Einträge auf Reporting-Datum aktualisiert');
+      if(added>0)console.log('[Events] '+sym+' '+added+' neue Earnings hinzugefügt');
+      // Atomic Replace ist sicher, weil events.earnings jetzt Cache+Fresh vereint enthält
+      // (Cache-Daten wurden in finalByQ aufgenommen). Das löst die Geister-Einträge sauber.
+      cloudReplaceEarnings(baseSym,events.earnings);
+    }else{
+      console.log('[Events] '+sym+' Finnhub lieferte keine Daten — Cache wird beibehalten');
     }
   }
   // Deduplizieren
@@ -5894,7 +5913,8 @@ async function fetchFinnhubEarnings(sym){
   const byReportDate=new Map(); // Tag-genauer Key → Event
   // 1. Calendar: voller Zeitraum (Reporting-Datum)
   try{
-    const from=new Date(Date.now()-4*365*86400000).toISOString().slice(0,10);
+    // Finnhub Calendar Free-Tier: zuverlässig sind ~2 Jahre Historie
+    const from=new Date(Date.now()-2*365*86400000).toISOString().slice(0,10);
     const toDate=new Date(Date.now()+60*86400000).toISOString().slice(0,10);
     const calUrl=`https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${toDate}&symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
     const resp=await fetch(calUrl);
