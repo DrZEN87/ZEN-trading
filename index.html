@@ -267,6 +267,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button class="btn icon-btn" id="tts-btn" title="Sprachausgabe an/aus (liest Alarm-Meldungen vor)">🔊</button>
   <button class="btn icon-btn" id="screenshot-btn" title="Chart in Zwischenablage kopieren (Strg+V zum Einfügen)">📷</button>
   <button class="btn icon-btn" id="news-btn" title="News zu diesem Symbol anzeigen">📰</button>
+  <button class="btn icon-btn" id="screener-btn" title="Aktien-Screener — RSI, SMA200, MACD Filter" style="background:rgba(139,92,246,.15);color:#c4b5fd;border-color:rgba(139,92,246,.4)">🔎 Screener</button>
   <div class="sep"></div>
   <button class="btn aa icon-btn" id="al-toggle-btn" title="Alarm im Chart setzen — Klick, dann im Chart klicken">🔔 Alarm</button>
 </div>
@@ -6064,6 +6065,632 @@ async function cloudReplaceEarnings(sym,events){
   }catch(e){console.log('[Earnings] Cloud-Cache replace failed:',e.message);}
 }
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  AKTIEN-SCREENER  —  vor </script> (Zeile 6067) einfügen          ║
+// ║  Nutzt vorhandene Funktionen: corsGet(), rsiCalc(), sma(),        ║
+// ║  macdCalc(), getSymName(), setSymName(), watchlist[], saveWL(),   ║
+// ║  renderWL(), updateWLPrices(), currentSymbol, fetchData()         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+
+// ── Symbol-Pools (Yahoo-Format) ──────────────────────────────────────
+// MCap-Werte in Mrd. USD, Stand ca. Q1 2026 — bewusst statisch, da Live-Refresh
+// optional ist. Werte sind grobe Richtwerte für Pre-Filter, kein Live-Trading.
+const POOL_SP500=[
+['AAPL','Apple',3500],['MSFT','Microsoft',3300],['NVDA','NVIDIA',3100],['GOOGL','Alphabet A',2200],['GOOG','Alphabet C',2200],
+['AMZN','Amazon',2100],['META','Meta Platforms',1500],['BRK-B','Berkshire Hathaway',980],['LLY','Eli Lilly',780],['AVGO','Broadcom',850],
+['TSLA','Tesla',850],['JPM','JPMorgan',680],['WMT','Walmart',650],['V','Visa',590],['UNH','UnitedHealth',520],
+['XOM','ExxonMobil',520],['MA','Mastercard',470],['PG','Procter & Gamble',410],['JNJ','Johnson & Johnson',390],['ORCL','Oracle',490],
+['HD','Home Depot',390],['COST','Costco',410],['ABBV','AbbVie',330],['BAC','Bank of America',330],['NFLX','Netflix',310],
+['KO','Coca-Cola',280],['CVX','Chevron',290],['MRK','Merck',270],['CRM','Salesforce',300],['ADBE','Adobe',230],
+['PEP','PepsiCo',220],['TMO','Thermo Fisher',210],['LIN','Linde',220],['ACN','Accenture',220],['WFC','Wells Fargo',210],
+["MCD","McDonald's",210],['ABT','Abbott Labs',200],['CSCO','Cisco',210],['DIS','Disney',180],['AMD','AMD',230],
+['QCOM','Qualcomm',190],['TXN','Texas Instruments',170],['VZ','Verizon',180],['INTU','Intuit',170],['IBM','IBM',200],
+['CAT','Caterpillar',180],['GE','GE Aerospace',190],['NOW','ServiceNow',170],['DHR','Danaher',170],['AXP','American Express',180],
+['BX','Blackstone',180],['BLK','BlackRock',150],['ISRG','Intuitive Surgical',180],['T','AT&T',160],['SPGI','S&P Global',150],
+['NEE','NextEra Energy',150],['HON','Honeywell',140],['PFE','Pfizer',150],["LOW","Lowe's",140],['SYK','Stryker',140],
+['CMCSA','Comcast',150],['UBER','Uber',160],['AMGN','Amgen',160],['BKNG','Booking Holdings',150],['ETN','Eaton',130],
+['TJX','TJX Companies',130],['UPS','UPS',110],['BSX','Boston Scientific',130],['PGR','Progressive',130],['VRTX','Vertex Pharma',120],
+['ELV','Elevance Health',100],['REGN','Regeneron',80],['BMY','Bristol-Myers',110],['SCHW','Charles Schwab',130],['ADP','ADP',110],
+['MS','Morgan Stanley',160],['DE','John Deere',120],['LRCX','Lam Research',100],['MMC','Marsh McLennan',110],['C','Citigroup',130],
+['CB','Chubb',110],['ANET','Arista Networks',130],['LMT','Lockheed Martin',110],['MDT','Medtronic',110],['PLD','Prologis',110],
+['ADI','Analog Devices',110],['GILD','Gilead Sciences',95],['MO','Altria',95],['CI','Cigna',90],['SBUX','Starbucks',100],
+['MU','Micron',110],['SO','Southern Company',95],['DUK','Duke Energy',90],['BA','Boeing',110],['CRWD','CrowdStrike',95],
+['ZTS','Zoetis',75],['TGT','Target',70],['EQIX','Equinix',80],['ICE','Intercontinental Exchange',90],['EOG','EOG Resources',75],
+['PANW','Palo Alto Networks',120],['CL','Colgate-Palmolive',75],['CME','CME Group',80],['SHW','Sherwin-Williams',90],['NSC','Norfolk Southern',60],
+['APH','Amphenol',80],['CMG','Chipotle',80],["MCO","Moody's",90],['WM','Waste Management',85],['ITW','Illinois Tool Works',75],
+['PNC','PNC Financial',70],['GD','General Dynamics',75],['FCX','Freeport-McMoRan',65],['MAR','Marriott',75],['ECL','Ecolab',65],
+['USB','U.S. Bancorp',75],['SNPS','Synopsys',75],['CDNS','Cadence Design',75],['CSX','CSX',65],['MMM','3M',60],
+['EMR','Emerson Electric',60],['MRVL','Marvell Tech',75],['TT','Trane Technologies',80],['MCK','McKesson',75],['NOC','Northrop Grumman',75],
+['AON','Aon plc',75],['ROP','Roper Technologies',60],["ORLY","O'Reilly Auto",65],['APD','Air Products',65],['COF','Capital One',70],
+['HCA','HCA Healthcare',95],['FDX','FedEx',65],['BDX','Becton Dickinson',65],['AJG','Arthur J Gallagher',65],['PYPL','PayPal',75],
+['GM','General Motors',55],['F','Ford',45],['SPG','Simon Property',55],['PSX','Phillips 66',55],['CARR','Carrier Global',60],
+['TFC','Truist Financial',60],['AZO','AutoZone',55],['TDG','TransDigm',75],['PSA','Public Storage',55],['CEG','Constellation Energy',75],
+['ROST','Ross Stores',50],['MET','MetLife',55],['MSI','Motorola Solutions',75],['WELL','Welltower',75],['DHI','D.R. Horton',50],
+['GIS','General Mills',35],['AIG','AIG',45],['SLB','Schlumberger',55],['AFL','Aflac',55],['KMB','Kimberly-Clark',45],
+['HLT','Hilton',50],['VLO','Valero Energy',45],['CPRT','Copart',55],['FAST','Fastenal',45],['BK','Bank of New York Mellon',55],
+['NXPI','NXP Semiconductors',55],['DLR','Digital Realty',55],['PEG','Public Service Enterprise',45],['AMP','Ameriprise',55],['OXY','Occidental Petroleum',45],
+['CTAS','Cintas',75],['MNST','Monster Beverage',55],['KMI','Kinder Morgan',45],['ALL','Allstate',45],['HES','Hess',45],
+['IDXX','IDEXX Labs',40],['STZ','Constellation Brands',40],['DXCM','DexCom',30],['EW','Edwards Lifesciences',40],['EA','Electronic Arts',40],
+['LEN','Lennar',45],['EXC','Exelon',40],['IR','Ingersoll Rand',35],['VRSK','Verisk Analytics',40],['GWW','W.W. Grainger',55],
+['AME','AMETEK',40],['FTNT','Fortinet',60],['OKE','ONEOK',55],['BIIB','Biogen',25],['HUM','Humana',35],
+['XEL','Xcel Energy',35],['KHC','Kraft Heinz',40],['CHTR','Charter Communications',40],['DVN','Devon Energy',25],['SYY','Sysco',40],
+['HSY','Hershey',35],['PCAR','PACCAR',55],['ED','Consolidated Edison',35],['GEHC','GE HealthCare',45],['DOW','Dow',30],
+['VICI','VICI Properties',30],['ON','ON Semiconductor',30],['WEC','WEC Energy',30],['DD','DuPont',35],['MLM','Martin Marietta',35],
+['DAL','Delta Air Lines',40],['PRU','Prudential Financial',40],['BKR','Baker Hughes',40],['LULU','Lululemon',45],['ROK','Rockwell Automation',35],
+['CSGP','CoStar Group',35],['CAH','Cardinal Health',30],['VMC','Vulcan Materials',35],['EFX','Equifax',30],['FANG','Diamondback Energy',45],
+['KR','Kroger',45],['GEV','GE Vernova',95],['HPQ','HP Inc.',30],['ACGL','Arch Capital',30],['CTSH','Cognizant',35],
+['XYL','Xylem',30],['EXR','Extra Space Storage',30],['FICO','Fair Isaac',45],['IT','Gartner',35],['EBAY','eBay',25],
+['PWR','Quanta Services',45],['NUE','Nucor',35],['MTB','M&T Bank',30],['LHX','L3Harris',45],['ETR','Entergy',30],
+['DFS','Discover Financial',45],['TRV','Travelers',55],['STT','State Street',30],['CNC','Centene',40],['RJF','Raymond James',30],
+['VST','Vistra',45],['HIG','Hartford Financial',30],['AVB','AvalonBay',30],['IQV','IQVIA',35],['HAL','Halliburton',25],
+['ANSS','ANSYS',30],['AWK','American Water Works',25],['ZBH','Zimmer Biomet',25],['EQR','Equity Residential',25],['DTE','DTE Energy',25],
+['WTW','Willis Towers Watson',30],['MPC','Marathon Petroleum',55],['TROW','T. Rowe Price',25],['CCI','Crown Castle',45],['TSCO','Tractor Supply',30],
+['AEE','Ameren',25],['BR','Broadridge Financial',25],['MTD','Mettler-Toledo',30],['VLTO','Veralto',25],['PPG','PPG Industries',30],
+['WST','West Pharma',25],['BAX','Baxter',20],['STE','STERIS',20],['ILMN','Illumina',20],['GLW','Corning',45],
+['PPL','PPL Corp',25],['STLD','Steel Dynamics',20],['LYB','LyondellBasell',25],['EXPE','Expedia',20],['CMS','CMS Energy',20],
+['FE','FirstEnergy',25],['ATO','Atmos Energy',20],['ULTA','Ulta Beauty',20],['DOV','Dover',25],['KEYS','Keysight',25],
+['WAB','Wabtec',30],['BALL','Ball Corp',25],['HBAN','Huntington Bancshares',25],['ES','Eversource Energy',25],['HOLX','Hologic',20],
+['CINF','Cincinnati Financial',20],['IFF','Intl Flavors & Fragrances',25],['CFG','Citizens Financial',25],['SBAC','SBA Communications',25],['CNP','CenterPoint Energy',25],
+['NTAP','NetApp',25],['LDOS','Leidos',20],['INVH','Invitation Homes',20],['ARE','Alexandria Real Estate',20],['MOH','Molina Healthcare',20],
+['DRI','Darden Restaurants',25],['CLX','Clorox',20],['OMC','Omnicom',25],['WBD','Warner Bros Discovery',20],['JBHT','J.B. Hunt',15],
+['NVR','NVR Inc.',25],['LH','Labcorp',20],['EXPD','Expeditors',15],['TYL','Tyler Technologies',25],['FSLR','First Solar',20],
+['CBRE','CBRE Group',35],['VTR','Ventas',25],['PHM','PulteGroup',25],['CPT','Camden Property Trust',12],['WAT','Waters',20],
+['SWKS','Skyworks Solutions',12],['ZBRA','Zebra Technologies',15],['MAA','Mid-America Apartment',15],['BLDR','Builders FirstSource',20],['STX','Seagate',25],
+['AKAM','Akamai',12],['HUBB','Hubbell',25],['FITB','Fifth Third Bancorp',30],['PFG','Principal Financial',20],['MKC','McCormick',20],
+['IRM','Iron Mountain',30],['DGX','Quest Diagnostics',18],['BRO','Brown & Brown',30],['NTRS','Northern Trust',20],['RF','Regions Financial',20],
+['SYF','Synchrony Financial',20],['DECK','Deckers Outdoor',25],['CHD','Church & Dwight',25],['RCL','Royal Caribbean',45],['NDAQ','Nasdaq Inc.',45],
+['CDW','CDW Corp',25],['UAL','United Airlines',25],['CAG','ConAgra Brands',12],['SJM','J.M. Smucker',12],['TER','Teradyne',20],
+['AVY','Avery Dennison',15],['DG','Dollar General',20],["DPZ","Domino's Pizza",15],['VRSN','VeriSign',20],['HRL','Hormel Foods',18],
+['BAH','Booz Allen Hamilton',20],['ESS','Essex Property Trust',20],['LYV','Live Nation',30],['IPG','Interpublic Group',12],['POOL','Pool Corp',12],
+['FTV','Fortive',25],['LVS','Las Vegas Sands',30],['PNR','Pentair',15],['GPN','Global Payments',25],['ALGN','Align Technology',12],
+['EG','Everest Group',15],['MAS','Masco',15],['EQT','EQT Corp',25],['UDR','UDR Inc.',12],['PAYX','Paychex',45],
+['CTRA','Coterra Energy',18],['EVRG','Evergy',15],['DLTR','Dollar Tree',18],['HPE','Hewlett Packard Enterprise',25],['CBOE','Cboe Global Markets',20],
+['LNT','Alliant Energy',15],['MGM','MGM Resorts',12],['LKQ','LKQ Corp',12],['BG','Bunge Global',15],['INCY','Incyte',15],
+['JBL','Jabil',20],['ENPH','Enphase Energy',12],['KIM','Kimco Realty',12],['ZION','Zions Bancorporation',8],['UHS','Universal Health',12],
+['REG','Regency Centers',12],['NWS','News Corp B',8],['NWSA','News Corp A',8],['FOXA','Fox Corp A',20],['FOX','Fox Corp B',20],
+['PARA','Paramount Global',8],['SLG','SL Green Realty',6],['HST','Host Hotels',12],['PTC','PTC Inc.',20],['AES','AES Corp',8],
+['ALLE','Allegion',12],['GEN','Gen Digital',18],['JKHY','Jack Henry',12],['ROL','Rollins',15],['EPAM','EPAM Systems',12],
+['NDSN','Nordson',12],['CE','Celanese',8],['FRT','Federal Realty',8],['JNPR','Juniper Networks',12],['L','Loews Corp',18],
+['TXT','Textron',15],['BWA','BorgWarner',6],['GL','Globe Life',10],['SOLV','Solventum',15],['SWK','Stanley Black & Decker',15],
+['BBY','Best Buy',18],['TRGP','Targa Resources',45],['TPL','Texas Pacific Land',25]
+];
+const POOL_DAX=[
+['SAP.DE','SAP',280],['SIE.DE','Siemens',230],['ALV.DE','Allianz',130],['DTE.DE','Deutsche Telekom',150],['MUV2.DE','Munich Re',75],
+['AIR.DE','Airbus',125],['DBK.DE','Deutsche Bank',45],['BMW.DE','BMW',55],['ADS.DE','Adidas',45],['MBG.DE','Mercedes-Benz',55],
+['BAS.DE','BASF',45],['HEN3.DE','Henkel',35],['BAYN.DE','Bayer',30],['IFX.DE','Infineon',45],['VOW3.DE','Volkswagen',55],
+['DHL.DE','DHL Group',45],['RHM.DE','Rheinmetall',35],['DB1.DE','Deutsche Börse',40],['EOAN.DE','E.ON',35],['MRK.DE','Merck KGaA',75],
+['BEI.DE','Beiersdorf',30],['HEI.DE','Heidelberg Materials',25],['SHL.DE','Siemens Healthineers',60],['SY1.DE','Symrise',15],['VNA.DE','Vonovia',30],
+['CON.DE','Continental',12],['FRE.DE','Fresenius',20],['1COV.DE','Covestro',12],['HNR1.DE','Hannover Rück',30],['PAH3.DE','Porsche SE',8],
+['P911.DE','Porsche AG',75],['QIA.DE','Qiagen',12],['SRT3.DE','Sartorius',18],['BNR.DE','Brenntag',12],['MTX.DE','MTU Aero Engines',20],
+['CBK.DE','Commerzbank',25],['ENR.DE','Siemens Energy',45],['ZAL.DE','Zalando',8],['RWE.DE','RWE',25],['NDA.DE','Aurubis',5]
+];
+const POOL_STOXX=[
+['ASML.AS','ASML Holding',300],['NESN.SW','Nestlé',280],['NOVN.SW','Novartis',220],['ROG.SW','Roche',230],['MC.PA','LVMH',360],
+['OR.PA',"L'Oréal",230],['SAN.PA','Sanofi',130],['TTE.PA','TotalEnergies',150],['BNP.PA','BNP Paribas',75],['SAP.DE','SAP',280],
+['SIE.DE','Siemens',230],['ALV.DE','Allianz',130],['CS.PA','AXA',75],['BBVA.MC','BBVA',55],['SAN.MC','Banco Santander',75],
+['ITX.MC','Inditex',155],['ENEL.MI','Enel',75],['ISP.MI','Intesa Sanpaolo',75],['ENI.MI','Eni',55],['UCG.MI','UniCredit',55],
+['ZURN.SW','Zurich Insurance',95],['ABBN.SW','ABB',95],['UCB.BR','UCB',30],['MUV2.DE','Munich Re',75],['AIR.PA','Airbus',125],
+['BAS.DE','BASF',45],['ADS.DE','Adidas',45],['BMW.DE','BMW',55],['DTE.DE','Deutsche Telekom',150],['MBG.DE','Mercedes-Benz',55],
+['IBE.MC','Iberdrola',95],['STLAM.MI','Stellantis',45],['DG.PA','Vinci',75],['SU.PA','Schneider Electric',150],['BN.PA','Danone',45],
+['RI.PA','Pernod Ricard',30],['EL.PA','EssilorLuxottica',95],['PHIA.AS','Philips',25],['INGA.AS','ING Group',55],['ADYEN.AS','Adyen',45],
+['PROX.BR','Proximus',3],['KER.PA','Kering',30],['HEIA.AS','Heineken',45],['AD.AS','Ahold Delhaize',30],['DSM.AS','DSM-Firmenich',25],
+['ML.PA','Michelin',25],['CRH','CRH',55],['FLTR.IR','Flutter Entertainment',45],['VOW3.DE','Volkswagen',55],['DHL.DE','DHL Group',45]
+];
+// Nikkei 225 — Toyota, Sony etc. via .T Suffix (Tokyo Stock Exchange)
+const POOL_NIKKEI=[
+['7203.T','Toyota Motor',280],['6758.T','Sony Group',150],['9984.T','SoftBank Group',95],['8306.T','Mitsubishi UFJ',130],['6861.T','Keyence',90],
+['9432.T','NTT',120],['6098.T','Recruit Holdings',95],['7974.T','Nintendo',70],['9433.T','KDDI',75],['8316.T','Sumitomo Mitsui Financial',95],
+['8035.T','Tokyo Electron',95],['6501.T','Hitachi',150],['4063.T','Shin-Etsu Chemical',75],['8411.T','Mizuho Financial',55],['7267.T','Honda Motor',75],
+['9983.T','Fast Retailing',110],['6902.T','Denso',55],['4502.T','Takeda Pharma',45],['6367.T','Daikin Industries',35],['6594.T','Nidec',30],
+['4519.T','Chugai Pharma',75],['4661.T','Oriental Land',45],['8001.T','Itochu',75],['8058.T','Mitsubishi Corp',75],['8031.T','Mitsui',60],
+['8053.T','Sumitomo Corp',45],['2914.T','Japan Tobacco',55],['7011.T','Mitsubishi Heavy Industries',45],['6981.T','Murata Mfg',35],['6503.T','Mitsubishi Electric',45],
+['8002.T','Marubeni',35],['7741.T','Hoya',35],['7733.T','Olympus',25],['4901.T','Fujifilm',35],['6273.T','SMC',25],
+['9020.T','East Japan Railway',30],['9022.T','Central Japan Railway',30],['8801.T','Mitsui Fudosan',25],['8802.T','Mitsubishi Estate',25],['7751.T','Canon',45],
+['7269.T','Suzuki Motor',25],['7270.T','Subaru',25],['5108.T','Bridgestone',30],['4543.T','Terumo',35],['6201.T','Toyota Industries',25],
+['4452.T','Kao',30],['4523.T','Eisai',20],['4578.T','Otsuka Holdings',25],['9101.T','Nippon Yusen',25],['9104.T','Mitsui O.S.K. Lines',25],
+['9107.T','Kawasaki Kisen',12],['5401.T','Nippon Steel',30],['5411.T','JFE Holdings',12],['1605.T','INPEX',25],['5020.T','ENEOS',20],
+['9501.T','Tokyo Electric Power',12],['9502.T','Chubu Electric Power',15],['9503.T','Kansai Electric Power',18],['8766.T','Tokio Marine',55],['8725.T','MS&AD Insurance',30],
+['8630.T','Sompo Holdings',25],['7182.T','Japan Post Bank',30],['7181.T','Japan Post Insurance',12],['9434.T','SoftBank Corp',75],['4324.T','Dentsu Group',8],
+['2802.T','Ajinomoto',25],['2503.T','Kirin Holdings',12],['2502.T','Asahi Group',18],['2801.T','Kikkoman',12],['3382.T','Seven & I Holdings',45],
+['7259.T','Aisin',8],['8113.T','Unicharm',18],['4568.T','Daiichi Sankyo',75],['4503.T','Astellas Pharma',25],['4507.T','Shionogi',25],
+['6326.T','Kubota',25],['6479.T','Minebea Mitsumi',12],['6504.T','Fuji Electric',12],['6701.T','NEC',45],['6702.T','Fujitsu',55],
+['6752.T','Panasonic',35],['6770.T','Alps Alpine',5],['6841.T','Yokogawa Electric',12],['6857.T','Advantest',55],['6920.T','Lasertec',25],
+['6954.T','Fanuc',45],['6971.T','Kyocera',30],['6988.T','Nitto Denko',18],['7012.T','Kawasaki Heavy Industries',12],['7013.T','IHI',12],
+['7261.T','Mazda Motor',8],['7272.T','Yamaha Motor',12],['7309.T','Shimano',18],['7731.T','Nikon',5],['7832.T','Bandai Namco',18],
+['7912.T','Dai Nippon Printing',15],['8015.T','Toyota Tsusho',20],['8267.T','Aeon',25],['8309.T','Sumitomo Mitsui Trust',18],['8473.T','SBI Holdings',12],
+['8591.T','ORIX',30],['8604.T','Nomura Holdings',25],['8697.T','Japan Exchange Group',18],['8750.T','Daiichi Life',20],['8830.T','Sumitomo Realty',18],
+['9005.T','Tokyu',12],['9007.T','Odakyu Electric Railway',8],['9008.T','Keio',6],['9009.T','Keisei Electric Railway',5],['9021.T','West Japan Railway',12],
+['9064.T','Yamato Holdings',8],['9301.T','Mitsubishi Logistics',5],['9531.T','Tokyo Gas',15],['9532.T','Osaka Gas',15],['9602.T','Toho',8],
+['9613.T','NTT Data',45],['9735.T','Secom',18],['9766.T','Konami',12],['4385.T','Mercari',5],['4307.T','Nomura Research Institute',25],
+['4684.T','Obic',12],['6178.T','Japan Post Holdings',45],['7211.T','Mitsubishi Motors',5],['7951.T','Yamaha',8],['8252.T','Marui Group',5],
+['1925.T','Daiwa House',18],['1928.T','Sekisui House',18],['1721.T','Comsys Holdings',5],['2531.T','Takara Holdings',2],['2768.T','Sojitz',5],
+['2871.T','Nichirei',3],['3099.T','Isetan Mitsukoshi',8],['3289.T','Tokyu Fudosan',5],['3401.T','Teijin',2],['3402.T','Toray Industries',12],
+['3405.T','Kuraray',5],['3407.T','Asahi Kasei',12],['3861.T','Oji Holdings',5],['3863.T','Nippon Paper',2],['4004.T','Showa Denko',5],
+['4005.T','Sumitomo Chemical',5],['4021.T','Nissan Chemical',5],['4042.T','Tosoh',5],['4061.T','Denka',1.5],['4151.T','Kyowa Kirin',12],
+['4183.T','Mitsui Chemicals',3],['4188.T','Mitsubishi Chemical',8],['4208.T','UBE',2],['4272.T','Nippon Kayaku',2],['4506.T','Sumitomo Pharma',2],
+['4528.T','Ono Pharma',12],['4612.T','Nippon Paint',12],['4631.T','DIC',1.5],['4704.T','Trend Micro',5],['4751.T','Cyberagent',5],
+['4755.T','Rakuten',12],['4911.T','Shiseido',8],['5019.T','Idemitsu Kosan',8],['5101.T','Yokohama Rubber',5],['5191.T','Sumitomo Riko',1],
+['5201.T','AGC',5],['5202.T','Nippon Sheet Glass',1],['5214.T','Nippon Electric Glass',2],['5232.T','Sumitomo Osaka Cement',1.5],['5233.T','Taiheiyo Cement',2],
+['5301.T','Tokai Carbon',1],['5333.T','NGK Insulators',3],['5332.T','TOTO',5],['5631.T','Japan Steel Works',2],['5703.T','Nippon Light Metal',1],
+['5706.T','Mitsui Mining & Smelting',2],['5707.T','Toho Zinc',0.5],['5713.T','Sumitomo Metal Mining',12],['5714.T','DOWA Holdings',2],['5801.T','Furukawa Electric',2],
+['5802.T','Sumitomo Electric',12],['5803.T','Fujikura',2],['5901.T','Toyo Seikan',2],['6471.T','NSK',2],['6472.T','NTN',1.5],
+['6473.T','JTEKT',2],['6645.T','Omron',12],['6674.T','GS Yuasa',1.5],['6724.T','Seiko Epson',5],['6753.T','Sharp',5],
+['6762.T','TDK',12],['7003.T','Mitsui E&S',1],['7004.T','Hitachi Zosen',1],['7186.T','Concordia Financial',5],['7202.T','Isuzu Motors',12],
+['7205.T','Hino Motors',2],['7222.T','Nissan Shatai',1],['7224.T','Showa',0.3],['7282.T','Toyoda Gosei',2],['7911.T','Toppan',8],
+['8233.T','Takashimaya',2],['8253.T','Credit Saison',5],['8331.T','Chiba Bank',5],['8354.T','Fukuoka Financial',3],['8355.T','Shizuoka Bank',3],
+['8804.T','Tokyo Tatemono',2],['9302.T','Mitsui-Soko',1],['9412.T','Sky Perfect JSAT',1.5],['9504.T','Chugoku Electric Power',5],['9506.T','Tohoku Electric Power',5],
+['9508.T','Kyushu Electric Power',6],['9603.T','HIS',1],['9684.T','Square Enix Holdings',5],['9706.T','Japan Airport Terminal',2],['9719.T','SCSK',5],
+['9737.T','CSK',1],['9783.T','Benesse Holdings',1.5],['9989.T','Sundrug',2]
+];
+// Pool-Builder mit Dedup nach Symbol
+function buildPool(){
+  const sel={
+    sp500:document.getElementById('scr-pool-sp500').checked,
+    dax:document.getElementById('scr-pool-dax').checked,
+    stoxx:document.getElementById('scr-pool-stoxx').checked,
+    nikkei:document.getElementById('scr-pool-nikkei').checked
+  };
+  const seen=new Set();const out=[];
+  const add=(arr)=>{arr.forEach(([s,n,m])=>{if(!seen.has(s)){seen.add(s);out.push({sym:s,name:n,mcap:m});}});};
+  if(sel.sp500)add(POOL_SP500);
+  if(sel.dax)add(POOL_DAX);
+  if(sel.stoxx)add(POOL_STOXX);
+  if(sel.nikkei)add(POOL_NIKKEI);
+  return out;
+}
+function updatePoolCount(){
+  const n=buildPool().length;
+  document.getElementById('scr-pool-count').textContent=n+' Aktien im Pool';
+}
+['scr-pool-sp500','scr-pool-dax','scr-pool-stoxx','scr-pool-nikkei'].forEach(id=>{
+  document.getElementById(id).addEventListener('change',updatePoolCount);
+});
+
+// ── Indikator-Helfer (lokal, nutzt aber selbe Logik wie globale) ─────
+// Wir können nicht die globalen sma/rsiCalc/macdCalc direkt aus IIFE callen,
+// da sie im Modul-Scope liegen — aber sie sind global definiert. Test:
+function _sma(data,period){
+  const out=[];let sum=0;
+  for(let i=0;i<data.length;i++){
+    sum+=data[i];
+    if(i>=period)sum-=data[i-period];
+    out.push(i>=period-1?sum/period:null);
+  }
+  return out;
+}
+function _ema(data,period){
+  const out=[];const k=2/(period+1);let prev=null;
+  for(let i=0;i<data.length;i++){
+    if(prev===null){
+      if(i>=period-1){let s=0;for(let j=i-period+1;j<=i;j++)s+=data[j];prev=s/period;out.push(prev);}
+      else out.push(null);
+    }else{prev=data[i]*k+prev*(1-k);out.push(prev);}
+  }
+  return out;
+}
+function _rsi(closes,period=14){
+  const out=Array(closes.length).fill(null);
+  if(closes.length<period+1)return out;
+  let avgG=0,avgL=0;
+  for(let i=1;i<=period;i++){const d=closes[i]-closes[i-1];if(d>0)avgG+=d;else avgL-=d;}
+  avgG/=period;avgL/=period;
+  out[period]=avgL===0?100:100-100/(1+avgG/avgL);
+  for(let i=period+1;i<closes.length;i++){
+    const d=closes[i]-closes[i-1];
+    const g=d>0?d:0,l=d<0?-d:0;
+    avgG=(avgG*(period-1)+g)/period;
+    avgL=(avgL*(period-1)+l)/period;
+    out[i]=avgL===0?100:100-100/(1+avgG/avgL);
+  }
+  return out;
+}
+function _macd(closes){
+  const emaF=_ema(closes,12),emaS=_ema(closes,26);
+  const line=closes.map((_,i)=>emaF[i]==null||emaS[i]==null?null:emaF[i]-emaS[i]);
+  const firstValid=line.findIndex(v=>v!==null);
+  const validLine=line.map(v=>v!==null?v:0);
+  const sigLine=_ema(validLine,9);
+  const signal=[],hist=[];
+  for(let i=0;i<closes.length;i++){
+    if(line[i]===null||i<firstValid+8){signal.push(null);hist.push(null);continue;}
+    signal.push(sigLine[i]);hist.push(line[i]-sigLine[i]);
+  }
+  return{line,signal,hist};
+}
+// Higher Highs in last N bars (default 63 = ~3 months D1)
+// Definition: 3 aufeinanderfolgende Swing-Highs, jeder höher als der vorherige
+function _hasHigherHighs(highs,lookback=63){
+  if(highs.length<lookback)return false;
+  const slice=highs.slice(-lookback);
+  // Finde lokale Hochs: Wert > Nachbarn im Fenster ±3
+  const win=3;const peaks=[];
+  for(let i=win;i<slice.length-win;i++){
+    let isPeak=true;
+    for(let j=i-win;j<=i+win;j++){if(j!==i&&slice[j]>=slice[i]){isPeak=false;break;}}
+    if(isPeak)peaks.push({idx:i,val:slice[i]});
+  }
+  if(peaks.length<3)return false;
+  // Letzte 3 Peaks: streng monoton steigend?
+  const last3=peaks.slice(-3);
+  return last3[2].val>last3[1].val&&last3[1].val>last3[0].val;
+}
+// MACD Bull Cross innerhalb der letzten N Tage:
+// Cross = MACD-Linie kreuzt Signal-Linie von unten nach oben
+function _macdBullCross(line,signal,lookback=5){
+  const len=line.length;
+  for(let i=Math.max(1,len-lookback);i<len;i++){
+    if(line[i-1]==null||signal[i-1]==null||line[i]==null||signal[i]==null)continue;
+    if(line[i-1]<=signal[i-1]&&line[i]>signal[i])return len-1-i; // age in Tagen
+  }
+  return -1;
+}
+
+// ── Yahoo-Fetch für Screener (D1, ~1 Jahr) ───────────────────────────
+async function fetchD1ForScreener(sym,timeoutMs=10000){
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1y`;
+  // Nutze die globale corsGet-Funktion
+  if(typeof corsGet!=='function')return null;
+  const txt=await corsGet(url,timeoutMs);
+  if(!txt||!txt.startsWith('{'))return null;
+  try{
+    const j=JSON.parse(txt);
+    const res=j.chart?.result?.[0];if(!res)return null;
+    const ts=res.timestamp;if(!ts)return null;
+    const q=res.indicators.quote[0];
+    const rows=ts.map((t,i)=>({t:t*1000,o:q.open[i],h:q.high[i],l:q.low[i],c:q.close[i]}))
+      .filter(c=>c.c!=null&&c.c>0);
+    const meta=res.meta;
+    const name=meta?(meta.longName||meta.shortName||''):'';
+    return{candles:rows,name,meta};
+  }catch{return null;}
+}
+// Marketcap-Live-Fetch (optional, langsam)
+async function fetchMarketcap(sym,timeoutMs=8000){
+  const url=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=summaryDetail,price`;
+  if(typeof corsGet!=='function')return null;
+  const txt=await corsGet(url,timeoutMs);
+  if(!txt)return null;
+  try{
+    const j=JSON.parse(txt);
+    const r=j.quoteSummary?.result?.[0];if(!r)return null;
+    const mc=r.summaryDetail?.marketCap?.raw||r.price?.marketCap?.raw||null;
+    const cur=r.price?.currency||'USD';
+    if(!mc)return null;
+    // Konvertiere zu USD (sehr grobe Schätzung — nur EUR/JPY/CHF/GBP üblich)
+    const fx={USD:1,EUR:1.07,GBP:1.27,JPY:0.0067,CHF:1.13,CAD:0.74,AUD:0.66};
+    const usdMC=mc*(fx[cur]||1);
+    return usdMC/1e9; // in Mrd.
+  }catch{return null;}
+}
+
+// ── Scanner-Engine ───────────────────────────────────────────────────
+let scanState={running:false,results:[],sortBy:'rsi',sortDir:'asc',mcapLive:{}};
+
+async function runScreenerScan(){
+  if(scanState.running)return;
+  const pool=buildPool();
+  if(!pool.length){alert('Bitte mindestens einen Pool wählen.');return;}
+
+  // Filter aus UI lesen
+  const flt={
+    rsi:{on:document.getElementById('scr-f-rsi').checked,val:+document.getElementById('scr-rsi-val').value},
+    sma:{on:document.getElementById('scr-f-sma').checked,val:+document.getElementById('scr-sma-val').value},
+    macd:{on:document.getElementById('scr-f-macd').checked,val:+document.getElementById('scr-macd-val').value},
+    hh:{on:document.getElementById('scr-f-hh').checked},
+    mcap:{on:document.getElementById('scr-f-mcap').checked,val:+document.getElementById('scr-mcap-val').value},
+    logic:document.getElementById('scr-logic').value
+  };
+
+  scanState.running=true;
+  scanState.results=[];
+  document.getElementById('scr-run').style.display='none';
+  document.getElementById('scr-cancel').style.display='inline-block';
+  document.getElementById('scr-progress-wrap').style.display='block';
+  document.getElementById('scr-results-empty').style.display='none';
+  document.getElementById('scr-results-table').style.display='';
+  document.getElementById('scr-results-body').innerHTML='';
+  setStatus('Scan läuft…');
+
+  const total=pool.length;let done=0,errors=0;
+  const CONCURRENCY=6;
+  let cancelled=false;
+  document.getElementById('scr-cancel').onclick=()=>{cancelled=true;};
+
+  // Worker-Pool
+  const queue=[...pool];
+  async function worker(){
+    while(queue.length&&!cancelled){
+      const item=queue.shift();
+      try{
+        const r=await fetchD1ForScreener(item.sym,9000);
+        if(r&&r.candles.length>=200){
+          // Symbol-Name in den globalen Cache schreiben
+          if(r.name&&typeof setSymName==='function')setSymName(item.sym,r.name);
+          const closes=r.candles.map(c=>c.c);
+          const highs=r.candles.map(c=>c.h);
+          const last=closes[closes.length-1];
+          const rsiArr=_rsi(closes,14);
+          const sma200=_sma(closes,200);
+          const macd=_macd(closes);
+          const rsiLast=rsiArr[rsiArr.length-1];
+          const sma200Last=sma200[sma200.length-1];
+          const smaDist=sma200Last?((last-sma200Last)/sma200Last*100):null;
+          const macdAge=_macdBullCross(macd.line,macd.signal,flt.macd.val);
+          const hasHH=_hasHigherHighs(highs,63);
+          // MCap-Wert: live falls vorhanden, sonst statisch
+          const mcap=scanState.mcapLive[item.sym]??item.mcap;
+
+          // Filter-Match prüfen
+          const matches={
+            rsi:flt.rsi.on?(rsiLast!=null&&rsiLast<flt.rsi.val):null,
+            sma:flt.sma.on?(smaDist!=null&&Math.abs(smaDist)<=flt.sma.val):null,
+            macd:flt.macd.on?(macdAge>=0):null,
+            hh:flt.hh.on?hasHH:null,
+            mcap:flt.mcap.on?(mcap!=null&&mcap>=flt.mcap.val):null
+          };
+          const active=Object.values(matches).filter(v=>v!==null);
+          let pass=false;
+          if(active.length===0)pass=true; // keine Filter aktiv → alle durchlassen
+          else if(flt.logic==='AND')pass=active.every(v=>v===true);
+          else pass=active.some(v=>v===true);
+
+          if(pass){
+            scanState.results.push({
+              symbol:item.sym,name:r.name||item.name,price:last,
+              rsi:rsiLast,smaDist,macdAge,hh:hasHH,mcap:mcap,
+              currency:r.meta?.currency||'USD'
+            });
+            renderResults();
+          }
+        }else{errors++;}
+      }catch(e){errors++;}
+      done++;
+      const pct=Math.round(done/total*100);
+      document.getElementById('scr-progress-bar').style.width=pct+'%';
+      document.getElementById('scr-progress-txt').textContent=
+        `${done}/${total} gescannt · ${scanState.results.length} Treffer · ${errors} Fehler`;
+    }
+  }
+  const workers=Array.from({length:CONCURRENCY},()=>worker());
+  await Promise.all(workers);
+
+  scanState.running=false;
+  document.getElementById('scr-run').style.display='inline-block';
+  document.getElementById('scr-cancel').style.display='none';
+  setStatus(cancelled?`Abgebrochen — ${scanState.results.length} Treffer.`:`Fertig — ${scanState.results.length} Treffer aus ${total}.`);
+}
+function setStatus(msg){document.getElementById('scr-status').textContent=msg;}
+
+// ── Marketcap Live-Refresh ────────────────────────────────────────
+async function runMcapRefresh(){
+  if(scanState.running){alert('Bitte warte, bis der Scan fertig ist.');return;}
+  const pool=buildPool();
+  if(!pool.length){alert('Bitte mindestens einen Pool wählen.');return;}
+  if(!confirm(`Marketcap für ${pool.length} Aktien live laden? Dauert ca. ${Math.ceil(pool.length/6*2)} Sekunden.`))return;
+  setStatus('MCap-Refresh läuft…');
+  document.getElementById('scr-progress-wrap').style.display='block';
+  let done=0;const queue=[...pool];const total=pool.length;
+  async function w(){
+    while(queue.length){
+      const it=queue.shift();
+      const mc=await fetchMarketcap(it.sym,7000);
+      if(mc!=null)scanState.mcapLive[it.sym]=mc;
+      done++;
+      document.getElementById('scr-progress-bar').style.width=Math.round(done/total*100)+'%';
+      document.getElementById('scr-progress-txt').textContent=`MCap-Refresh: ${done}/${total}`;
+    }
+  }
+  await Promise.all(Array.from({length:6},()=>w()));
+  setStatus(`MCap aktualisiert (${Object.keys(scanState.mcapLive).length} Werte). Du kannst nun mit aktiven MCap-Filter scannen.`);
+}
+
+// ── Ergebnis-Rendering & Sortierung ──────────────────────────────────
+function renderResults(){
+  const tb=document.getElementById('scr-results-body');if(!tb)return;
+  const rows=[...scanState.results];
+  const{sortBy,sortDir}=scanState;
+  rows.sort((a,b)=>{
+    let av=a[sortBy],bv=b[sortBy];
+    if(av==null)av=sortDir==='asc'?Infinity:-Infinity;
+    if(bv==null)bv=sortDir==='asc'?Infinity:-Infinity;
+    if(typeof av==='string')return sortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av);
+    if(typeof av==='boolean'){return sortDir==='asc'?(av===bv?0:av?1:-1):(av===bv?0:av?-1:1);}
+    return sortDir==='asc'?av-bv:bv-av;
+  });
+  tb.innerHTML=rows.map(r=>{
+    const fmt=(v,d=2)=>v==null?'—':v.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
+    const rsiCol=r.rsi==null?'#9090a0':(r.rsi<35?'#22c55e':r.rsi>70?'#ef4444':'#e2e2e8');
+    const smaCol=r.smaDist==null?'#9090a0':(Math.abs(r.smaDist)<3?'#22c55e':'#e2e2e8');
+    const macdTxt=r.macdAge<0?'—':(r.macdAge===0?'heute':r.macdAge+'T');
+    const macdCol=r.macdAge>=0?'#22c55e':'#9090a0';
+    const hhTxt=r.hh?'✓':'—';const hhCol=r.hh?'#22c55e':'#505060';
+    const mcapTxt=r.mcap==null?'—':(r.mcap>=1000?(r.mcap/1000).toFixed(1)+'T':r.mcap.toFixed(0)+'B');
+    return `<tr style="border-bottom:1px solid #1e1e24;cursor:pointer" data-sym="${r.symbol}" class="scr-row">
+      <td style="padding:7px 10px;font-weight:500;color:#e2e2e8">${r.symbol}</td>
+      <td style="padding:7px 10px;color:#9090a0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.name||''}">${r.name||''}</td>
+      <td style="padding:7px 10px;text-align:right;color:#e2e2e8">${fmt(r.price)}<span style="color:#505060;font-size:10px"> ${r.currency||''}</span></td>
+      <td style="padding:7px 10px;text-align:right;color:${rsiCol};font-weight:500">${fmt(r.rsi,1)}</td>
+      <td style="padding:7px 10px;text-align:right;color:${smaCol}">${r.smaDist==null?'—':(r.smaDist>=0?'+':'')+fmt(r.smaDist,1)+'%'}</td>
+      <td style="padding:7px 10px;text-align:right;color:${macdCol}">${macdTxt}</td>
+      <td style="padding:7px 10px;text-align:center;color:${hhCol};font-weight:600">${hhTxt}</td>
+      <td style="padding:7px 10px;text-align:right;color:#9090a0">${mcapTxt}</td>
+      <td style="padding:7px 10px;text-align:center;white-space:nowrap">
+        <button class="scr-open-btn" data-sym="${r.symbol}" style="background:rgba(59,130,246,.15);color:#3b82f6;border:1px solid rgba(59,130,246,.4);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-right:3px">📊</button>
+        <button class="scr-add-btn" data-sym="${r.symbol}" style="background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.4);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ WL</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// Klick-Handler über Event-Delegation (überlebt re-render)
+document.getElementById('scr-results-body').addEventListener('click',e=>{
+  const openBtn=e.target.closest('.scr-open-btn');
+  const addBtn=e.target.closest('.scr-add-btn');
+  if(openBtn){
+    const sym=openBtn.dataset.sym;
+    document.getElementById('screener-modal').style.display='none';
+    if(typeof currentSymbol!=='undefined'){
+      currentSymbol=sym;
+      document.getElementById('sym-in').value=sym;
+      if(typeof fetchData==='function'&&typeof currentTF!=='undefined')fetchData(sym,currentTF);
+    }
+  }else if(addBtn){
+    const sym=addBtn.dataset.sym;
+    if(typeof watchlist!=='undefined'&&!watchlist.includes(sym)){
+      watchlist.push(sym);
+      if(typeof saveWL==='function')saveWL();
+      if(typeof renderWL==='function')renderWL();
+      if(typeof updateWLPrices==='function')updateWLPrices();
+      if(typeof updateFinnhubSubscriptions==='function')updateFinnhubSubscriptions();
+      addBtn.textContent='✓';addBtn.style.opacity='.5';addBtn.disabled=true;
+    }
+  }
+});
+
+// Sortier-Header
+document.querySelectorAll('#scr-results-table th[data-sort]').forEach(th=>{
+  th.addEventListener('click',()=>{
+    const k=th.dataset.sort;
+    if(scanState.sortBy===k)scanState.sortDir=scanState.sortDir==='asc'?'desc':'asc';
+    else{scanState.sortBy=k;scanState.sortDir='asc';}
+    renderResults();
+  });
+});
+
+// ── Modal-Steuerung ──────────────────────────────────────────────────
+document.getElementById('screener-btn').addEventListener('click',()=>{
+  document.getElementById('screener-modal').style.display='flex';
+  updatePoolCount();
+});
+document.getElementById('scr-close').addEventListener('click',()=>{
+  document.getElementById('screener-modal').style.display='none';
+});
+document.getElementById('screener-modal').addEventListener('click',e=>{
+  if(e.target.id==='screener-modal')document.getElementById('screener-modal').style.display='none';
+});
+document.getElementById('scr-run').addEventListener('click',runScreenerScan);
+document.getElementById('scr-refresh-mcap').addEventListener('click',runMcapRefresh);
+
+// Initial
+updatePoolCount();
+console.log('[Screener] V1 initialisiert. Pool-Größe variabel je nach Auswahl.');
+})();
+
 </script>
+
+<!-- ╔══════════════════════════════════════════════════════════════════╗
+     ║  SCREENER MODAL — direkt vor </body> einfügen (vor Zeile 6068)   ║
+     ╚══════════════════════════════════════════════════════════════════╝ -->
+<div id="screener-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#0f0f12;border:1px solid #2a2a34;border-radius:8px;width:100%;max-width:1200px;max-height:calc(100vh - 40px);display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.6)">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #2a2a34;flex-shrink:0">
+      <div style="font-size:15px;font-weight:600;color:#e2e2e8">🔎 Aktien-Screener</div>
+      <button id="scr-close" style="background:transparent;border:0;color:#9090a0;font-size:18px;cursor:pointer;padding:2px 8px">✕</button>
+    </div>
+
+    <!-- Filter-Bereich -->
+    <div style="padding:14px 16px;border-bottom:1px solid #2a2a34;flex-shrink:0">
+
+      <!-- Pool-Auswahl -->
+      <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <span style="font-size:11px;color:#9090a0;text-transform:uppercase;letter-spacing:.4px">Pool:</span>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-sp500" checked> S&P 500</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-dax" checked> DAX 40</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-stoxx" checked> STOXX 50</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-nikkei"> Nikkei 225</label>
+        <span id="scr-pool-count" style="font-size:11px;color:#505060;margin-left:auto"></span>
+      </div>
+
+      <!-- Filter-Bedingungen -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px">
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+          <input type="checkbox" id="scr-f-rsi" checked>
+          <span style="font-size:12px;color:#e2e2e8;flex:1">RSI &lt;</span>
+          <input type="number" id="scr-rsi-val" value="35" min="0" max="100" style="width:50px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+          <input type="checkbox" id="scr-f-sma" checked>
+          <span style="font-size:12px;color:#e2e2e8;flex:1">±% zu SMA200</span>
+          <input type="number" id="scr-sma-val" value="3" min="0.5" max="20" step="0.5" style="width:50px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+          <input type="checkbox" id="scr-f-macd">
+          <span style="font-size:12px;color:#e2e2e8;flex:1">MACD bull. Cross (≤</span>
+          <input type="number" id="scr-macd-val" value="5" min="1" max="20" style="width:40px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+          <span style="font-size:12px;color:#9090a0">T)</span>
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+          <input type="checkbox" id="scr-f-hh">
+          <span style="font-size:12px;color:#e2e2e8;flex:1">Higher Highs (3 Mo.)</span>
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+          <input type="checkbox" id="scr-f-mcap">
+          <span style="font-size:12px;color:#e2e2e8;flex:1">MCap ≥</span>
+          <input type="number" id="scr-mcap-val" value="10" min="1" step="1" style="width:50px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+          <span style="font-size:12px;color:#9090a0">B$ *</span>
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px">
+          <span style="font-size:12px;color:#9090a0;flex:1">Logik</span>
+          <select id="scr-logic" style="background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+            <option value="AND">UND (alle)</option>
+            <option value="OR">ODER (eine)</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button id="scr-run" style="background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.4);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500">▶ Scan starten</button>
+        <button id="scr-cancel" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.4);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;display:none">⏹ Abbrechen</button>
+        <button id="scr-refresh-mcap" style="background:transparent;color:#9090a0;border:1px solid #3a3a48;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:12px" title="Marketcaps live von Yahoo nachladen (langsam)">🔄 MCap live</button>
+        <span id="scr-status" style="font-size:12px;color:#9090a0;margin-left:8px"></span>
+        <span style="font-size:10px;color:#505060;margin-left:auto">* = statisch im Pool, "MCap live" für aktuelle Werte</span>
+      </div>
+
+      <!-- Progress Bar -->
+      <div id="scr-progress-wrap" style="display:none;margin-top:10px">
+        <div style="background:#1e1e24;border-radius:4px;overflow:hidden;height:6px"><div id="scr-progress-bar" style="background:linear-gradient(90deg,#3b82f6,#8b5cf6);height:100%;width:0;transition:width .2s"></div></div>
+        <div id="scr-progress-txt" style="font-size:11px;color:#9090a0;margin-top:4px"></div>
+      </div>
+    </div>
+
+    <!-- Ergebnis-Tabelle -->
+    <div id="scr-results-wrap" style="flex:1;overflow-y:auto;padding:0">
+      <div id="scr-results-empty" style="padding:40px;text-align:center;color:#505060;font-size:13px">
+        Wähle Pool und Filter, klicke auf <b style="color:#22c55e">▶ Scan starten</b>.<br>
+        <span style="font-size:11px">Scan dauert ca. 1–3 Minuten je nach Pool-Größe und Internet.</span>
+      </div>
+      <table id="scr-results-table" style="display:none;width:100%;border-collapse:collapse;font-size:12px">
+        <thead style="position:sticky;top:0;background:#16161a;z-index:5">
+          <tr style="color:#9090a0;text-transform:uppercase;font-size:10px;letter-spacing:.4px">
+            <th data-sort="symbol" style="text-align:left;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">Symbol ↕</th>
+            <th data-sort="name" style="text-align:left;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">Name ↕</th>
+            <th data-sort="price" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">Kurs ↕</th>
+            <th data-sort="rsi" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">RSI ↕</th>
+            <th data-sort="smaDist" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">% SMA200 ↕</th>
+            <th data-sort="macdAge" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">MACD ↕</th>
+            <th data-sort="hh" style="text-align:center;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">HH ↕</th>
+            <th data-sort="mcap" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">MCap ↕</th>
+            <th style="text-align:center;padding:8px 10px;border-bottom:1px solid #2a2a34">Aktion</th>
+          </tr>
+        </thead>
+        <tbody id="scr-results-body"></tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
 </body>
 </html>
