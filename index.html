@@ -4699,35 +4699,16 @@ function hideLoading(){const el=document.getElementById('loading');el.classList.
 // ── Live price refresh (aggressive polling, near-realtime) ──────
 let liveInterval=null;
 let lastQuoteFetch=0;
-// Quote-Endpunkt für nur den letzten Preis — viel schneller als Chart-Endpunkt
+// Yahoo's /v7/finance/quote-Endpoint verlangt seit ~Q1 2026 ein Crumb-Token
+// das über CORS-Proxies nicht setzbar ist (alle Calls → 401 Unauthorized).
+// Da der Finnhub-WebSocket diese Aufgabe für US-Stocks live übernimmt,
+// deaktivieren wir die Yahoo-Quote-Calls hier komplett. Aufrufer bekommen null
+// und sollten dann Finnhub nutzen oder kein Live-Update zeigen.
 async function fetchLiveQuote(sym){
-  const proxies=[
-    'https://corsproxy.io/?',
-    'https://api.allorigins.win/raw?url=',
-    'https://api.codetabs.com/v1/proxy?quest=',
-  ];
-  const url=`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(sym)}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketDayHigh,regularMarketDayLow,regularMarketOpen,regularMarketVolume,regularMarketTime`;
-  for(const p of proxies){
-    try{
-      const resp=await fetch(p+encodeURIComponent(url));
-      if(!resp.ok)continue;
-      const data=await resp.json();
-      const q=data?.quoteResponse?.result?.[0];
-      if(q&&q.regularMarketPrice!=null){
-        return{
-          price:q.regularMarketPrice,
-          prevClose:q.regularMarketPreviousClose,
-          high:q.regularMarketDayHigh,
-          low:q.regularMarketDayLow,
-          open:q.regularMarketOpen,
-          volume:q.regularMarketVolume,
-          time:q.regularMarketTime?q.regularMarketTime*1000:Date.now()
-        };
-      }
-    }catch{}
-  }
+  // Stiller no-op — verhindert Hunderte 401-Errors in der Konsole
   return null;
 }
+// (alte Yahoo-v7-Implementierung wurde entfernt — siehe Kommentar oben)
 
 // ─────────────────────────────────────────────────────────────
 // Finnhub WebSocket — echter Live-Stream für US-Aktien (kostenlos)
