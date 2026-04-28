@@ -245,6 +245,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <div class="sep"></div>
   <span class="tlbl">Zeichnen</span>
   <button class="btn ab" data-draw="pointer">↖</button>
+  <button class="btn ab" id="magnet-btn" title="Magnet — Zeichen-Punkte rasten auf Kerzen-Hochs/-Tiefs ein (M)">🧲</button>
   <button class="btn" data-draw="trendline" title="Trendlinie (2 Klicks) — wird nach rechts verlängert">╱ Trend</button>
   <button class="btn" data-draw="trendseg" title="Trend-Segment (2 Klicks) — nur zwischen den Punkten">╱ Segment</button>
   <button class="btn" data-draw="channel" title="Kanal (3 Klicks)">⫶ Kanal</button>
@@ -262,6 +263,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <div class="sep"></div>
   <button id="autofit-btn" class="on" title="Auto-Fit Y">A</button>
   <button class="btn" id="fs-btn" title="Vollbild (F)">⛶</button>
+  <button class="btn icon-btn" id="wl-toggle-btn" title="Watchlist ein-/ausblenden (W)">📋 WL</button>
   <div class="sep"></div>
   <button id="ai-btn" class="btn icon-btn" title="KI-Analyse starten (benötigt Gemini API-Key im Profil)">🤖 KI-Analyse</button>
   <button class="btn icon-btn" id="tts-btn" title="Sprachausgabe an/aus (liest Alarm-Meldungen vor)">🔊</button>
@@ -3611,7 +3613,7 @@ ovCanvas.addEventListener('mousemove',e=>{
     ovCanvas.style.cursor='grabbing';
     return;
   }
-  snapPoint=(drawMode!=='pointer'&&drawMode!=='alarm')?findSnap(rx,ry):null;
+  snapPoint=(window.magnetEnabled!==false&&drawMode!=='pointer'&&drawMode!=='alarm')?findSnap(rx,ry):null;
   // Hover-Detection für Cursor-Hint (Tooltip selbst öffnet erst bei Klick)
   const hitEvent=eventIconZones.find(z=>Math.hypot(rx-z.x,ry-z.y)<=z.r+2);
   // Cursor: pointer/grab when hovering a drawing, crosshair when drawing
@@ -6727,6 +6729,81 @@ document.addEventListener('keydown',function(e){
   },50);
 });
 console.log('[ZEN] Pfeiltasten-Navigation aktiv: ↑/↓ wechselt Watchlist-Aktien');
+})();
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  MAGNET-TOGGLE  —  steuert Snap-an-Kerzen für alle Zeichnungen   ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+window.magnetEnabled=localStorage.getItem('zen_magnet')!=='0';
+const btn=document.getElementById('magnet-btn');
+function refresh(){
+  if(!btn)return;
+  if(window.magnetEnabled){
+    btn.classList.add('ab');
+    btn.style.opacity='1';
+    btn.title='Magnet AN — Punkte rasten auf Kerzen ein. Klick zum Abschalten (M)';
+  }else{
+    btn.classList.remove('ab');
+    btn.style.opacity='.45';
+    btn.title='Magnet AUS — freie Platzierung. Klick zum Einschalten (M)';
+  }
+  if(typeof redrawOC==='function')redrawOC();
+}
+btn?.addEventListener('click',()=>{
+  window.magnetEnabled=!window.magnetEnabled;
+  localStorage.setItem('zen_magnet',window.magnetEnabled?'1':'0');
+  refresh();
+});
+document.addEventListener('keydown',e=>{
+  if(e.ctrlKey||e.altKey||e.metaKey)return;
+  const tag=(e.target.tagName||'').toUpperCase();
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
+  if(e.target.isContentEditable)return;
+  if(e.key==='m'||e.key==='M')btn?.click();
+});
+refresh();
+console.log('[ZEN] Magnet-Toggle aktiv. Default:',window.magnetEnabled?'AN':'AUS');
+})();
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  WATCHLIST-TOGGLE  —  blendet Watchlist + Resize-Griff aus       ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+const btn=document.getElementById('wl-toggle-btn');
+const wl=document.getElementById('watchlist');
+const handle=document.getElementById('wl-resize');
+if(!btn||!wl)return;
+let hidden=localStorage.getItem('zen_wl_hidden')==='1';
+function apply(){
+  wl.style.display=hidden?'none':'';
+  if(handle)handle.style.display=hidden?'none':'';
+  btn.classList.toggle('ab',!hidden);
+  btn.style.opacity=hidden?'.45':'1';
+  btn.title=hidden?'Watchlist anzeigen (W)':'Watchlist ausblenden (W)';
+  if(typeof syncOC==='function')syncOC();
+  if(typeof redrawOC==='function')redrawOC();
+  if(window.mainChart&&typeof mainChart.resize==='function'){
+    try{mainChart.resize();}catch(_){}
+  }
+}
+btn.addEventListener('click',()=>{
+  hidden=!hidden;
+  localStorage.setItem('zen_wl_hidden',hidden?'1':'0');
+  apply();
+});
+document.addEventListener('keydown',e=>{
+  if(e.ctrlKey||e.altKey||e.metaKey)return;
+  const tag=(e.target.tagName||'').toUpperCase();
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
+  if(e.target.isContentEditable)return;
+  if(e.key==='w'||e.key==='W')btn.click();
+});
+apply();
+console.log('[ZEN] Watchlist-Toggle aktiv. Default:',hidden?'AUSGEBLENDET':'SICHTBAR');
 })();
 
 </script>
