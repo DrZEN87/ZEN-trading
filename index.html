@@ -382,6 +382,117 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <div id="al-cloud-list"></div>
 </div>
 
+<!-- ╔══════════════════════════════════════════════════════════════════╗
+     ║  SCREENER MODAL — direkt vor </body> einfügen (vor Zeile 6068)   ║
+     ╚══════════════════════════════════════════════════════════════════╝ -->
+<div id="screener-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#0f0f12;border:1px solid #2a2a34;border-radius:8px;width:100%;max-width:1200px;max-height:calc(100vh - 40px);display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.6)">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #2a2a34;flex-shrink:0">
+      <div style="font-size:15px;font-weight:600;color:#e2e2e8">🔎 Aktien-Screener</div>
+      <button id="scr-close" style="background:transparent;border:0;color:#9090a0;font-size:18px;cursor:pointer;padding:2px 8px">✕</button>
+    </div>
+
+    <!-- Filter-Bereich -->
+    <div style="padding:14px 16px;border-bottom:1px solid #2a2a34;flex-shrink:0">
+
+      <!-- Pool-Auswahl -->
+      <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <span style="font-size:11px;color:#9090a0;text-transform:uppercase;letter-spacing:.4px">Pool:</span>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-sp500" checked> S&P 500</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-dax" checked> DAX 40</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-stoxx" checked> STOXX 50</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-nikkei"> Nikkei 225</label>
+        <span id="scr-pool-count" style="font-size:11px;color:#505060;margin-left:auto"></span>
+      </div>
+
+      <!-- Filter-Bedingungen -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px">
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+          <input type="checkbox" id="scr-f-rsi" checked>
+          <span style="font-size:12px;color:#e2e2e8;flex:1">RSI &lt;</span>
+          <input type="number" id="scr-rsi-val" value="35" min="0" max="100" style="width:50px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+          <input type="checkbox" id="scr-f-sma" checked>
+          <span style="font-size:12px;color:#e2e2e8;flex:1">±% zu SMA200</span>
+          <input type="number" id="scr-sma-val" value="3" min="0.5" max="20" step="0.5" style="width:50px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+          <input type="checkbox" id="scr-f-macd">
+          <span style="font-size:12px;color:#e2e2e8;flex:1">MACD bull. Cross (≤</span>
+          <input type="number" id="scr-macd-val" value="5" min="1" max="20" style="width:40px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+          <span style="font-size:12px;color:#9090a0">T)</span>
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+          <input type="checkbox" id="scr-f-hh">
+          <span style="font-size:12px;color:#e2e2e8;flex:1">Higher Highs (3 Mo.)</span>
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+          <input type="checkbox" id="scr-f-mcap">
+          <span style="font-size:12px;color:#e2e2e8;flex:1">MCap ≥</span>
+          <input type="number" id="scr-mcap-val" value="10" min="1" step="1" style="width:50px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+          <span style="font-size:12px;color:#9090a0">B$ *</span>
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px">
+          <span style="font-size:12px;color:#9090a0;flex:1">Logik</span>
+          <select id="scr-logic" style="background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+            <option value="AND">UND (alle)</option>
+            <option value="OR">ODER (eine)</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button id="scr-run" style="background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.4);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500">▶ Scan starten</button>
+        <button id="scr-cancel" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.4);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;display:none">⏹ Abbrechen</button>
+        <button id="scr-refresh-mcap" style="background:transparent;color:#9090a0;border:1px solid #3a3a48;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:12px" title="Marketcaps live von Yahoo nachladen (langsam)">🔄 MCap live</button>
+        <span id="scr-status" style="font-size:12px;color:#9090a0;margin-left:8px"></span>
+        <span style="font-size:10px;color:#505060;margin-left:auto">* = statisch im Pool, "MCap live" für aktuelle Werte</span>
+      </div>
+
+      <!-- Progress Bar -->
+      <div id="scr-progress-wrap" style="display:none;margin-top:10px">
+        <div style="background:#1e1e24;border-radius:4px;overflow:hidden;height:6px"><div id="scr-progress-bar" style="background:linear-gradient(90deg,#3b82f6,#8b5cf6);height:100%;width:0;transition:width .2s"></div></div>
+        <div id="scr-progress-txt" style="font-size:11px;color:#9090a0;margin-top:4px"></div>
+      </div>
+    </div>
+
+    <!-- Ergebnis-Tabelle -->
+    <div id="scr-results-wrap" style="flex:1;overflow-y:auto;padding:0">
+      <div id="scr-results-empty" style="padding:40px;text-align:center;color:#505060;font-size:13px">
+        Wähle Pool und Filter, klicke auf <b style="color:#22c55e">▶ Scan starten</b>.<br>
+        <span style="font-size:11px">Scan dauert ca. 1–3 Minuten je nach Pool-Größe und Internet.</span>
+      </div>
+      <table id="scr-results-table" style="display:none;width:100%;border-collapse:collapse;font-size:12px">
+        <thead style="position:sticky;top:0;background:#16161a;z-index:5">
+          <tr style="color:#9090a0;text-transform:uppercase;font-size:10px;letter-spacing:.4px">
+            <th data-sort="symbol" style="text-align:left;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">Symbol ↕</th>
+            <th data-sort="name" style="text-align:left;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">Name ↕</th>
+            <th data-sort="price" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">Kurs ↕</th>
+            <th data-sort="rsi" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">RSI ↕</th>
+            <th data-sort="smaDist" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">% SMA200 ↕</th>
+            <th data-sort="macdAge" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">MACD ↕</th>
+            <th data-sort="hh" style="text-align:center;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">HH ↕</th>
+            <th data-sort="mcap" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">MCap ↕</th>
+            <th style="text-align:center;padding:8px 10px;border-bottom:1px solid #2a2a34">Aktion</th>
+          </tr>
+        </thead>
+        <tbody id="scr-results-body"></tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
 <script>
 
 // Polyfill for ctx.roundRect (not in all browsers)
@@ -6067,7 +6178,7 @@ async function cloudReplaceEarnings(sym,events){
 
 
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║  AKTIEN-SCREENER  —  vor </script> (Zeile 6067) einfügen          ║
+// ║  AKTIEN-SCREENER  —  vor </scr"+"ipt> (Zeile 6067) einfügen          ║
 // ║  Nutzt vorhandene Funktionen: corsGet(), rsiCalc(), sma(),        ║
 // ║  macdCalc(), getSymName(), setSymName(), watchlist[], saveWL(),   ║
 // ║  renderWL(), updateWLPrices(), currentSymbol, fetchData()         ║
@@ -6579,118 +6690,45 @@ updatePoolCount();
 console.log('[Screener] V1 initialisiert. Pool-Größe variabel je nach Auswahl.');
 })();
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  WATCHLIST-PFEILTASTEN-NAVIGATION                                 ║
+// ║  ↑/↓ wechselt Aktien in der Watchlist (auch ausserhalb Inputs)    ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+document.addEventListener('keydown',function(e){
+  const tag=(e.target.tagName||'').toUpperCase();
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
+  if(e.target.isContentEditable)return;
+  const scrModal=document.getElementById('screener-modal');
+  if(scrModal&&scrModal.style.display==='flex')return;
+  const profModal=document.getElementById('profile-modal');
+  if(profModal&&getComputedStyle(profModal).display!=='none')return;
+  if(e.ctrlKey||e.altKey||e.metaKey)return;
+  if(e.key!=='ArrowUp'&&e.key!=='ArrowDown')return;
+  if(typeof watchlist==='undefined'||!watchlist.length)return;
+  e.preventDefault();
+  let idx=watchlist.indexOf(currentSymbol);
+  if(idx<0)idx=0;
+  else if(e.key==='ArrowDown')idx=(idx+1)%watchlist.length;
+  else idx=(idx-1+watchlist.length)%watchlist.length;
+  const newSym=watchlist[idx];
+  if(!newSym||newSym===currentSymbol)return;
+  currentSymbol=newSym;
+  const inp=document.getElementById('sym-in');
+  if(inp)inp.value=newSym;
+  if(typeof renderWL==='function')renderWL();
+  if(typeof fetchData==='function'&&typeof currentTF!=='undefined')fetchData(newSym,currentTF);
+  if(typeof updateFinnhubSubscriptions==='function')updateFinnhubSubscriptions();
+  setTimeout(()=>{
+    const active=document.querySelector('#wl-list .wl-item.active');
+    if(active&&active.scrollIntoView)active.scrollIntoView({block:'nearest',behavior:'smooth'});
+  },50);
+});
+console.log('[ZEN] Pfeiltasten-Navigation aktiv: ↑/↓ wechselt Watchlist-Aktien');
+})();
+
 </script>
-
-<!-- ╔══════════════════════════════════════════════════════════════════╗
-     ║  SCREENER MODAL — direkt vor </body> einfügen (vor Zeile 6068)   ║
-     ╚══════════════════════════════════════════════════════════════════╝ -->
-<div id="screener-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
-  <div style="background:#0f0f12;border:1px solid #2a2a34;border-radius:8px;width:100%;max-width:1200px;max-height:calc(100vh - 40px);display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.6)">
-
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #2a2a34;flex-shrink:0">
-      <div style="font-size:15px;font-weight:600;color:#e2e2e8">🔎 Aktien-Screener</div>
-      <button id="scr-close" style="background:transparent;border:0;color:#9090a0;font-size:18px;cursor:pointer;padding:2px 8px">✕</button>
-    </div>
-
-    <!-- Filter-Bereich -->
-    <div style="padding:14px 16px;border-bottom:1px solid #2a2a34;flex-shrink:0">
-
-      <!-- Pool-Auswahl -->
-      <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-        <span style="font-size:11px;color:#9090a0;text-transform:uppercase;letter-spacing:.4px">Pool:</span>
-        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-sp500" checked> S&P 500</label>
-        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-dax" checked> DAX 40</label>
-        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-stoxx" checked> STOXX 50</label>
-        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e2e8"><input type="checkbox" id="scr-pool-nikkei"> Nikkei 225</label>
-        <span id="scr-pool-count" style="font-size:11px;color:#505060;margin-left:auto"></span>
-      </div>
-
-      <!-- Filter-Bedingungen -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px">
-
-        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
-          <input type="checkbox" id="scr-f-rsi" checked>
-          <span style="font-size:12px;color:#e2e2e8;flex:1">RSI &lt;</span>
-          <input type="number" id="scr-rsi-val" value="35" min="0" max="100" style="width:50px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
-        </label>
-
-        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
-          <input type="checkbox" id="scr-f-sma" checked>
-          <span style="font-size:12px;color:#e2e2e8;flex:1">±% zu SMA200</span>
-          <input type="number" id="scr-sma-val" value="3" min="0.5" max="20" step="0.5" style="width:50px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
-        </label>
-
-        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
-          <input type="checkbox" id="scr-f-macd">
-          <span style="font-size:12px;color:#e2e2e8;flex:1">MACD bull. Cross (≤</span>
-          <input type="number" id="scr-macd-val" value="5" min="1" max="20" style="width:40px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
-          <span style="font-size:12px;color:#9090a0">T)</span>
-        </label>
-
-        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
-          <input type="checkbox" id="scr-f-hh">
-          <span style="font-size:12px;color:#e2e2e8;flex:1">Higher Highs (3 Mo.)</span>
-        </label>
-
-        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
-          <input type="checkbox" id="scr-f-mcap">
-          <span style="font-size:12px;color:#e2e2e8;flex:1">MCap ≥</span>
-          <input type="number" id="scr-mcap-val" value="10" min="1" step="1" style="width:50px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
-          <span style="font-size:12px;color:#9090a0">B$ *</span>
-        </label>
-
-        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px">
-          <span style="font-size:12px;color:#9090a0;flex:1">Logik</span>
-          <select id="scr-logic" style="background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
-            <option value="AND">UND (alle)</option>
-            <option value="OR">ODER (eine)</option>
-          </select>
-        </label>
-      </div>
-
-      <!-- Action Buttons -->
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button id="scr-run" style="background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.4);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500">▶ Scan starten</button>
-        <button id="scr-cancel" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.4);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;display:none">⏹ Abbrechen</button>
-        <button id="scr-refresh-mcap" style="background:transparent;color:#9090a0;border:1px solid #3a3a48;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:12px" title="Marketcaps live von Yahoo nachladen (langsam)">🔄 MCap live</button>
-        <span id="scr-status" style="font-size:12px;color:#9090a0;margin-left:8px"></span>
-        <span style="font-size:10px;color:#505060;margin-left:auto">* = statisch im Pool, "MCap live" für aktuelle Werte</span>
-      </div>
-
-      <!-- Progress Bar -->
-      <div id="scr-progress-wrap" style="display:none;margin-top:10px">
-        <div style="background:#1e1e24;border-radius:4px;overflow:hidden;height:6px"><div id="scr-progress-bar" style="background:linear-gradient(90deg,#3b82f6,#8b5cf6);height:100%;width:0;transition:width .2s"></div></div>
-        <div id="scr-progress-txt" style="font-size:11px;color:#9090a0;margin-top:4px"></div>
-      </div>
-    </div>
-
-    <!-- Ergebnis-Tabelle -->
-    <div id="scr-results-wrap" style="flex:1;overflow-y:auto;padding:0">
-      <div id="scr-results-empty" style="padding:40px;text-align:center;color:#505060;font-size:13px">
-        Wähle Pool und Filter, klicke auf <b style="color:#22c55e">▶ Scan starten</b>.<br>
-        <span style="font-size:11px">Scan dauert ca. 1–3 Minuten je nach Pool-Größe und Internet.</span>
-      </div>
-      <table id="scr-results-table" style="display:none;width:100%;border-collapse:collapse;font-size:12px">
-        <thead style="position:sticky;top:0;background:#16161a;z-index:5">
-          <tr style="color:#9090a0;text-transform:uppercase;font-size:10px;letter-spacing:.4px">
-            <th data-sort="symbol" style="text-align:left;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">Symbol ↕</th>
-            <th data-sort="name" style="text-align:left;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">Name ↕</th>
-            <th data-sort="price" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">Kurs ↕</th>
-            <th data-sort="rsi" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">RSI ↕</th>
-            <th data-sort="smaDist" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">% SMA200 ↕</th>
-            <th data-sort="macdAge" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">MACD ↕</th>
-            <th data-sort="hh" style="text-align:center;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">HH ↕</th>
-            <th data-sort="mcap" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">MCap ↕</th>
-            <th style="text-align:center;padding:8px 10px;border-bottom:1px solid #2a2a34">Aktion</th>
-          </tr>
-        </thead>
-        <tbody id="scr-results-body"></tbody>
-      </table>
-    </div>
-
-  </div>
-</div>
-
 </body>
 </html>
