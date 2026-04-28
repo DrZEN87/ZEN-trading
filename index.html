@@ -661,6 +661,9 @@ let nameCache={};
 try{const nc=localStorage.getItem('zen_nameCache');if(nc)nameCache=JSON.parse(nc);}catch{}
 function getSymName(sym){return nameCache[sym]||KNOWN_NAMES[sym]||'';}
 function setSymName(sym,name){if(name&&name.length>1){nameCache[sym]=name;try{localStorage.setItem('zen_nameCache',JSON.stringify(nameCache));}catch{}}}
+// Erzeugt ein menschenlesbares Label "Apple · AAPL" für Alarme.
+// Fallback: nur Symbol wenn kein Name bekannt.
+function _alarmLabel(sym){const n=getSymName(sym);return n?(n+' · '+sym):sym;}
 // Async name fetch via Yahoo search API
 async function fetchSymName(sym){
   if(getSymName(sym))return;
@@ -4136,7 +4139,7 @@ function dismissCurrentPopup(){
   setTimeout(_runPopupQueue,150);
 }
 function showPopup(alarm){
-  showAlarmPopup('Preis-Alarm ausgelöst',alarm.sym+' ist '+(alarm.dir==='above'?'über':'unter')+' '+getCurrency(alarm.sym)+alarm.price.toFixed(2));
+  showAlarmPopup('Preis-Alarm ausgelöst',_alarmLabel(alarm.sym)+' ist '+(alarm.dir==='above'?'über':'unter')+' '+getCurrency(alarm.sym)+alarm.price.toFixed(2));
 }
 document.getElementById('pop-close').addEventListener('click',dismissCurrentPopup);
 function addAlarm(price,dir){
@@ -4269,7 +4272,7 @@ async function checkRsiAlarms(){
 }
 function showRsiPopup(sym,rsi,type){
   const isOver=type==='overbought';
-  showAlarmPopup('RSI-Alarm',sym+' ist '+(isOver?'überkauft':'überverkauft')+' — RSI '+rsi.toFixed(1)+' (RSI(14) '+(isOver?'≥ 70':'≤ 30')+')');
+  showAlarmPopup('RSI-Alarm',_alarmLabel(sym)+' ist '+(isOver?'überkauft':'überverkauft')+' — RSI '+rsi.toFixed(1)+' (RSI(14) '+(isOver?'≥ 70':'≤ 30')+')');
 }
 function startRsiAlarms(){
   if(rsiAlarmInterval)clearInterval(rsiAlarmInterval);
@@ -4352,7 +4355,7 @@ async function cloudAddAlarm(sym,type,price){
     return;
   }
   const cur=getCurrency(sym);
-  const ok=await cloudRequest('add',{symbol:sym,type,price});
+  const ok=await cloudRequest('add',{symbol:sym,type,price,note:getSymName(sym)});
   if(ok){
     setStatus('☁️ '+sym+' '+(type==='above'?'≥':'≤')+' '+cur+price.toFixed(2)+' → Cloud gespeichert','ok');
     setTimeout(()=>setStatus('Bereit','idle'),4000);
@@ -4635,16 +4638,17 @@ async function syncCloudDrawings(){
 function sendAlarmEmail(alarm){
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(!email)return;
+  const symName=getSymName(alarm.sym)||'';
   // Preis-Alarm (dir: above/below, price)
   if(alarm.isRsi){
     cloudRequest('notifySma',{
-      symbol:alarm.sym,tf:'D1',smaType:'RSI-'+(alarm.dir==='above'?'überkauft':'überverkauft'),
+      symbol:alarm.sym,name:symName,tf:'D1',smaType:'RSI-'+(alarm.dir==='above'?'überkauft':'überverkauft'),
       price:alarm.price,smaValue:alarm.price,
-      message:alarm.message||(alarm.sym+' RSI '+(alarm.dir==='above'?'überkauft':'überverkauft'))
+      message:alarm.message||(_alarmLabel(alarm.sym)+' RSI '+(alarm.dir==='above'?'überkauft':'überverkauft'))
     });
   }else{
     cloudRequest('notifyTrigger',{
-      symbol:alarm.sym,price:alarm.price,direction:alarm.dir
+      symbol:alarm.sym,name:symName,price:alarm.price,direction:alarm.dir
     });
   }
 }
@@ -5534,7 +5538,7 @@ function triggerMACDAlarm(sym,tf,type,macdLine,signalLine,price){
   if(alarmShowPopup('macd'))showAlarmPopup('MACD-Alarm',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('macd')){
-    cloudRequest('notifySma',{symbol:sym,tf,smaType:'MACD-'+type,price,smaValue:macdLine,message:msg});
+    cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf,smaType:'MACD-'+type,price,smaValue:macdLine,message:msg});
   }
 }
 function triggerBBAlarm(sym,tf,dir,price,bandLevel){
@@ -5550,7 +5554,7 @@ function triggerBBAlarm(sym,tf,dir,price,bandLevel){
   if(alarmShowPopup('bb'))showAlarmPopup('Bollinger-Band Ausbruch',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('bb')){
-    cloudRequest('notifySma',{symbol:sym,tf,smaType:'BB-'+dir,price,smaValue:bandLevel,message:msg});
+    cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf,smaType:'BB-'+dir,price,smaValue:bandLevel,message:msg});
   }
 }
 function triggerStochAlarm(sym,tf,extrem,stochK,price){
@@ -5564,7 +5568,7 @@ function triggerStochAlarm(sym,tf,extrem,stochK,price){
   if(alarmShowPopup('stoch'))showAlarmPopup('Stoch RSI '+extrem,msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('stoch')){
-    cloudRequest('notifySma',{symbol:sym,tf,smaType:'Stoch-'+extrem,price,smaValue:stochK,message:msg});
+    cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf,smaType:'Stoch-'+extrem,price,smaValue:stochK,message:msg});
   }
 }
 function triggerDailyMoveAlarm(sym,change,price){
@@ -5580,7 +5584,7 @@ function triggerDailyMoveAlarm(sym,change,price){
   if(alarmShowPopup('dailymove'))showAlarmPopup('5% Tages-Bewegung',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('dailymove')){
-    cloudRequest('notifySma',{symbol:sym,tf:'D1',smaType:'Tages-Move '+pct+'%',price,smaValue:0,message:msg});
+    cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf:'D1',smaType:'Tages-Move '+pct+'%',price,smaValue:0,message:msg});
   }
 }
 function triggerVolumeAlarm(sym,currentVol,avgVol){
@@ -5594,7 +5598,7 @@ function triggerVolumeAlarm(sym,currentVol,avgVol){
   if(alarmShowPopup('volume'))showAlarmPopup('Volumen-Anomalie',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('volume')){
-    cloudRequest('notifySma',{symbol:sym,tf:'D1',smaType:'Volumen '+ratio+'x',price:0,smaValue:currentVol,message:msg});
+    cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf:'D1',smaType:'Volumen '+ratio+'x',price:0,smaValue:currentVol,message:msg});
   }
 }
 function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
@@ -5611,7 +5615,7 @@ function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
   if(alarmShowPopup(typeKey))showAlarmPopup(smaType+' Berührung',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail(typeKey)){
-    cloudRequest('notifySma',{symbol:sym,tf,smaType,price,smaValue,message:msg});
+    cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf,smaType,price,smaValue,message:msg});
   }
 }
 
@@ -5636,7 +5640,7 @@ function triggerSRAlarm(sym,price,srPrice,drawingId){
   if(alarmShowPopup('sr'))showAlarmPopup('S/R-Linie berührt',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('sr')){
-    cloudRequest('notifySma',{symbol:sym,tf:currentTF.toUpperCase(),smaType:'S/R-Touch',price,smaValue:srPrice,message:msg});
+    cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf:currentTF.toUpperCase(),smaType:'S/R-Touch',price,smaValue:srPrice,message:msg});
   }
 }
 function triggerFibAlarm(sym,price,fibLevel,fibPrice,drawingId){
@@ -5650,7 +5654,7 @@ function triggerFibAlarm(sym,price,fibLevel,fibPrice,drawingId){
   if(alarmShowPopup('fib'))showAlarmPopup('Fibonacci-Level berührt',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('fib')){
-    cloudRequest('notifySma',{symbol:sym,tf:currentTF.toUpperCase(),smaType:'Fib '+(fibLevel*100).toFixed(1)+'%',price,smaValue:fibPrice,message:msg});
+    cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf:currentTF.toUpperCase(),smaType:'Fib '+(fibLevel*100).toFixed(1)+'%',price,smaValue:fibPrice,message:msg});
   }
 }
 function triggerTrendlineAlarm(sym,price,tlPrice,drawingId){
@@ -5664,7 +5668,7 @@ function triggerTrendlineAlarm(sym,price,tlPrice,drawingId){
   if(alarmShowPopup('trendline'))showAlarmPopup('Trendlinie berührt',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('trendline')){
-    cloudRequest('notifySma',{symbol:sym,tf:currentTF.toUpperCase(),smaType:'Trendlinie',price,smaValue:tlPrice,message:msg});
+    cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf:currentTF.toUpperCase(),smaType:'Trendlinie',price,smaValue:tlPrice,message:msg});
   }
 }
 // Prüfschleife: wird bei jedem Preis-Update aufgerufen
@@ -5886,7 +5890,7 @@ function triggerDrawingTouchAlarm(sym,lineType,levelPrice,currentPrice){
   if(alarmShowPopup(typeKey))showAlarmPopup(lineType+' berührt',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail(typeKey)){
-    cloudRequest('notifySma',{symbol:sym,tf:'Touch',smaType:lineType,price:currentPrice,smaValue:levelPrice,message:msg});
+    cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf:'Touch',smaType:lineType,price:currentPrice,smaValue:levelPrice,message:msg});
   }
 }
 // Parallel zu SMA-Check laufen lassen: alle 5 Min
