@@ -431,9 +431,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
           <span style="font-size:12px;color:#9090a0">T)</span>
         </label>
 
-        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
+        <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer" title="Change of Character: Tagesschluss durchbricht erstmals das letzte Lower High in einer Korrektur — klassisches Signal aus SMC/ICT, dass die Korrektur enden könnte.">
           <input type="checkbox" id="scr-f-hh">
-          <span style="font-size:12px;color:#e2e2e8;flex:1">Higher Highs (3 Mo.)</span>
+          <span style="font-size:12px;color:#e2e2e8;flex:1">CHoCH (Korrektur-Ende, ≤</span>
+          <input type="number" id="scr-hh-val" value="3" min="1" max="10" style="width:40px;background:#1e1e24;border:1px solid #3a3a48;color:#e2e2e8;padding:3px 6px;border-radius:4px;font-size:12px">
+          <span style="font-size:12px;color:#9090a0">T)</span>
         </label>
 
         <label style="display:flex;align-items:center;gap:8px;background:#16161a;padding:8px 10px;border:1px solid #2a2a34;border-radius:6px;cursor:pointer">
@@ -483,7 +485,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
             <th data-sort="rsi" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">RSI ↕</th>
             <th data-sort="smaDist" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">% SMA200 ↕</th>
             <th data-sort="macdAge" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">MACD ↕</th>
-            <th data-sort="hh" style="text-align:center;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">HH ↕</th>
+            <th data-sort="hh" style="text-align:center;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer" title="CHoCH = Tagesschluss bricht letztes Lower High — Korrektur könnte enden. Spalte zeigt Tage seit Breakout.">CHoCH ↕</th>
             <th data-sort="mcap" style="text-align:right;padding:8px 10px;border-bottom:1px solid #2a2a34;cursor:pointer">MCap ↕</th>
             <th style="text-align:center;padding:8px 10px;border-bottom:1px solid #2a2a34">Aktion</th>
           </tr>
@@ -6413,22 +6415,46 @@ function _macd(closes){
   }
   return{line,signal,hist};
 }
-// Higher Highs in last N bars (default 63 = ~3 months D1)
-// Definition: 3 aufeinanderfolgende Swing-Highs, jeder höher als der vorherige
-function _hasHigherHighs(highs,lookback=63){
-  if(highs.length<lookback)return false;
-  const slice=highs.slice(-lookback);
-  // Finde lokale Hochs: Wert > Nachbarn im Fenster ±3
-  const win=3;const peaks=[];
-  for(let i=win;i<slice.length-win;i++){
-    let isPeak=true;
-    for(let j=i-win;j<=i+win;j++){if(j!==i&&slice[j]>=slice[i]){isPeak=false;break;}}
-    if(isPeak)peaks.push({idx:i,val:slice[i]});
+// CHoCH (Change of Character) — Korrektur-Ende-Detektor.
+// Findet ein erstes höheres Hoch in einer laufenden Korrektur:
+// 1. ATH der letzten ~250 Tage als Korrektur-Ausgangspunkt
+// 2. Lower Highs zwischen ATH und HEUTE sammeln (Swing-Hochs unter ATH)
+// 3. Hat ein Tagesschluss in den letzten freshDays das letzte Lower High durchbrochen?
+// → Erstes klassisches Signal aus der Smart-Money-Concept-Lehre, dass
+// die Korrektur enden könnte. Siehe BOS/CHoCH/MSS in der techn. Analyse.
+function _chochCorrectionEnd(highs,closes,athLookback,swingWin,freshDays){
+  athLookback=athLookback||250;
+  swingWin=swingWin||5;
+  freshDays=freshDays||3;
+  const n=closes.length;
+  if(n<2*swingWin+10)return{triggered:false,age:null,level:null};
+  const start=Math.max(0,n-athLookback);
+  let athIdx=start,athVal=highs[start];
+  for(let i=start;i<n;i++){
+    if(highs[i]>athVal){athVal=highs[i];athIdx=i;}
   }
-  if(peaks.length<3)return false;
-  // Letzte 3 Peaks: streng monoton steigend?
-  const last3=peaks.slice(-3);
-  return last3[2].val>last3[1].val&&last3[1].val>last3[0].val;
+  // ATH zu nah am heute → keine Korrektur
+  if(n-1-athIdx<swingWin*2)return{triggered:false,age:null,level:null};
+  // Lower Highs zwischen ATH und HEUTE
+  const lowerHighs=[];
+  for(let i=athIdx+swingWin;i<=n-1-swingWin;i++){
+    let isPeak=true;
+    for(let j=i-swingWin;j<=i+swingWin;j++){
+      if(j!==i&&highs[j]>=highs[i]){isPeak=false;break;}
+    }
+    if(isPeak&&highs[i]<athVal){
+      lowerHighs.push({idx:i,val:highs[i]});
+    }
+  }
+  if(!lowerHighs.length)return{triggered:false,age:null,level:null};
+  const lastLH=lowerHighs[lowerHighs.length-1];
+  // Schluss in den letzten freshDays über letztem LH?
+  for(let i=Math.max(lastLH.idx+1,n-freshDays);i<n;i++){
+    if(closes[i]>lastLH.val){
+      return{triggered:true,age:n-1-i,level:lastLH.val};
+    }
+  }
+  return{triggered:false,age:null,level:lastLH.val};
 }
 // MACD Bull Cross innerhalb der letzten N Tage:
 // Cross = MACD-Linie kreuzt Signal-Linie von unten nach oben
@@ -6492,7 +6518,7 @@ async function runScreenerScan(){
     rsi:{on:document.getElementById('scr-f-rsi').checked,val:+document.getElementById('scr-rsi-val').value},
     sma:{on:document.getElementById('scr-f-sma').checked,val:+document.getElementById('scr-sma-val').value},
     macd:{on:document.getElementById('scr-f-macd').checked,val:+document.getElementById('scr-macd-val').value},
-    hh:{on:document.getElementById('scr-f-hh').checked},
+    hh:{on:document.getElementById('scr-f-hh').checked,val:+document.getElementById('scr-hh-val').value},
     mcap:{on:document.getElementById('scr-f-mcap').checked,val:+document.getElementById('scr-mcap-val').value},
     logic:document.getElementById('scr-logic').value
   };
@@ -6532,7 +6558,10 @@ async function runScreenerScan(){
           const sma200Last=sma200[sma200.length-1];
           const smaDist=sma200Last?((last-sma200Last)/sma200Last*100):null;
           const macdAge=_macdBullCross(macd.line,macd.signal,flt.macd.val);
-          const hasHH=_hasHigherHighs(highs,63);
+          const choch=_chochCorrectionEnd(highs,closes,250,5,flt.hh.val);
+          const hasHH=choch.triggered;
+          const chochAge=choch.age;
+          const chochLevel=choch.level;
           // MCap-Wert: live falls vorhanden, sonst statisch
           const mcap=scanState.mcapLive[item.sym]??item.mcap;
 
@@ -6553,7 +6582,7 @@ async function runScreenerScan(){
           if(pass){
             scanState.results.push({
               symbol:item.sym,name:r.name||item.name,price:last,
-              rsi:rsiLast,smaDist,macdAge,hh:hasHH,mcap:mcap,
+              rsi:rsiLast,smaDist,macdAge,hh:hasHH,chochAge,chochLevel,mcap:mcap,
               currency:r.meta?.currency||'USD'
             });
             renderResults();
@@ -6619,7 +6648,9 @@ function renderResults(){
     const smaCol=r.smaDist==null?'#9090a0':(Math.abs(r.smaDist)<3?'#22c55e':'#e2e2e8');
     const macdTxt=r.macdAge<0?'—':(r.macdAge===0?'heute':r.macdAge+'T');
     const macdCol=r.macdAge>=0?'#22c55e':'#9090a0';
-    const hhTxt=r.hh?'✓':'—';const hhCol=r.hh?'#22c55e':'#505060';
+    const hhTxt=r.hh?(r.chochAge===0?'heute':r.chochAge+'T'):'—';
+    const hhTitle=r.hh?('CHoCH bestätigt — Schluss über '+(r.chochLevel?r.chochLevel.toFixed(2):'?')+' (letztes Lower High)'):(r.chochLevel?'Letztes Lower High: '+r.chochLevel.toFixed(2)+' (noch nicht durchbrochen)':'Kein Korrektur-Setup erkannt');
+    const hhCol=r.hh?'#22c55e':'#505060';
     const mcapTxt=r.mcap==null?'—':(r.mcap>=1000?(r.mcap/1000).toFixed(1)+'T':r.mcap.toFixed(0)+'B');
     return `<tr style="border-bottom:1px solid #1e1e24;cursor:pointer" data-sym="${r.symbol}" class="scr-row">
       <td style="padding:7px 10px;font-weight:500;color:#e2e2e8">${r.symbol}</td>
@@ -6628,7 +6659,7 @@ function renderResults(){
       <td style="padding:7px 10px;text-align:right;color:${rsiCol};font-weight:500">${fmt(r.rsi,1)}</td>
       <td style="padding:7px 10px;text-align:right;color:${smaCol}">${r.smaDist==null?'—':(r.smaDist>=0?'+':'')+fmt(r.smaDist,1)+'%'}</td>
       <td style="padding:7px 10px;text-align:right;color:${macdCol}">${macdTxt}</td>
-      <td style="padding:7px 10px;text-align:center;color:${hhCol};font-weight:600">${hhTxt}</td>
+      <td style="padding:7px 10px;text-align:center;color:${hhCol};font-weight:600" title="${hhTitle}">${hhTxt}</td>
       <td style="padding:7px 10px;text-align:right;color:#9090a0">${mcapTxt}</td>
       <td style="padding:7px 10px;text-align:center;white-space:nowrap">
         <button class="scr-open-btn" data-sym="${r.symbol}" style="background:rgba(59,130,246,.15);color:#3b82f6;border:1px solid rgba(59,130,246,.4);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-right:3px">📊</button>
