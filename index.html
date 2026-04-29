@@ -6745,6 +6745,8 @@ document.getElementById('scr-refresh-mcap').addEventListener('click',runMcapRefr
 
 // Initial
 updatePoolCount();
+// Funktion global verfügbar machen, damit CHoCH-Watchlist-Modul sie nutzen kann
+window._chochCorrectionEnd=_chochCorrectionEnd;
 console.log('[Screener] V1 initialisiert. Pool-Größe variabel je nach Auswahl.');
 })();
 
@@ -6925,7 +6927,7 @@ async function scanWatchlistForChoch(){
     setStatus('Erst E-Mail im Profil hinterlegen','#ef4444');
     return;
   }
-  if(typeof _chochCorrectionEnd!=='function'||typeof corsGet!=='function'){
+  if(typeof window._chochCorrectionEnd!=='function'||typeof corsGet!=='function'){
     setStatus('Screener-Funktionen nicht geladen','#ef4444');
     return;
   }
@@ -6964,7 +6966,7 @@ async function scanWatchlistForChoch(){
       const highs=candles.map(c=>c.h);
       const closes=candles.map(c=>c.c);
       // CHoCH-Check (freshDays=1 reicht — wir wollen nur das aktuelle LH wissen)
-      const choch=_chochCorrectionEnd(highs,closes,250,5,1);
+      const choch=window._chochCorrectionEnd(highs,closes,250,5,1);
       if(r.meta&&(r.meta.longName||r.meta.shortName)){
         setSymName(sym,r.meta.longName||r.meta.shortName);
       }
