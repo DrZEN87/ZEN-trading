@@ -142,6 +142,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 #loading p{font-size:11px;color:var(--text3)}
 /* AI drawings have a distinct style */
 .ai-badge{position:absolute;top:8px;right:60px;font-size:10px;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);border-radius:4px;padding:2px 6px;pointer-events:none}
+
+@keyframes chochPulse{0%,100%{opacity:.3;transform:scale(.85)}50%{opacity:1;transform:scale(1.1)}}
+#help-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center;padding:20px}
+#help-modal.open{display:flex}
+#help-modal .hm-card{background:#0f0f12;border:1px solid #2a2a34;border-radius:8px;width:100%;max-width:560px;max-height:calc(100vh - 40px);overflow-y:auto;padding:18px 22px}
+#help-modal h2{margin:0 0 14px;color:#e2e2e8;font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
+#help-modal h2 button{margin-left:auto;background:transparent;border:0;color:#9090a0;font-size:18px;cursor:pointer}
+#help-modal table{width:100%;border-collapse:collapse;font-size:12px}
+#help-modal td{padding:5px 8px;border-bottom:1px solid #1e1e24;color:#cbd5e1}
+#help-modal kbd{display:inline-block;background:#1e1e24;border:1px solid #3a3a48;border-radius:4px;padding:2px 7px;font-family:monospace;font-size:11px;color:#e2e2e8;min-width:18px;text-align:center}
+#help-modal .hm-grp{color:#60a5fa;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:10px 8px 4px}
 </style>
 </head>
 <body>
@@ -222,9 +233,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
         <div style="color:#64748b;font-size:11px;margin-top:6px;line-height:1.5">
           Beim Aktivieren wird für jede Watchlist-Aktie das aktuelle Lower High berechnet und ein Alarm angelegt. Server prüft täglich nach US-Schluss, ob der Tagesschluss das Lower High durchbrochen hat. Auslösen löscht den Alarm.
         </div>
-        <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+        <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
           <button type="button" id="choch-wl-refresh" style="padding:5px 10px;background:transparent;border:1px solid #334155;border-radius:4px;color:#94a3b8;cursor:pointer;font-size:11px">🔄 Lower Highs neu berechnen</button>
-          <span id="choch-wl-status" style="color:#64748b;font-size:11px"></span>
+          <span id="choch-wl-status" style="color:#64748b;font-size:11px;flex:1"></span>
+          <span id="choch-wl-last" style="color:#64748b;font-size:11px;font-style:italic">Letzter Scan: noch nie</span>
         </div>
       </div>
       <div id="choch-wl-list" style="background:#0f172a;border:1px solid #334155;border-radius:6px;max-height:160px;overflow-y:auto;font-size:11px"></div>
@@ -238,7 +250,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 
 <div id="app">
 <div id="topbar">
-  <button class="btn icon-btn" id="profile-btn" title="Profil — Email & API-Key verwalten">
+  <button class="btn icon-btn" id="help-btn" title="Tastatur-Shortcuts (?)" style="margin-right:4px">?</button>
+  <span id="choch-scan-pixel" title="CHoCH-Hintergrund-Scan läuft" style="display:none;width:8px;height:8px;border-radius:50%;background:#3b82f6;margin-right:6px;align-self:center;animation:chochPulse 1.2s infinite ease-in-out"></span>
+    <button class="btn icon-btn" id="profile-btn" title="Profil — Email & API-Key verwalten">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">
       <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
     </svg>
@@ -518,6 +532,45 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   </div>
 </div>
 
+
+<div id="help-modal">
+  <div class="hm-card">
+    <h2>⌨️ Tastatur-Shortcuts <button id="help-modal-close">✕</button></h2>
+    <table>
+      <tr><td colspan="2" class="hm-grp">Zeichen-Werkzeuge</td></tr>
+      <tr><td><kbd>T</kbd></td><td>Trendlinie zeichnen</td></tr>
+      <tr><td><kbd>H</kbd></td><td>Horizontale Linie / S-R volle Breite</td></tr>
+      <tr><td><kbd>R</kbd></td><td>S-R Ray (von Klick nach rechts)</td></tr>
+      <tr><td><kbd>A</kbd></td><td>Alarm setzen (im Chart klicken)</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Werkzeug abbrechen / Modal schließen</td></tr>
+      <tr><td><kbd>Entf</kbd></td><td>Ausgewähltes Drawing löschen</td></tr>
+      <tr><td><kbd>Strg</kbd>+<kbd>Z</kbd></td><td>Letztes Drawing rückgängig</td></tr>
+      <tr><td><kbd>M</kbd></td><td>Magnet ein/aus</td></tr>
+
+      <tr><td colspan="2" class="hm-grp">Navigation</td></tr>
+      <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Watchlist-Aktien wechseln</td></tr>
+      <tr><td><kbd>W</kbd></td><td>Watchlist ein/ausblenden</td></tr>
+      <tr><td><kbd>F</kbd></td><td>Vollbild</td></tr>
+      <tr><td><kbd>+</kbd> <kbd>-</kbd></td><td>Zoom rein / raus</td></tr>
+
+      <tr><td colspan="2" class="hm-grp">Zeitrahmen</td></tr>
+      <tr><td><kbd>1</kbd></td><td>5m</td></tr>
+      <tr><td><kbd>2</kbd></td><td>1h</td></tr>
+      <tr><td><kbd>3</kbd></td><td>4h</td></tr>
+      <tr><td><kbd>4</kbd></td><td>D1 (Tagesbasis)</td></tr>
+      <tr><td><kbd>5</kbd></td><td>M1 (Monat)</td></tr>
+
+      <tr><td colspan="2" class="hm-grp">Module</td></tr>
+      <tr><td><kbd>S</kbd></td><td>Screener öffnen</td></tr>
+      <tr><td><kbd>N</kbd></td><td>News-Popup öffnen</td></tr>
+      <tr><td><kbd>P</kbd></td><td>Profil-Einstellungen</td></tr>
+      <tr><td><kbd>?</kbd></td><td>Diese Hilfe ein/ausblenden</td></tr>
+    </table>
+    <div style="font-size:11px;color:#64748b;margin-top:14px;line-height:1.5">
+      Shortcuts funktionieren nur im Chart-Bereich, nicht in Eingabefeldern. Modifier-Tasten (Strg/Alt) deaktivieren die Shortcuts (außer wo angegeben), damit Browser-Shortcuts funktionieren.
+    </div>
+  </div>
+</div>
 <script>
 
 // Polyfill for ctx.roundRect (not in all browsers)
@@ -7005,6 +7058,9 @@ async function scanWatchlistForChoch(){
   const successCount=items.filter(i=>i.level!=null&&!i.triggered).length;
   setStatus('Fertig: '+successCount+' CHoCH-Alarme angelegt von '+watchlist.length+' Aktien','#22c55e');
   renderList(items);
+  // Timestamp speichern + UI updaten
+  try{localStorage.setItem('zen_choch_last_scan',String(Date.now()));}catch(_){}
+  if(typeof window._chochUpdateLastScanLabel==='function')window._chochUpdateLastScanLabel();
 }
 
 // 3. Alle CHoCH-Alarme aus Cloud löschen (wenn User Toggle deaktiviert)
@@ -7059,7 +7115,217 @@ refreshBtn.addEventListener('click',async()=>{
 });
 
 renderList([]);
+// Global verfügbar machen für Auto-Refresh + Tab-Communication
+window._chochRunWatchlistScan=scanWatchlistForChoch;
 console.log('[CHoCH-WL] aktiv. Status:',toggle.checked?'enabled':'disabled');
+})();
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  TASTATUR-SHORTCUTS  +  HILFE-MODAL  +  CHoCH-AUTO-REFRESH        ║
+// ║                                                                   ║
+// ║  Globale Shortcuts greifen nur:                                   ║
+// ║  - außerhalb von Inputs/Textareas/Selects                         ║
+// ║  - ohne Strg/Alt/Cmd-Modifier (außer explizit anders)             ║
+// ║  - wenn keine Modal-Overlay aktiv ist                             ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+
+// ── Helfer: Shortcuts deaktivieren wenn nötig ───────────────────────
+function shouldIgnore(e){
+  const tag=(e.target.tagName||'').toUpperCase();
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return true;
+  if(e.target.isContentEditable)return true;
+  if(e.ctrlKey||e.altKey||e.metaKey)return true;
+  // Wenn ein Modal sichtbar ist, sollen die Modal-eigenen Esc/Enter-Handler greifen
+  const screener=document.getElementById('screener-modal');
+  if(screener&&getComputedStyle(screener).display==='flex')return true;
+  const profile=document.getElementById('profile-modal');
+  if(profile&&getComputedStyle(profile).display!=='none')return true;
+  const help=document.getElementById('help-modal');
+  if(help&&help.classList.contains('open')){
+    // Im Hilfe-Modal nur ? und Esc weiterleiten
+    return e.key!=='?'&&e.key!=='Escape';
+  }
+  return false;
+}
+
+// ── Klick auf Drawing-Tool-Button auslösen ─────────────────────────
+function clickDrawTool(name){
+  const btn=document.querySelector('[data-draw="'+name+'"]');
+  if(btn)btn.click();
+}
+
+// ── Timeframe wechseln ───────────────────────────────────────────────
+function clickTF(tf){
+  const btn=document.querySelector('[data-tf="'+tf+'"]');
+  if(btn)btn.click();
+}
+
+// ── Zoom über simulierten Wheel-Event ────────────────────────────────
+function zoomChart(direction){
+  // direction: 1=in (deltaY<0), -1=out (deltaY>0)
+  const wrap=document.getElementById('main-wrap')||document.querySelector('#chart')?.parentElement;
+  if(!wrap)return;
+  const evt=new WheelEvent('wheel',{
+    deltaY:direction>0?-100:100,
+    bubbles:true,cancelable:true
+  });
+  wrap.dispatchEvent(evt);
+}
+
+// ── Hilfe-Modal-Toggle ───────────────────────────────────────────────
+function toggleHelp(force){
+  const m=document.getElementById('help-modal');
+  if(!m)return;
+  const want=force!=null?force:!m.classList.contains('open');
+  m.classList.toggle('open',want);
+}
+
+// Hilfe-Modal Schließen-Buttons
+document.getElementById('help-btn')?.addEventListener('click',()=>toggleHelp(true));
+document.getElementById('help-modal-close')?.addEventListener('click',()=>toggleHelp(false));
+document.getElementById('help-modal')?.addEventListener('click',e=>{
+  if(e.target.id==='help-modal')toggleHelp(false);
+});
+
+// ── Zentraler Keydown-Handler ────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  // Hilfe-Toggle: ? funktioniert immer (außer in Inputs)
+  if(e.key==='?'){
+    const tag=(e.target.tagName||'').toUpperCase();
+    if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
+    e.preventDefault();
+    toggleHelp();
+    return;
+  }
+  // Esc schließt Hilfe-Modal explizit
+  if(e.key==='Escape'){
+    const help=document.getElementById('help-modal');
+    if(help&&help.classList.contains('open')){
+      e.preventDefault();
+      toggleHelp(false);
+      return;
+    }
+  }
+
+  if(shouldIgnore(e))return;
+
+  switch(e.key){
+    // Zeichen-Tools
+    case 't':case 'T':e.preventDefault();clickDrawTool('trendline');break;
+    case 'h':case 'H':e.preventDefault();clickDrawTool('supportfull');break;
+    case 'r':case 'R':e.preventDefault();clickDrawTool('support');break;
+    case 'a':case 'A':e.preventDefault();document.getElementById('al-toggle-btn')?.click();break;
+
+    // Module
+    case 's':case 'S':e.preventDefault();document.getElementById('screener-btn')?.click();break;
+    case 'n':case 'N':e.preventDefault();document.getElementById('news-btn')?.click();break;
+    case 'p':case 'P':e.preventDefault();document.getElementById('profile-btn')?.click();break;
+
+    // Timeframes — Mapping an deine App: 5m / 1h / 4h / D1 / M1
+    case '1':e.preventDefault();clickTF('5m');break;
+    case '2':e.preventDefault();clickTF('1h');break;
+    case '3':e.preventDefault();clickTF('4h');break;
+    case '4':e.preventDefault();clickTF('d1');break;
+    case '5':e.preventDefault();clickTF('m1');break;
+
+    // Zoom
+    case '+':case '=':e.preventDefault();zoomChart(1);break;
+    case '-':e.preventDefault();zoomChart(-1);break;
+  }
+});
+
+console.log('[ZEN] Shortcuts aktiv. ? für Hilfe.');
+})();
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  CHoCH AUTO-REFRESH — alle 24h im Hintergrund                     ║
+// ║                                                                   ║
+// ║  Triggert 30 Sek nach App-Start einen erneuten Watchlist-Scan,    ║
+// ║  wenn der letzte Scan >24h her ist UND der Toggle aktiv ist.      ║
+// ║  Status wird im Profil-Modal angezeigt + Mini-Pixel in Topbar.    ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+const KEY_LAST_SCAN='zen_choch_last_scan';
+const KEY_ENABLED='zen_choch_wl_enabled';
+const STALE_MS=24*60*60*1000; // 24 Stunden
+
+// Setze Pixel-Sichtbarkeit
+function setPixel(visible){
+  const px=document.getElementById('choch-scan-pixel');
+  if(px)px.style.display=visible?'inline-block':'none';
+}
+window._chochSetPixel=setPixel;
+
+// Letzter Scan formatiert
+function formatLastScan(){
+  const ts=parseInt(localStorage.getItem(KEY_LAST_SCAN)||'0',10);
+  if(!ts)return 'noch nie';
+  const ageMs=Date.now()-ts;
+  const h=Math.floor(ageMs/3600000);
+  const d=Math.floor(h/24);
+  if(d>=1)return 'vor '+d+' Tag'+(d>1?'en':'');
+  if(h>=1)return 'vor '+h+' Std';
+  const m=Math.floor(ageMs/60000);
+  return 'vor '+(m>=1?m+' Min':'< 1 Min');
+}
+window._chochFormatLastScan=formatLastScan;
+
+// Sucht den Status-Span im Profil-Modal und schreibt "Letzter Scan: ..."
+function updateLastScanLabel(){
+  const el=document.getElementById('choch-wl-last');
+  if(!el)return;
+  el.textContent='Letzter Scan: '+formatLastScan();
+}
+window._chochUpdateLastScanLabel=updateLastScanLabel;
+
+// 30 Sek nach Page-Load: prüfe ob ein Refresh fällig ist
+setTimeout(function tryAutoRefresh(){
+  const enabled=localStorage.getItem(KEY_ENABLED)==='1';
+  if(!enabled){updateLastScanLabel();return;}
+  const last=parseInt(localStorage.getItem(KEY_LAST_SCAN)||'0',10);
+  const stale=!last||(Date.now()-last>STALE_MS);
+  if(!stale){updateLastScanLabel();return;}
+  if(typeof window._chochRunWatchlistScan!=='function'){
+    console.log('[CHoCH-Auto] Scan-Funktion noch nicht verfügbar, retry in 5s');
+    setTimeout(tryAutoRefresh,5000);
+    return;
+  }
+  // Email vorhanden?
+  if(!localStorage.getItem('zen_alarm_email')){
+    console.log('[CHoCH-Auto] keine Email hinterlegt, skip');
+    return;
+  }
+  // watchlist-Check: wir vertrauen darauf, dass _chochRunWatchlistScan selbst
+  // den korrekten Watchlist-Zugriff hat (lexikalisches Closure innerhalb des Top-Level-Scripts).
+  // Stattdessen sanfter Check via localStorage:
+  try{
+    const stored=JSON.parse(localStorage.getItem('cp-wl8')||'[]');
+    if(!Array.isArray(stored)||!stored.length){
+      console.log('[CHoCH-Auto] Watchlist leer (localStorage), skip');
+      return;
+    }
+  }catch(_){}
+  console.log('[CHoCH-Auto] Letzter Scan ist >24h her — starte Hintergrund-Scan');
+  setPixel(true);
+  window._chochRunWatchlistScan().then(()=>{
+    setPixel(false);
+    localStorage.setItem(KEY_LAST_SCAN,String(Date.now()));
+    updateLastScanLabel();
+    console.log('[CHoCH-Auto] Hintergrund-Scan fertig');
+  }).catch(err=>{
+    setPixel(false);
+    console.log('[CHoCH-Auto] Scan-Fehler:',err);
+  });
+},30000);
+
+// Initial das Label setzen, falls Profil-Modal später geöffnet wird
+setInterval(updateLastScanLabel,30000);
+console.log('[CHoCH-Auto] Auto-Refresh aktiv (24h-Schwelle)');
 })();
 
 </script>
