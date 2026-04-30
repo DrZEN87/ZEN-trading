@@ -1386,18 +1386,78 @@ function detectCrosses(closes){
   return signals;
 }
 function playAlarmSound(){
-  try{
-    const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const freqs=[523.25,659.25,783.99,1046.5];
-    freqs.forEach((f,i)=>{
-      const osc=ctx.createOscillator(),gain=ctx.createGain();
-      osc.type='sine';osc.frequency.value=f;
-      gain.gain.setValueAtTime(0.15,ctx.currentTime+i*0.15);
-      gain.gain.setTargetAtTime(0,ctx.currentTime+i*0.15+0.12,0.05);
-      osc.connect(gain);gain.connect(ctx.destination);
-      osc.start(ctx.currentTime+i*0.15);osc.stop(ctx.currentTime+i*0.15+0.25);
-    });
-  }catch(e){console.warn('Audio not available',e);}
+  // Spielt den Glockenton (~0.7s) und gibt ein Promise zurück, das resolved
+  // wenn der Sound beendet ist. Wird von der Alarm-Queue genutzt.
+  return new Promise(resolve=>{
+    try{
+      const ctx=new(window.AudioContext||window.webkitAudioContext)();
+      const freqs=[523.25,659.25,783.99,1046.5];
+      const totalDur=freqs.length*0.15+0.25; // letzter Ton + Decay
+      freqs.forEach((f,i)=>{
+        const osc=ctx.createOscillator(),gain=ctx.createGain();
+        osc.type='sine';osc.frequency.value=f;
+        gain.gain.setValueAtTime(0.15,ctx.currentTime+i*0.15);
+        gain.gain.setTargetAtTime(0,ctx.currentTime+i*0.15+0.12,0.05);
+        osc.connect(gain);gain.connect(ctx.destination);
+        osc.start(ctx.currentTime+i*0.15);osc.stop(ctx.currentTime+i*0.15+0.25);
+      });
+      setTimeout(()=>{try{ctx.close();}catch(_){}resolve();},totalDur*1000+50);
+    }catch(e){console.warn('Audio not available',e);resolve();}
+  });
+}
+
+// ── Alarm-Queue ─────────────────────────────────────────────────────
+// Verhindert Überlappung von Sound/Speech bei mehreren gleichzeitigen Alarmen.
+// Jeder Alarm wird als {sym, text} eingereiht und der Reihe nach abgespielt:
+// Sound → Speech → kurze Pause → nächster Alarm.
+const _alarmQueue=[];
+let _alarmPlaying=false;
+
+function _runAlarmQueue(){
+  if(_alarmPlaying)return;
+  const job=_alarmQueue.shift();
+  if(!job)return;
+  _alarmPlaying=true;
+  // 1. Sound abspielen (Promise wartet auf Ende)
+  playAlarmSound().then(()=>{
+    // 2. Sprachausgabe (Promise wartet auf 'end' oder Timeout)
+    return _speakAndWait(job.text);
+  }).then(()=>{
+    // 3. Kleine Pause zwischen Alarmen
+    return new Promise(r=>setTimeout(r,150));
+  }).catch(e=>{console.warn('Alarm-Queue-Fehler:',e);}).finally(()=>{
+    _alarmPlaying=false;
+    if(_alarmQueue.length)_runAlarmQueue();
+  });
+}
+
+function _speakAndWait(text){
+  return new Promise(resolve=>{
+    if(localStorage.getItem('zen_tts_enabled')==='0'){resolve();return;}
+    if(!('speechSynthesis'in window)){resolve();return;}
+    if(!text){resolve();return;}
+    try{
+      // KEIN cancel — wir warten ja explizit auf das Ende
+      const u=new SpeechSynthesisUtterance(text);
+      u.lang='de-DE';u.rate=0.95;u.volume=1.0;u.pitch=1.0;
+      const best=pickBestGermanVoice();
+      if(best)u.voice=best;
+      let done=false;
+      const finish=()=>{if(done)return;done=true;resolve();};
+      u.onend=finish;
+      u.onerror=finish;
+      // Sicherheits-Timeout (falls onend nicht feuert): max 10 Sek
+      setTimeout(finish,10000);
+      window.speechSynthesis.speak(u);
+    }catch(e){console.warn('TTS error:',e);resolve();}
+  });
+}
+
+// Öffentliche API: alarm-queue-konformer Trigger.
+// Statt direkt playAlarmSound() + speak(text), nutze enqueueAlarm(text).
+function enqueueAlarm(text){
+  _alarmQueue.push({text:text||''});
+  _runAlarmQueue();
 }
 // ── Text-to-Speech Sprachausgabe ─────────────────────────────
 function speak(text,opts){
@@ -3901,6 +3961,17 @@ window.addEventListener('mousemove',e=>{
 });
 
 // ── Keyboard ──────────────────────────────────────────────────
+// Helper: prüft ob das Keydown-Event in einem Eingabefeld passiert.
+// Wenn ja, sollen Single-Letter-Shortcuts ignoriert werden, damit z.B.
+// "Ford" tippen nicht den Vollbildmodus aktiviert.
+function _kbInInput(e){
+  const t=e.target;
+  if(!t)return false;
+  const tag=(t.tagName||'').toUpperCase();
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return true;
+  if(t.isContentEditable)return true;
+  return false;
+}
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     if(selectedDrawing){selectedDrawing=null;redrawOC();return;}
@@ -3922,7 +3993,10 @@ window.addEventListener('keydown',e=>{
     if(drawings.length){drawings.pop();redrawOC();}
     else{for(const k of [...PANEL_KEYS].reverse()){if(panelDrawings[k]?.length){panelDrawings[k].pop();redrawPanelOC(k);break;}}}
   }
-  if(e.key==='f'||e.key==='F'){document.getElementById('fs-btn').click();}
+  // F = Vollbild — ABER nicht wenn in Eingabefeld (z.B. Symbol-Suche "Ford")
+  if((e.key==='f'||e.key==='F')&&!_kbInInput(e)&&!e.ctrlKey&&!e.altKey&&!e.metaKey){
+    document.getElementById('fs-btn').click();
+  }
 });
 
 // ── Fullscreen ────────────────────────────────────────────────
@@ -4265,7 +4339,6 @@ function checkAlarms(){
     if((a.dir==='above'&&cur>=a.price)||(a.dir==='below'&&cur<=a.price)){
       if(!a.triggered){
         a.triggered=true;
-        playAlarmSound();
         if(alarmShowPopup('price'))showPopup(a);
         const cur2=getCurrency(a.sym);
         const msg=a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2);
@@ -4273,9 +4346,9 @@ function checkAlarms(){
         if(typeof recordAlarm==='function')recordAlarm('Preis-'+a.dir,a.sym,'',msg);
         if(Notification.permission==='granted')new Notification(a.sym+' Alarm',{body:(a.dir==='above'?'Über':'Unter')+' '+cur2+a.price.toFixed(2)});
         else if(Notification.permission!=='denied')Notification.requestPermission();
-        // Sprachausgabe: "Apple Alarm: 100 Dollar überschritten"
+        // Sound + TTS in die Queue: kein Überlappen mehr
         const richtung=a.dir==='above'?'überschritten':'unterschritten';
-        speak(speakableSymbol(a.sym)+' Alarm: '+a.price.toFixed(2)+' '+currencyName(cur2)+' '+richtung,{cancel:true});
+        enqueueAlarm(speakableSymbol(a.sym)+' Alarm: '+a.price.toFixed(2)+' '+currencyName(cur2)+' '+richtung);
         if(alarmSendEmail('price'))sendAlarmEmail(a);
         // Cloud: mark as triggered (will be auto-removed on next check)
         if(localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
@@ -4345,8 +4418,9 @@ async function checkRsiAlarms(){
       // Trigger only on state change into overbought/oversold
       if(now!==prev&&now!=='neutral'){
         const alarm={sym,dir:now==='overbought'?'above':'below',price:rsi,isRsi:true,id:Date.now()+Math.random()};
-        playAlarmSound();
         if(alarmShowPopup('rsi'))showRsiPopup(sym,rsi,now);
+        // Sound + TTS in die Queue
+        enqueueAlarm(speakableSymbol(sym)+': RSI '+(now==='overbought'?'überkauft':'überverkauft')+', Wert '+rsi.toFixed(0));
         const rsiMsg=sym+' '+(now==='overbought'?'überkauft':'überverkauft')+' (RSI '+rsi.toFixed(1)+')';
         setStatus('🔔 RSI-Alarm: '+rsiMsg,'err');
         if(typeof recordAlarm==='function')recordAlarm('RSI-'+now,sym,'D1',rsiMsg);
@@ -5666,9 +5740,7 @@ function triggerMACDAlarm(sym,tf,type,macdLine,signalLine,price){
   const msg=sym+' ('+tf+') MACD '+dirText+' '+emoji+' — MACD='+macdLine.toFixed(3)+' Signal='+signalLine.toFixed(3);
   console.log('MACD-Alarm:',msg);recordAlarm('MACD-'+type,sym,tf,msg);
   setStatus('🔔 MACD: '+msg,type==='bullish'?'ok':'err');
-  try{playAlarmSound();}catch{}
-  const speechText=speakableSymbol(sym)+': MACD '+(type==='bullish'?'bullisches Kreuz, Kaufsignal':'bärisches Kreuz, Verkaufssignal');
-  speak(speechText,{cancel:true});
+  enqueueAlarm(speakableSymbol(sym)+': MACD '+(type==='bullish'?'bullisches Kreuz, Kaufsignal':'bärisches Kreuz, Verkaufssignal'));
   if(alarmShowPopup('macd')){showAlarmPopup('MACD-Alarm',msg);_markWLAlarm(sym,'MACD');}
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('macd')){
@@ -5682,9 +5754,7 @@ function triggerBBAlarm(sym,tf,dir,price,bandLevel){
   const msg=sym+' ('+tf+') Bollinger '+dirText+' '+emoji+' — Preis: '+price.toFixed(2)+' · Band: '+bandLevel.toFixed(2);
   console.log('BB-Alarm:',msg);recordAlarm('BB-'+dir,sym,tf,msg);
   setStatus('🔔 BB: '+msg,dir==='oben'?'ok':'err');
-  try{playAlarmSound();}catch{}
-  const speechText=speakableSymbol(sym)+': Bollinger-Band '+(dir==='oben'?'oben ausgebrochen':'unten ausgebrochen');
-  speak(speechText,{cancel:true});
+  enqueueAlarm(speakableSymbol(sym)+': Bollinger-Band '+(dir==='oben'?'oben ausgebrochen':'unten ausgebrochen'));
   if(alarmShowPopup('bb')){showAlarmPopup('Bollinger-Band Ausbruch',msg);_markWLAlarm(sym,'Bollinger');}
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('bb')){
@@ -5697,8 +5767,7 @@ function triggerStochAlarm(sym,tf,extrem,stochK,price){
   const msg=sym+' ('+tf+') Stoch RSI '+extrem+' '+emoji+' — K='+stochK.toFixed(1)+' · Preis: '+price.toFixed(2);
   console.log('Stoch-Alarm:',msg);recordAlarm('SRSI-'+extrem,sym,tf,msg);
   setStatus('🔔 Stoch RSI: '+msg,extrem==='überkauft'?'err':'ok');
-  try{playAlarmSound();}catch{}
-  speak(speakableSymbol(sym)+': Stochastischer RSI '+extrem,{cancel:true});
+  enqueueAlarm(speakableSymbol(sym)+': Stochastischer RSI '+extrem);
   if(alarmShowPopup('stoch')){showAlarmPopup('Stoch RSI '+extrem,msg);_markWLAlarm(sym,'Stoch RSI');}
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('stoch')){
@@ -5713,8 +5782,7 @@ function triggerDailyMoveAlarm(sym,change,price){
   const msg=sym+' heute '+emoji+' '+pct+'% '+dir+' — Preis: '+price.toFixed(2);
   console.log('Tages-Alarm:',msg);recordAlarm('Tages-Move',sym,'D1',msg);
   setStatus('🔔 '+msg,change>=0?'ok':'err');
-  try{playAlarmSound();}catch{}
-  speak(speakableSymbol(sym)+' heute '+Math.abs(pct)+' Prozent '+dir,{cancel:true});
+  enqueueAlarm(speakableSymbol(sym)+' heute '+Math.abs(pct)+' Prozent '+dir);
   if(alarmShowPopup('dailymove')){showAlarmPopup('5% Tages-Bewegung',msg);_markWLAlarm(sym,'5% Move');}
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('dailymove')){
@@ -5727,8 +5795,7 @@ function triggerVolumeAlarm(sym,currentVol,avgVol){
   const msg=sym+' ungewöhnlich hohes Volumen: '+ratio+'x Durchschnitt';
   console.log('Volumen-Alarm:',msg);recordAlarm('Volumen',sym,'D1',msg);
   setStatus('🔔 '+msg,'ok');
-  try{playAlarmSound();}catch{}
-  speak(speakableSymbol(sym)+' ungewöhnlich hohes Volumen, '+ratio+' mal Durchschnitt',{cancel:true});
+  enqueueAlarm(speakableSymbol(sym)+' ungewöhnlich hohes Volumen, '+ratio+' mal Durchschnitt');
   if(alarmShowPopup('volume')){showAlarmPopup('Volumen-Anomalie',msg);_markWLAlarm(sym,'Volumen');}
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('volume')){
@@ -5742,10 +5809,9 @@ function triggerSMAAlarm(sym,tf,smaType,price,smaValue){
   const msg=sym+' ('+tf+') berührt '+smaType+' @ '+smaValue.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
   console.log('SMA-Alarm:',msg);recordAlarm(smaType,sym,tf,msg);
   setStatus('🔔 SMA-Alarm: '+msg,'ok');
-  try{playAlarmSound();}catch{}
   const tfSpeech=tf==='D1'?'Tagesbasis':tf==='M1'?'Monatsbasis':tf;
   const smaSpeech=smaType.replace('SMA','SMA ');
-  speak(speakableSymbol(sym)+': '+smaSpeech+' auf '+tfSpeech+' erreicht',{cancel:true});
+  enqueueAlarm(speakableSymbol(sym)+': '+smaSpeech+' auf '+tfSpeech+' erreicht');
   if(alarmShowPopup(typeKey))showAlarmPopup(smaType+' Berührung',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail(typeKey)){
@@ -5769,8 +5835,7 @@ function triggerSRAlarm(sym,price,srPrice,drawingId){
   const msg=sym+' berührt S/R-Linie @ '+srPrice.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
   console.log('SR-Alarm:',msg);recordAlarm('SR-Touch',sym,'',msg);
   setStatus('🔔 S/R: '+msg,'ok');
-  try{playAlarmSound();}catch{}
-  speak(speakableSymbol(sym)+': Support Resistance bei '+srPrice.toFixed(2)+' berührt',{cancel:true});
+  enqueueAlarm(speakableSymbol(sym)+': Support Resistance bei '+srPrice.toFixed(2)+' berührt');
   if(alarmShowPopup('sr'))showAlarmPopup('S/R-Linie berührt',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('sr')){
@@ -5783,8 +5848,7 @@ function triggerFibAlarm(sym,price,fibLevel,fibPrice,drawingId){
   const msg=sym+' berührt Fib '+(fibLevel*100).toFixed(1)+'% @ '+fibPrice.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
   console.log('Fib-Alarm:',msg);recordAlarm('Fib-'+(fibLevel*100).toFixed(1),sym,'',msg);
   setStatus('🔔 Fib: '+msg,'ok');
-  try{playAlarmSound();}catch{}
-  speak(speakableSymbol(sym)+': Fibonacci '+(fibLevel*100).toFixed(0)+' Prozent berührt',{cancel:true});
+  enqueueAlarm(speakableSymbol(sym)+': Fibonacci '+(fibLevel*100).toFixed(0)+' Prozent berührt');
   if(alarmShowPopup('fib'))showAlarmPopup('Fibonacci-Level berührt',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('fib')){
@@ -5797,8 +5861,7 @@ function triggerTrendlineAlarm(sym,price,tlPrice,drawingId){
   const msg=sym+' berührt Trendlinie @ '+tlPrice.toFixed(2)+' (Preis: '+price.toFixed(2)+')';
   console.log('TL-Alarm:',msg);recordAlarm('Trendlinie',sym,'',msg);
   setStatus('🔔 Trendlinie: '+msg,'ok');
-  try{playAlarmSound();}catch{}
-  speak(speakableSymbol(sym)+': Trendlinie bei '+tlPrice.toFixed(2)+' berührt',{cancel:true});
+  enqueueAlarm(speakableSymbol(sym)+': Trendlinie bei '+tlPrice.toFixed(2)+' berührt');
   if(alarmShowPopup('trendline'))showAlarmPopup('Trendlinie berührt',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('trendline')){
@@ -5843,13 +5906,23 @@ function checkDrawingAlarms(){
         const hi=Math.max(d.p1.price,d.p2.price),lo=Math.min(d.p1.price,d.p2.price);
         const range=hi-lo;
         const levels=[0,0.236,0.382,0.5,0.618,0.786,1.0];
+        // Pro Tick nur EIN Level triggern: das nächstgelegene zum aktuellen Preis.
+        // Verhindert dass z.B. 38.2% und 78.6% gleichzeitig feuern wenn beide
+        // im Toleranz-Bereich sind.
+        let bestLv=null,bestDist=Infinity;
         levels.forEach(lv=>{
           const fibPrice=lo+range*lv;
-          if(Math.abs(lastCandle.h-fibPrice)<=tolerance||Math.abs(lastCandle.l-fibPrice)<=tolerance||
-             (lastCandle.l<=fibPrice&&lastCandle.h>=fibPrice)){
-            triggerFibAlarm(currentSymbol,cur,lv,fibPrice,d.id);
+          const touched=Math.abs(lastCandle.h-fibPrice)<=tolerance||Math.abs(lastCandle.l-fibPrice)<=tolerance||
+             (lastCandle.l<=fibPrice&&lastCandle.h>=fibPrice);
+          if(touched){
+            const dist=Math.abs(cur-fibPrice);
+            if(dist<bestDist){bestDist=dist;bestLv=lv;}
           }
         });
+        if(bestLv!==null){
+          const fibPrice=lo+range*bestLv;
+          triggerFibAlarm(currentSymbol,cur,bestLv,fibPrice,d.id);
+        }
       }
     }
   });
@@ -6017,10 +6090,9 @@ function triggerDrawingTouchAlarm(sym,lineType,levelPrice,currentPrice){
     const histType=typeKey==='fib'?'Fib-Touch':typeKey==='trendline'?'Trendlinie':'SR-Touch';
     recordAlarm(histType,sym,'',msg);
   }
-  try{playAlarmSound();}catch{}
-  // Sprachausgabe
+  // Sprachausgabe via Queue
   const speechLine=lineType.replace('Fib ','Fibonacci ').replace('%',' Prozent').replace('S/R','Support Resistance');
-  speak(speakableSymbol(sym)+' berührt '+speechLine,{cancel:true});
+  enqueueAlarm(speakableSymbol(sym)+' berührt '+speechLine);
   if(alarmShowPopup(typeKey))showAlarmPopup(lineType+' berührt',msg);
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail(typeKey)){
@@ -7438,6 +7510,72 @@ btn.addEventListener('click',()=>{
   if(typeof renderWL==='function')renderWL();
 });
 console.log('[ZEN] Watchlist-Alarm-Marker aktiv');
+})();
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SHIFT = MESSEN (TradingView-Stil)                                ║
+// ║                                                                   ║
+// ║  Beim Drücken von Shift wird temporär in den Mess-Modus gewechselt║
+// ║  Loslassen → zurück zum vorherigen Mode (außer mitten im Zeichnen)║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+let shiftActive=false;
+let preShiftMode=null;
+
+function isInputFocused(){
+  const t=document.activeElement;
+  if(!t)return false;
+  const tag=(t.tagName||'').toUpperCase();
+  return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||t.isContentEditable;
+}
+
+window.addEventListener('keydown',e=>{
+  if(e.key!=='Shift')return;
+  if(shiftActive)return; // schon aktiv (Auto-Repeat ignorieren)
+  if(isInputFocused())return; // Shift+Buchstabe in Inputs (Großschreibung) → nicht stören
+  // Wenn ein Modal offen ist, ignorieren
+  const screener=document.getElementById('screener-modal');
+  if(screener&&getComputedStyle(screener).display==='flex')return;
+  const profile=document.getElementById('profile-modal');
+  if(profile&&getComputedStyle(profile).display!=='none')return;
+  // Wenn schon im measure-Mode → nichts tun (Idempotenz)
+  if(typeof drawMode==='undefined')return;
+  if(drawMode==='measure')return;
+  // Wenn gerade ein anderes Drawing läuft (drawStep>0) → nicht stören
+  if(typeof drawStep!=='undefined'&&drawStep>0)return;
+  shiftActive=true;
+  preShiftMode=drawMode;
+  if(typeof setDrawMode==='function')setDrawMode('measure');
+});
+
+window.addEventListener('keyup',e=>{
+  if(e.key!=='Shift')return;
+  if(!shiftActive)return;
+  shiftActive=false;
+  // Wenn der User mitten im Mess-Vorgang ist (drawStep>0), Mode behalten
+  // bis er fertig misst — wichtig für UX.
+  if(typeof drawStep!=='undefined'&&drawStep>0)return;
+  if(typeof setDrawMode==='function'&&preShiftMode){
+    setDrawMode(preShiftMode);
+  }
+  preShiftMode=null;
+});
+
+// Sicherheit: bei Window-Blur (Tab-Wechsel) Shift-Status zurücksetzen,
+// sonst hängt der Mess-Modus wenn man mit gedrücktem Shift den Tab wechselt.
+window.addEventListener('blur',()=>{
+  if(shiftActive){
+    shiftActive=false;
+    if(typeof drawStep!=='undefined'&&drawStep>0)return;
+    if(typeof setDrawMode==='function'&&preShiftMode){
+      setDrawMode(preShiftMode);
+    }
+    preShiftMode=null;
+  }
+});
+console.log('[ZEN] Shift = Messen aktiv');
 })();
 
 </script>
