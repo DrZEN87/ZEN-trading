@@ -552,6 +552,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
       <tr><td><kbd>Esc</kbd></td><td>Werkzeug abbrechen / Modal schließen</td></tr>
       <tr><td><kbd>Entf</kbd></td><td>Ausgewähltes Drawing löschen</td></tr>
       <tr><td><kbd>Strg</kbd>+<kbd>Z</kbd></td><td>Letztes Drawing rückgängig</td></tr>
+      <tr><td><kbd>Strg</kbd>+<kbd>C</kbd> / <kbd>V</kbd></td><td>Auswahl kopieren / einfügen (versetzt nach rechts)</td></tr>
       <tr><td><kbd>M</kbd></td><td>Magnet ein/aus</td></tr>
       <tr><td><kbd>V</kbd></td><td>Zeichnungen ein/ausblenden</td></tr>
 
@@ -7948,6 +7949,131 @@ function hideTooltip(){
 }
 ovCanvas.addEventListener('mouseleave',hideTooltip);
 console.log('[ZEN] Volume-Profile Hover-Tooltip aktiv');
+})();
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  COPY/PASTE FUER DRAWINGS — Strg+C / Strg+V                       ║
+// ║                                                                   ║
+// ║  Workflow:                                                        ║
+// ║  1. Drawing im Chart anklicken (selectedDrawing wird gesetzt)     ║
+// ║  2. Strg+C kopiert es in den internen Clipboard                   ║
+// ║  3. Strg+V fuegt eine Kopie ein, versetzt um ~5% nach rechts      ║
+// ║                                                                   ║
+// ║  Versatz: 5% des sichtbaren Bereichs nach rechts, gleicher Preis. ║
+// ║  Das ist trader-typisch: gleiche Linie/Icon einige Kerzen rechts. ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+let _drawingClipboard=null;
+
+// Tiefe Kopie eines Drawings mit Versatz im Index/Zeit
+function cloneDrawingWithOffset(src,idxOffset){
+  if(!src)return null;
+  // Versatz in Millisekunden je nach aktueller Timeframe
+  // Bei D1: 1 Tag = 86400000ms, * idxOffset
+  // Bei 1h: 3600000 * idxOffset
+  // Wir nutzen die Differenz von zwei aufeinanderfolgenden Kerzen als Schaetzwert
+  let msPerCandle=86400000; // Default Tag
+  if(typeof candles!=='undefined'&&candles.length>=2){
+    const dt=candles[1].t.getTime()-candles[0].t.getTime();
+    if(dt>0)msPerCandle=dt;
+  }
+  const msOffset=msPerCandle*idxOffset;
+  // Deep-Clone via JSON, aber Date-Objekte gehen verloren — Drawings haben aber
+  // nur Plain-Objekte mit Zahlen, daher ok.
+  const clone=JSON.parse(JSON.stringify(src));
+  clone.id=Date.now()+Math.random();
+  clone.sym=currentSymbol; // an aktuelle Aktie binden, falls anders war
+  // Helper: einen Punkt {idx, time, ...} versetzen
+  function shiftPoint(pt){
+    if(!pt)return;
+    if(typeof pt.idx==='number')pt.idx+=idxOffset;
+    if(typeof pt.time==='number')pt.time+=msOffset;
+  }
+  // Punkt-Strukturen je nach Drawing-Typ versetzen
+  if(clone.p1)shiftPoint(clone.p1);
+  if(clone.p2)shiftPoint(clone.p2);
+  // Single-Point-Drawings: support/supportfull
+  if(typeof clone.startIdx==='number')clone.startIdx+=idxOffset;
+  // text/icon: idx + time direkt am Top-Level
+  if(typeof clone.idx==='number')clone.idx+=idxOffset;
+  if(typeof clone.time==='number')clone.time+=msOffset;
+  // KI-Flag entfernen — Kopie wird zu User-Drawing
+  delete clone.ai;
+  delete clone.brokenAt;
+  return clone;
+}
+
+// Strg+C: aktuelles Drawing kopieren
+function copySelected(){
+  if(!selectedDrawing)return false;
+  const{pool,idx}=selectedDrawing;
+  let src=null;
+  if(pool==='drawings')src=drawings[idx];
+  else if(pool==='aiDrawings')src=aiDrawings[idx];
+  // alarms bewusst ausgenommen — sie haben eigene Logik
+  if(!src){
+    if(pool==='alarms'){
+      if(typeof setStatus==='function')setStatus('Preis-Alarme können nicht kopiert werden','idle');
+    }
+    return false;
+  }
+  // Stash als Deep-Clone (sodass Original nicht referenziert)
+  _drawingClipboard=JSON.parse(JSON.stringify(src));
+  if(typeof setStatus==='function')setStatus('Kopiert: '+(src.type||'Drawing'),'ok');
+  return true;
+}
+
+// Strg+V: Clipboard einfuegen mit Versatz
+function pasteClipboard(){
+  if(!_drawingClipboard){
+    if(typeof setStatus==='function')setStatus('Nichts zum Einfuegen','idle');
+    return false;
+  }
+  // Versatz: 5% der sichtbaren Range nach rechts (mind. 3 Kerzen, max. 30)
+  let offset=5;
+  if(typeof viewStart!=='undefined'&&typeof viewEnd!=='undefined'){
+    const range=viewEnd-viewStart+1;
+    offset=Math.max(3,Math.min(30,Math.round(range*0.05)));
+  }
+  const clone=cloneDrawingWithOffset(_drawingClipboard,offset);
+  if(!clone)return false;
+  // In drawings-Pool einfuegen (auch wenn aus aiDrawings kopiert)
+  drawings.push(clone);
+  if(typeof cloudAddDrawing==='function')cloudAddDrawing(clone);
+  // Neu eingefuegtes Drawing direkt selektieren — fuer schnelles erneutes Paste
+  selectedDrawing={pool:'drawings',idx:drawings.length-1,id:clone.id};
+  if(typeof redrawOC==='function')redrawOC();
+  if(typeof setStatus==='function')setStatus('Eingefuegt: '+(clone.type||'Drawing'),'ok');
+  return true;
+}
+
+// Keydown-Handler
+window.addEventListener('keydown',e=>{
+  if(!(e.ctrlKey||e.metaKey))return;
+  // Im Eingabefeld nichts kapern (Strg+C/V soll dort normal funktionieren)
+  const t=e.target;
+  if(t){
+    const tag=(t.tagName||'').toUpperCase();
+    if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||t.isContentEditable)return;
+  }
+  // Wenn der User Text im Browser markiert hat, soll Strg+C den normalen
+  // Browser-Copy machen, NICHT unser Drawing-Copy.
+  const sel=window.getSelection&&window.getSelection().toString();
+  if(sel&&sel.length>0)return;
+  if(e.key==='c'||e.key==='C'){
+    if(selectedDrawing){
+      if(copySelected())e.preventDefault();
+    }
+  }else if(e.key==='v'||e.key==='V'){
+    if(_drawingClipboard){
+      if(pasteClipboard())e.preventDefault();
+    }
+  }
+});
+
+console.log('[ZEN] Copy/Paste fuer Drawings aktiv (Strg+C / Strg+V)');
 })();
 
 </script>
