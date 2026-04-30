@@ -293,6 +293,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button class="btn" data-draw="fib" title="Fibonacci (2 Klicks)">φ Fib</button>
   <button class="btn" data-draw="measure" title="Messen (2 Klicks) — zeigt Differenz, % und Anzahl Kerzen">📏 Messen</button>
   <button class="btn" data-draw="text" title="Text einfügen — klicke im Chart und schreibe">T Text</button>
+  <button class="btn" data-draw="icon" title="Icon-Stempel: Klick oeffnet Symbol-Auswahl, dann in den Chart klicken (I)">😀 Icon</button>
+  <button class="btn icon-btn" id="drawings-toggle-btn" title="Zeichnungen ein/ausblenden (V)" style="margin-left:2px">👁</button>
   <button class="btn ar" id="undo-btn" title="Rückgängig (Strg+Z)">↩</button>
   <button class="btn ar" id="clear-btn" title="Alle löschen">✕ Alle</button>
   <button class="btn ar" id="del-selected-btn" title="Ausgewähltes Objekt löschen" style="display:none">🗑 Löschen</button>
@@ -425,7 +427,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 </div>
 
 <!-- ╔══════════════════════════════════════════════════════════════════╗
-     ║  SCREENER MODAL — direkt vor </body> einfügen (vor Zeile 6068)   ║
+     ║  SCREENER MODAL — direkt vor 
+<div id="icon-picker" style="display:none;position:absolute;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);max-width:340px">
+  <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:500">Icon waehlen, dann in den Chart klicken</div>
+  <div id="icon-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
+  <div style="font-size:10px;color:#64748b;margin-top:8px">Esc zum Abbrechen</div>
+</div>
+</body> einfügen (vor Zeile 6068)   ║
      ╚══════════════════════════════════════════════════════════════════╝ -->
 <div id="screener-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
   <div style="background:#0f0f12;border:1px solid #2a2a34;border-radius:8px;width:100%;max-width:1200px;max-height:calc(100vh - 40px);display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.6)">
@@ -547,10 +555,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
       <tr><td><kbd>H</kbd></td><td>Horizontale Linie / S-R volle Breite</td></tr>
       <tr><td><kbd>R</kbd></td><td>S-R Ray (von Klick nach rechts)</td></tr>
       <tr><td><kbd>A</kbd></td><td>Alarm setzen (im Chart klicken)</td></tr>
+      <tr><td><kbd>I</kbd></td><td>Icon-Stempel-Modus (Symbole platzieren)</td></tr>
+      <tr><td><kbd>Shift</kbd> halten</td><td><b>Messen</b> — solange Shift gedrückt bleibt</td></tr>
       <tr><td><kbd>Esc</kbd></td><td>Werkzeug abbrechen / Modal schließen</td></tr>
       <tr><td><kbd>Entf</kbd></td><td>Ausgewähltes Drawing löschen</td></tr>
       <tr><td><kbd>Strg</kbd>+<kbd>Z</kbd></td><td>Letztes Drawing rückgängig</td></tr>
       <tr><td><kbd>M</kbd></td><td>Magnet ein/aus</td></tr>
+      <tr><td><kbd>V</kbd></td><td>Zeichnungen ein/ausblenden</td></tr>
 
       <tr><td colspan="2" class="hm-grp">Navigation</td></tr>
       <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Watchlist-Aktien wechseln</td></tr>
@@ -2191,7 +2202,7 @@ function redrawOC(){
     for(const t of times){if(t<firstT-86400000)return false;}
     return true;
   }
-  [...drawings,...aiDrawings].filter(d=>(!d.sym||d.sym===currentSymbol)&&drawingInRange(d)).forEach(d=>drawObj(ctx,d,ca));
+  if(!window._drawingsHidden){[...drawings,...aiDrawings].filter(d=>(!d.sym||d.sym===currentSymbol)&&drawingInRange(d)).forEach(d=>drawObj(ctx,d,ca));}
   // Event-Icons (Earnings 📊, Dividenden 💰, Splits 🔀) am unteren Chartrand
   drawEventIcons(ctx,ca);
   // Info: some drawings hidden due to timeframe history limit
@@ -2354,9 +2365,13 @@ function hitTestDrawing(d,rx,ry,ca){
   if(d.type==='text'){
     const p=idxToPx(d.time!=null?timeToIdx(d.time):d.idx,d.price);
     if(!p)return false;
-    // Approximate text width
     const w=(d.text||'').length*7+12;
     return Math.abs(rx-p.x)<w/2&&Math.abs(ry-p.y)<12;
+  }
+  if(d.type==='icon'){
+    const p=idxToPx(d.time!=null?timeToIdx(d.time):d.idx,d.price);
+    if(!p)return false;
+    return Math.abs(rx-p.x)<14&&Math.abs(ry-p.y)<14;
   }
   return false;
 }
@@ -2460,6 +2475,12 @@ function applyDragToDrawing(d,origD,mode,dIdx,dPrice,curIdx,curPrice){
     return;
   }
   if(d.type==='text'){
+    d.idx=Math.round(curIdx);
+    d.price=curPrice;
+    d.time=idxToTime(Math.round(curIdx));
+    return;
+  }
+  if(d.type==='icon'){
     d.idx=Math.round(curIdx);
     d.price=curPrice;
     d.time=idxToTime(Math.round(curIdx));
@@ -2659,6 +2680,26 @@ function drawObj(ctx,d,ca){
     ctx.textAlign='left';ctx.textBaseline='alphabetic';
     ctx.restore();
     if(isSel){trashX=p.x+w/2;trashY=p.y-h/2;}
+  }else if(d.type==='icon'){
+    const p=idxToPx(d.time!=null?timeToIdx(d.time):d.idx,d.price);if(!p)return;
+    ctx.save();
+    const sz=24;
+    if(isSel){
+      ctx.fillStyle='rgba(255,224,102,.25)';
+      ctx.fillRect(p.x-sz/2,p.y-sz/2,sz,sz);
+      ctx.strokeStyle='rgba(255,224,102,.9)';ctx.lineWidth=2;
+      ctx.strokeRect(p.x-sz/2,p.y-sz/2,sz,sz);
+    }
+    ctx.font='20px system-ui,Apple Color Emoji,Segoe UI Emoji';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(d.icon||'📌',p.x,p.y);
+    if(d.label){
+      ctx.font='10px system-ui';
+      ctx.fillStyle='#cbd5e1';
+      ctx.fillText(d.label,p.x,p.y+sz/2+8);
+    }
+    ctx.restore();
+    if(isSel){trashX=p.x+sz/2;trashY=p.y-sz/2;}
   }
   // Draw trash icon near the drawing if selected
   if(isSel&&trashX!=null&&trashY!=null){
@@ -3888,6 +3929,14 @@ ovCanvas.addEventListener('click',e=>{
     setDrawMode('pointer');
     return;
   }
+  if(drawMode==='icon'){
+    const sel=window._selectedIconChar||'📌';
+    const lbl=window._selectedIconLabel||'';
+    const d={type:'icon',icon:sel,label:lbl,idx:useIdx,price:usePrice,time:idxToTime(useIdx),id:Date.now(),sym:currentSymbol};
+    drawings.push(d);cloudAddDrawing(d);redrawOC();
+    // Bleibt im Icon-Modus fuer Multi-Stempel (Esc zum Verlassen)
+    return;
+  }
   if(drawMode==='support'||drawMode==='supportfull'){const d={type:'support',price:usePrice,startIdx:useIdx,time:idxToTime(useIdx),full:drawMode==='supportfull',id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);redrawOC();setDrawMode('pointer');return;}
   if(drawMode==='trendline'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();setDrawMode('pointer');}return;}
   if(drawMode==='trendseg'){if(drawStep===0){drawTemp=[{idx:useIdx,price:usePrice,time:idxToTime(useIdx)}];drawStep=1;}else{const d={type:'trendline',p1:drawTemp[0],p2:{idx:useIdx,price:usePrice,time:idxToTime(useIdx)},segment:true,id:Date.now(),sym:currentSymbol};drawings.push(d);cloudAddDrawing(d);drawTemp=null;drawStep=0;redrawOC();setDrawMode('pointer');}return;}
@@ -3998,6 +4047,27 @@ window.addEventListener('keydown',e=>{
     document.getElementById('fs-btn').click();
   }
 });
+
+// ── Globale Shortcut-Sperre für Eingabefelder ─────────────────
+// Capture-Phase Listener: wenn der User in einem INPUT/TEXTAREA tippt,
+// werden ALLE nachgelagerten keydown-Handler übersprungen.
+// Ausnahmen: Escape (zum Verlassen), Tab (Navigation), Strg+/Cmd+ Combos
+// (Browser-Funktionen wie Strg+A, Strg+C bleiben erhalten).
+window.addEventListener('keydown',function(e){
+  const t=e.target;
+  if(!t)return;
+  const tag=(t.tagName||'').toUpperCase();
+  const inInput=tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||t.isContentEditable;
+  if(!inInput)return;
+  // Ausnahmen: Escape, Tab dürfen durchkommen damit Modal/Suche schließen geht
+  if(e.key==='Escape'||e.key==='Tab')return;
+  // Strg+/Alt+/Cmd+ Combos durchlassen (Browser-Standard-Shortcuts)
+  if(e.ctrlKey||e.altKey||e.metaKey)return;
+  // Alles andere blocken — die nachgelagerten Window/Document-Handler
+  // sehen das Event nicht mehr. Der Input bekommt es trotzdem (capture
+  // läuft auf parent, das Element selbst kriegt es per bubble später).
+  e.stopImmediatePropagation();
+},true);
 
 // ── Fullscreen ────────────────────────────────────────────────
 document.getElementById('fs-btn').addEventListener('click',()=>{
@@ -7576,6 +7646,157 @@ window.addEventListener('blur',()=>{
   }
 });
 console.log('[ZEN] Shift = Messen aktiv');
+})();
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  ICON-STEMPEL-PICKER + DRAWINGS-TOGGLE                            ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+// Kuratierte Icon-Liste fuer Trader (TradingView-aehnlich, aber gezielt)
+const TRADER_ICONS=[
+  {char:'\u{1F7E2}\u{2B06}',label:'Long Entry',name:'Long Einstieg'},
+  {char:'\u{1F534}\u{2B07}',label:'Short Entry',name:'Short Einstieg'},
+  {char:'\u{2705}',label:'Verkauft',name:'Take-Profit / Verkauft'},
+  {char:'\u{274C}',label:'Stop',name:'Stop-Loss / Verlust'},
+  {char:'\u{1F4B0}',label:'Gewinn',name:'Gewinn realisiert'},
+  {char:'\u{1F3AF}',label:'Kursziel',name:'Kursziel'},
+  {char:'\u{1F4CC}',label:'Pin',name:'Wichtige Stelle'},
+  {char:'\u{2B50}',label:'Watch',name:'Beobachten'},
+  {char:'\u{26A0}\u{FE0F}',label:'Warnung',name:'Warnung'},
+  {char:'\u{1F440}',label:'Beobachten',name:'Genau hinschauen'},
+  {char:'\u{1F4C8}',label:'Bullisch',name:'Bullisches Signal'},
+  {char:'\u{1F4C9}',label:'Bearisch',name:'Bearisches Signal'},
+  {char:'\u{1F525}',label:'Hot',name:'Heiss / Momentum'},
+  {char:'\u{1F4A1}',label:'Idee',name:'Trading-Idee'},
+  {char:'\u{1F4A5}',label:'Ausbruch',name:'Breakout'},
+  {char:'\u{1F4A7}',label:'Tropfen',name:'Pullback'},
+  {char:'\u{2753}',label:'Frage',name:'Unklar / Frage'},
+  {char:'\u{1F511}',label:'Schluessel',name:'Schluesselzone'},
+];
+
+window._selectedIconChar='\u{1F4CC}';
+window._selectedIconLabel='';
+
+// Picker-Grid initialisieren
+const grid=document.getElementById('icon-grid');
+if(grid){
+  grid.innerHTML=TRADER_ICONS.map((it,i)=>{
+    return '<button data-icon-idx="'+i+'" title="'+it.name+'" style="font-size:22px;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px;cursor:pointer;line-height:1">'+it.char+'</button>';
+  }).join('');
+  grid.addEventListener('click',e=>{
+    const btn=e.target.closest('[data-icon-idx]');
+    if(!btn)return;
+    const idx=+btn.dataset.iconIdx;
+    const sel=TRADER_ICONS[idx];
+    if(!sel)return;
+    window._selectedIconChar=sel.char;
+    window._selectedIconLabel=sel.label;
+    document.getElementById('icon-picker').style.display='none';
+    if(typeof setDrawMode==='function')setDrawMode('icon');
+    // Kurze Status-Anzeige
+    if(typeof setStatus==='function')setStatus('Icon "'+sel.name+'" gewaehlt - klicke in den Chart','ok');
+  });
+}
+
+// Picker-Anzeige beim Klick auf den Icon-Button
+function showIconPicker(){
+  const btn=document.querySelector('[data-draw="icon"]');
+  const picker=document.getElementById('icon-picker');
+  if(!btn||!picker)return;
+  const r=btn.getBoundingClientRect();
+  picker.style.left=Math.min(window.innerWidth-360,r.left)+'px';
+  picker.style.top=(r.bottom+4)+'px';
+  picker.style.display='block';
+}
+function hideIconPicker(){
+  const picker=document.getElementById('icon-picker');
+  if(picker)picker.style.display='none';
+}
+
+document.querySelector('[data-draw="icon"]')?.addEventListener('click',e=>{
+  // Wenn Picker schon offen, toggle
+  const picker=document.getElementById('icon-picker');
+  if(picker&&picker.style.display==='block'){
+    hideIconPicker();
+    if(typeof setDrawMode==='function'&&typeof drawMode!=='undefined'&&drawMode==='icon'){
+      setDrawMode('pointer');
+    }
+    return;
+  }
+  showIconPicker();
+  e.stopPropagation();
+});
+
+// Klick ausserhalb schliesst Picker
+document.addEventListener('click',e=>{
+  const picker=document.getElementById('icon-picker');
+  if(!picker||picker.style.display!=='block')return;
+  if(e.target.closest('#icon-picker'))return;
+  if(e.target.closest('[data-draw="icon"]'))return;
+  hideIconPicker();
+});
+
+// Esc schliesst Picker
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    const picker=document.getElementById('icon-picker');
+    if(picker&&picker.style.display==='block'){
+      hideIconPicker();
+      e.stopPropagation();
+    }
+  }
+});
+
+console.log('[ZEN] Icon-Picker aktiv. ' + TRADER_ICONS.length + ' Trader-Icons');
+})();
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  DRAWINGS-TOGGLE (V) — Zeichnungen ein/ausblenden                 ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+window._drawingsHidden=localStorage.getItem('zen_drawings_hidden')==='1';
+
+function refresh(){
+  const btn=document.getElementById('drawings-toggle-btn');
+  if(!btn)return;
+  if(window._drawingsHidden){
+    btn.style.opacity='.4';
+    btn.title='Zeichnungen sind ausgeblendet - Klick zum Einblenden (V)';
+    btn.textContent='\u{1F441}\u{200D}\u{1F5E8}'; // Auge mit Schraege (durchgestrichen-Look)
+  }else{
+    btn.style.opacity='1';
+    btn.title='Zeichnungen ausblenden (V)';
+    btn.textContent='\u{1F441}';
+  }
+  if(typeof redrawOC==='function')redrawOC();
+}
+function toggle(){
+  window._drawingsHidden=!window._drawingsHidden;
+  localStorage.setItem('zen_drawings_hidden',window._drawingsHidden?'1':'0');
+  refresh();
+}
+
+document.getElementById('drawings-toggle-btn')?.addEventListener('click',toggle);
+
+document.addEventListener('keydown',e=>{
+  if(e.ctrlKey||e.altKey||e.metaKey)return;
+  const tag=(e.target.tagName||'').toUpperCase();
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
+  if(e.target.isContentEditable)return;
+  // V = Drawings toggle
+  if(e.key==='v'||e.key==='V'){toggle();}
+  // I = Icon-Picker oeffnen
+  if(e.key==='i'||e.key==='I'){
+    document.querySelector('[data-draw="icon"]')?.click();
+    e.preventDefault();
+  }
+});
+
+refresh();
+console.log('[ZEN] Drawings-Toggle aktiv. Hidden:', window._drawingsHidden);
 })();
 
 </script>
