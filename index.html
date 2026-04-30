@@ -580,7 +580,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   </div>
 </div>
 <!-- Icon-Picker (TradingView-Stil) -->
-<div id="icon-picker" style="display:none;position:absolute;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);max-width:340px">
+<div id="icon-picker" style="display:none;position:absolute;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);max-width:240px">
   <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:500">Icon waehlen, dann in den Chart klicken</div>
   <div id="icon-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
   <div style="font-size:10px;color:#64748b;margin-top:8px">Esc zum Abbrechen</div>
@@ -2446,7 +2446,7 @@ function hitTestDrawing(d,rx,ry,ca){
   if(d.type==='icon'){
     const p=idxToPx(d.time!=null?timeToIdx(d.time):d.idx,d.price);
     if(!p)return false;
-    return Math.abs(rx-p.x)<14&&Math.abs(ry-p.y)<14;
+    return Math.abs(rx-p.x)<12&&Math.abs(ry-p.y)<12;
   }
   return false;
 }
@@ -2758,14 +2758,14 @@ function drawObj(ctx,d,ca){
   }else if(d.type==='icon'){
     const p=idxToPx(d.time!=null?timeToIdx(d.time):d.idx,d.price);if(!p)return;
     ctx.save();
-    const sz=24;
+    const sz=20;
     if(isSel){
       ctx.fillStyle='rgba(255,224,102,.25)';
       ctx.fillRect(p.x-sz/2,p.y-sz/2,sz,sz);
       ctx.strokeStyle='rgba(255,224,102,.9)';ctx.lineWidth=2;
       ctx.strokeRect(p.x-sz/2,p.y-sz/2,sz,sz);
     }
-    ctx.font='20px system-ui,Apple Color Emoji,Segoe UI Emoji';
+    ctx.font='16px system-ui,Apple Color Emoji,Segoe UI Emoji';
     ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.fillText(d.icon||'📌',p.x,p.y);
     if(d.label){
@@ -4663,6 +4663,7 @@ async function syncCloudAlarms(){
     cloudRows.forEach(r=>{
       const sym=String(r[0]||'').trim();
       const dir=String(r[1]||'').trim();
+      const price=parseFloat(r[2])||0;
       const status=String(r[3]||'').trim();
       if(!sym||status!=='triggered')return;
       if(!wlSet.has(sym))return;
@@ -4671,6 +4672,18 @@ async function syncCloudAlarms(){
       const msg=dir==='choch'?'CHoCH ausgelöst (Server)':'Preis-Alarm (Server)';
       existingMarks[sym]={ts:Date.now(),msg};
       newMarks++;
+      // Popup + TTS auslösen, damit der User auch in der App informiert wird
+      // (zusätzlich zur Server-Mail). Wird nur einmal ausgelöst pro neuem Marker.
+      try{
+        const label=_alarmLabel?_alarmLabel(sym):sym;
+        if(dir==='choch'){
+          if(typeof showAlarmPopup==='function')showAlarmPopup('CHoCH-Alarm ausgelöst',label+' hat das Lower High '+price+' durchbrochen');
+          if(typeof enqueueAlarm==='function')enqueueAlarm(speakableSymbol(sym)+': CHoCH ausgelöst, Lower High durchbrochen');
+        }else{
+          if(typeof showAlarmPopup==='function')showAlarmPopup('Preis-Alarm ausgelöst',label+' '+(dir==='above'?'über':'unter')+' '+price);
+          if(typeof enqueueAlarm==='function')enqueueAlarm(speakableSymbol(sym)+': Preis-Alarm '+(dir==='above'?'überschritten':'unterschritten'));
+        }
+      }catch(e){console.log('[ZEN] Server-Alarm-Notify-Fehler:',e);}
     });
     if(newMarks>0){
       localStorage.setItem('zen_wl_alarm_marks',JSON.stringify(existingMarks));
@@ -7758,7 +7771,7 @@ window._selectedIconLabel='';
 const grid=document.getElementById('icon-grid');
 if(grid){
   grid.innerHTML=TRADER_ICONS.map((it,i)=>{
-    return '<button data-icon-idx="'+i+'" title="'+it.name+'" style="font-size:22px;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px;cursor:pointer;line-height:1">'+it.char+'</button>';
+    return '<button data-icon-idx="'+i+'" title="'+it.name+'" style="font-size:16px;background:#1e293b;border:1px solid #334155;border-radius:5px;padding:5px;cursor:pointer;line-height:1">'+it.char+'</button>';
   }).join('');
   grid.addEventListener('click',e=>{
     const btn=e.target.closest('[data-icon-idx]');
