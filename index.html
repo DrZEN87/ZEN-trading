@@ -269,7 +269,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   </div>
   <button class="btn ag" id="add-wl-btn">+ Watchlist</button>
   <button class="btn" id="finnhub-key-btn" title="Finnhub API-Key für Live-Daten (US-Aktien)" style="margin-left:4px">🔑 Live</button>
-  <button class="btn" id="tts-voice-btn" title="TTS-Stimme wählen" style="margin-left:4px">🎙</button>
   <div class="sep"></div>
   <span class="tlbl">Zeit</span>
   <button class="btn" data-tf="5m">5m</button>
@@ -306,6 +305,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <button class="btn icon-btn" id="wl-toggle-btn" title="Watchlist ein-/ausblenden (W)">📋 WL</button>
   <div class="sep"></div>
   <button id="ai-btn" class="btn icon-btn" title="KI-Analyse starten (benötigt Gemini API-Key im Profil)">🤖 KI-Analyse</button>
+  <button class="btn icon-btn" id="tts-voice-btn" title="TTS-Stimme wählen — verschiedene deutsche Stimmen verfügbar">🎙</button>
   <button class="btn icon-btn" id="tts-btn" title="Sprachausgabe an/aus (liest Alarm-Meldungen vor)">🔊</button>
   <button class="btn icon-btn" id="screenshot-btn" title="Chart in Zwischenablage kopieren (Strg+V zum Einfügen)">📷</button>
   <button class="btn icon-btn" id="news-btn" title="News zu diesem Symbol anzeigen">📰</button>
@@ -318,16 +318,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 <div id="indicators-popup" style="display:none;position:fixed;top:56px;left:0;right:0;background:rgba(15,23,42,.98);border-bottom:1px solid #334155;z-index:900;padding:14px 20px;box-shadow:0 4px 20px rgba(0,0,0,.5)">
   <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:1400px;margin:0 auto">
     <span style="color:#94a3b8;font-size:12px;font-weight:500;margin-right:8px">Indikatoren:</span>
-    <button class="btn ab" data-ind="vol">Vol</button>
-    <button class="btn ab" data-ind="sma200">SMA 200</button>
-    <button class="btn ab" data-ind="sma50">SMA 50</button>
-    <button class="btn ab" data-ind="ema21">EMA 21</button>
-    <button class="btn ab" data-ind="bb">BB</button>
-    <button class="btn ab" data-ind="rsi">RSI</button>
-    <button class="btn ab" data-ind="srsi">Stoch RSI</button>
-    <button class="btn ab" data-ind="macd">MACD</button>
-    <button class="btn ab" data-ind="atr">ATR</button>
-    <button class="btn" data-ind="volprofile" title="Volumen-Profil">Vol Profil</button>
+    <button class="btn ab" data-ind="vol" title="Volumen — Anzahl gehandelter Aktien pro Kerze als Balken unterm Chart. Hauptnutzen: Bestätigung von Kursbewegungen. Hohes Volumen bei Ausbrüchen = stärkeres Signal.">Vol</button>
+    <button class="btn ab" data-ind="sma200" title="Simple Moving Average 200 Tage — gleitender Durchschnitt der letzten 200 Schlusskurse. Hauptnutzen: Langfristiger Trend-Filter. Kurs über SMA200 = Aufwärtstrend, darunter = Abwärtstrend. Wichtigste Linie für Investoren.">SMA 200</button>
+    <button class="btn ab" data-ind="sma50" title="Simple Moving Average 50 Tage — Mittelfristiger Trend. Hauptnutzen: Dynamische Unterstützung/Widerstand. Kreuzung von SMA50 mit SMA200 = Golden Cross (bullisch) oder Death Cross (bärisch).">SMA 50</button>
+    <button class="btn ab" data-ind="ema21" title="Exponential Moving Average 21 Tage — gewichtet jüngere Kurse stärker, reagiert daher schneller als SMA. Hauptnutzen: Kurzfristiger Trend, beliebt für Tages-Trading und als Trigger-Linie.">EMA 21</button>
+    <button class="btn ab" data-ind="bb" title="Bollinger Bänder — SMA(20) ± 2 Standardabweichungen. Hauptnutzen: Volatilitäts-Anzeige. Kurs am oberen Band = überkauft, am unteren = überverkauft. Bandverengung = Volatilität niedrig (Ausbruch in Sicht).">BB</button>
+    <button class="btn ab" data-ind="rsi" title="Relative Strength Index — Momentum-Oszillator (0-100). Hauptnutzen: Überkauft/überverkauft-Erkennung. RSI > 70 = überkauft (Pullback wahrscheinlich), RSI < 30 = überverkauft (Erholung wahrscheinlich). Divergenzen zum Kurs = starkes Reversal-Signal.">RSI</button>
+    <button class="btn ab" data-ind="srsi" title="Stochastic RSI — RSI auf den RSI angewendet, noch sensitiver. Hauptnutzen: Sehr schnelle überkauft/überverkauft-Signale. Werte > 80 = überkauft, < 20 = überverkauft. Mehr Signale, aber auch mehr Fehlsignale als reiner RSI.">Stoch RSI</button>
+    <button class="btn ab" data-ind="macd" title="Moving Average Convergence Divergence — Differenz aus EMA(12) und EMA(26), plus Signal-Linie EMA(9). Hauptnutzen: Trendwende und Momentum. MACD-Linie kreuzt Signal von unten = bullish, von oben = bearish. Histogramm zeigt Beschleunigung.">MACD</button>
+    <button class="btn ab" data-ind="atr" title="Average True Range — durchschnittliche Schwankungsbreite über 14 Perioden. Hauptnutzen: Volatilitätsmessung in Kurs-Einheiten, nicht Prozent. Wichtig für Stop-Loss-Berechnung (z.B. 2× ATR unter Einstieg) und Positionsgrößen-Management.">ATR</button>
+    <button class="btn" data-ind="volprofile" title="Volumen-Profil — zeigt das gehandelte Volumen pro Preis-Niveau (horizontale Balken rechts im Chart). Hauptnutzen: Findet stark gehandelte Preiszonen. Hohe Volumen-Zonen = wichtige Unterstützung/Widerstand. POC (Point of Control) = meistgehandelter Preis.">Vol Profil</button>
     <span style="margin-left:auto;color:#64748b;font-size:11px">Klick auf Button → an/aus</span>
     <button id="indicators-close" style="background:transparent;border:0;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 8px">✕</button>
   </div>
