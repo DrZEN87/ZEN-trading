@@ -143,6 +143,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 /* AI drawings have a distinct style */
 .ai-badge{position:absolute;top:8px;right:60px;font-size:10px;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);border-radius:4px;padding:2px 6px;pointer-events:none}
 
+.wl-alarm-mark{position:absolute;top:6px;right:24px;font-size:11px;animation:wlAlarmPulse 1.4s infinite ease-in-out;cursor:help}
+@keyframes wlAlarmPulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.15)}}
+.wl-item.has-alarm{background:rgba(245,158,11,.07)}
+.wl-item.has-alarm.active{background:rgba(245,158,11,.14)}
 @keyframes chochPulse{0%,100%{opacity:.3;transform:scale(.85)}50%{opacity:1;transform:scale(1.1)}}
 #help-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center;padding:20px}
 #help-modal.open{display:flex}
@@ -235,6 +239,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
         </div>
         <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
           <button type="button" id="choch-wl-refresh" style="padding:5px 10px;background:transparent;border:1px solid #334155;border-radius:4px;color:#94a3b8;cursor:pointer;font-size:11px">🔄 Lower Highs neu berechnen</button>
+          <button type="button" id="wl-clear-marks" style="padding:5px 10px;background:transparent;border:1px solid #334155;border-radius:4px;color:#94a3b8;cursor:pointer;font-size:11px" title="Alle 🔔-Markierungen in der Watchlist entfernen">🔕 Alle Alarm-Marker entfernen</button>
           <span id="choch-wl-status" style="color:#64748b;font-size:11px;flex:1"></span>
           <span id="choch-wl-last" style="color:#64748b;font-size:11px;font-style:italic">Letzter Scan: noch nie</span>
         </div>
@@ -738,6 +743,16 @@ function setSymName(sym,name){if(name&&name.length>1){nameCache[sym]=name;try{lo
 // Erzeugt ein menschenlesbares Label "Apple · AAPL" für Alarme.
 // Fallback: nur Symbol wenn kein Name bekannt.
 function _alarmLabel(sym){const n=getSymName(sym);return n?(n+' · '+sym):sym;}
+// Setzt das Watchlist-Alarm-Symbol für eine Aktie. Wird von allen Alarm-Triggern aufgerufen.
+function _markWLAlarm(sym,msg){
+  if(!sym)return;
+  try{
+    const m=JSON.parse(localStorage.getItem('zen_wl_alarm_marks')||'{}');
+    m[sym]={ts:Date.now(),msg:msg||''};
+    localStorage.setItem('zen_wl_alarm_marks',JSON.stringify(m));
+    if(typeof renderWL==='function')renderWL();
+  }catch(_){}
+}
 // Async name fetch via Yahoo search API
 async function fetchSymName(sym){
   if(getSymName(sym))return;
@@ -4214,6 +4229,7 @@ function dismissCurrentPopup(){
 }
 function showPopup(alarm){
   showAlarmPopup('Preis-Alarm ausgelöst',_alarmLabel(alarm.sym)+' ist '+(alarm.dir==='above'?'über':'unter')+' '+getCurrency(alarm.sym)+alarm.price.toFixed(2));
+  _markWLAlarm(alarm.sym,'Preis-Alarm '+(alarm.dir==='above'?'≥':'≤')+' '+alarm.price);
 }
 document.getElementById('pop-close').addEventListener('click',dismissCurrentPopup);
 function addAlarm(price,dir){
@@ -4347,6 +4363,7 @@ async function checkRsiAlarms(){
 function showRsiPopup(sym,rsi,type){
   const isOver=type==='overbought';
   showAlarmPopup('RSI-Alarm',_alarmLabel(sym)+' ist '+(isOver?'überkauft':'überverkauft')+' — RSI '+rsi.toFixed(1)+' (RSI(14) '+(isOver?'≥ 70':'≤ 30')+')');
+  _markWLAlarm(sym,'RSI '+(isOver?'überkauft':'überverkauft'));
 }
 function startRsiAlarms(){
   if(rsiAlarmInterval)clearInterval(rsiAlarmInterval);
@@ -4407,7 +4424,7 @@ async function cloudFetchAlarms(){
 async function syncCloudAlarms(){
   const cloudRows=await cloudFetchAlarms();
   if(!cloudRows){setStatus('⚠ Cloud-Sync fehlgeschlagen','err');setTimeout(()=>setStatus('Bereit','idle'),3000);return;}
-  // Merge: cloud rows replace local alarms (cloud is source of truth)
+  // Aktive Alarme: Source of Truth für Chart-Anzeige
   const fresh=cloudRows.filter(r=>r[0]&&r[2]&&String(r[3]).trim()==='active').map(r=>({
     sym:String(r[0]).trim(),
     dir:String(r[1]).trim(),
@@ -4416,6 +4433,32 @@ async function syncCloudAlarms(){
     triggered:false
   }));
   alarms=fresh;
+  // Server-side getriggerte Alarme: Marker für Watchlist-Aktien setzen
+  // (z.B. CHoCH-Alarm vom täglichen Server-Check oder Preis-Alarm vom 5-Min-Check
+  // während der Browser zu war)
+  try{
+    const wlSet=new Set(watchlist||[]);
+    let existingMarks={};
+    try{existingMarks=JSON.parse(localStorage.getItem('zen_wl_alarm_marks')||'{}');}catch(_){}
+    let newMarks=0;
+    cloudRows.forEach(r=>{
+      const sym=String(r[0]||'').trim();
+      const dir=String(r[1]||'').trim();
+      const status=String(r[3]||'').trim();
+      if(!sym||status!=='triggered')return;
+      if(!wlSet.has(sym))return;
+      // Wenn schon Marker da → nicht überschreiben (verliert sonst Timestamp)
+      if(existingMarks[sym])return;
+      const msg=dir==='choch'?'CHoCH ausgelöst (Server)':'Preis-Alarm (Server)';
+      existingMarks[sym]={ts:Date.now(),msg};
+      newMarks++;
+    });
+    if(newMarks>0){
+      localStorage.setItem('zen_wl_alarm_marks',JSON.stringify(existingMarks));
+      if(typeof renderWL==='function')renderWL();
+      console.log('[ZEN] '+newMarks+' Server-Alarm(e) als Marker gesetzt');
+    }
+  }catch(e){console.log('[ZEN] Marker-Sync-Fehler:',e);}
   renderAlarmTags();
   if(mainChart)mainChart.update('none');
   redrawOC();
@@ -4774,6 +4817,9 @@ function saveWLCache(c){
 function renderWL(){
   const el=document.getElementById('wl-list');
   const cache=loadWLCache();
+  // Markierte Symbole (haben einen ausgelösten Alarm) aus localStorage lesen
+  let alarmMarks={};
+  try{alarmMarks=JSON.parse(localStorage.getItem('zen_wl_alarm_marks')||'{}');}catch(_){}
   el.innerHTML=watchlist.map((s,idx)=>{
     const id=s.replace(/\W/g,'_');
     const name=getSymName(s);
@@ -4784,7 +4830,10 @@ function renderWL(){
     const absTxt=c.abs||'…';
     const pctTxt=c.pct||'';
     const col=c.col||'var(--text3)';
-    return `<div class="wl-item${s===currentSymbol?' active':''}" data-sym="${s}" data-idx="${idx}" draggable="true">
+    const hasAlarm=!!alarmMarks[s];
+    const alarmTitle=hasAlarm?('Alarm ausgelöst: '+(alarmMarks[s].msg||'?')+' am '+new Date(alarmMarks[s].ts).toLocaleString('de-DE')):'';
+    const alarmIcon=hasAlarm?`<span class="wl-alarm-mark" title="${alarmTitle.replace(/"/g,'&quot;')}">🔔</span>`:'';
+    return `<div class="wl-item${s===currentSymbol?' active':''}${hasAlarm?' has-alarm':''}" data-sym="${s}" data-idx="${idx}" draggable="true">
       <div class="wl-row">
         <span class="wl-name">${displayName}</span>
         ${name?`<span class="wl-sym">${s}</span>`:''}
@@ -4796,11 +4845,22 @@ function renderWL(){
           <span class="wl-chg-pct" id="wlpct-${id}" style="color:${col}">${pctTxt}</span>
         </span>
       </div>
+      ${alarmIcon}
       <span class="wl-del" data-del="${s}">✕</span>
     </div>`;
   }).join('');
   // Click handlers
-  el.querySelectorAll('.wl-item').forEach(it=>it.addEventListener('click',e=>{if(e.target.classList.contains('wl-del'))return;currentSymbol=it.dataset.sym;document.getElementById('sym-in').value=currentSymbol;renderWL();fetchData(currentSymbol,currentTF);updateFinnhubSubscriptions();}));
+  el.querySelectorAll('.wl-item').forEach(it=>it.addEventListener('click',e=>{
+    if(e.target.classList.contains('wl-del'))return;
+    if(e.target.classList.contains('wl-alarm-mark'))return; // Klick auf Glocke nicht weiterleiten
+    const sym=it.dataset.sym;
+    // Marker entfernen sobald User die Aktie anklickt
+    try{
+      const m=JSON.parse(localStorage.getItem('zen_wl_alarm_marks')||'{}');
+      if(m[sym]){delete m[sym];localStorage.setItem('zen_wl_alarm_marks',JSON.stringify(m));}
+    }catch(_){}
+    currentSymbol=sym;document.getElementById('sym-in').value=currentSymbol;renderWL();fetchData(currentSymbol,currentTF);updateFinnhubSubscriptions();
+  }));
   el.querySelectorAll('.wl-del').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();watchlist=watchlist.filter(s=>s!==b.dataset.del);saveWL();renderWL();}));
   // Drag & drop reorder
   let dragIdx=null;
@@ -5609,7 +5669,7 @@ function triggerMACDAlarm(sym,tf,type,macdLine,signalLine,price){
   try{playAlarmSound();}catch{}
   const speechText=speakableSymbol(sym)+': MACD '+(type==='bullish'?'bullisches Kreuz, Kaufsignal':'bärisches Kreuz, Verkaufssignal');
   speak(speechText,{cancel:true});
-  if(alarmShowPopup('macd'))showAlarmPopup('MACD-Alarm',msg);
+  if(alarmShowPopup('macd')){showAlarmPopup('MACD-Alarm',msg);_markWLAlarm(sym,'MACD');}
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('macd')){
     cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf,smaType:'MACD-'+type,price,smaValue:macdLine,message:msg});
@@ -5625,7 +5685,7 @@ function triggerBBAlarm(sym,tf,dir,price,bandLevel){
   try{playAlarmSound();}catch{}
   const speechText=speakableSymbol(sym)+': Bollinger-Band '+(dir==='oben'?'oben ausgebrochen':'unten ausgebrochen');
   speak(speechText,{cancel:true});
-  if(alarmShowPopup('bb'))showAlarmPopup('Bollinger-Band Ausbruch',msg);
+  if(alarmShowPopup('bb')){showAlarmPopup('Bollinger-Band Ausbruch',msg);_markWLAlarm(sym,'Bollinger');}
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('bb')){
     cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf,smaType:'BB-'+dir,price,smaValue:bandLevel,message:msg});
@@ -5639,7 +5699,7 @@ function triggerStochAlarm(sym,tf,extrem,stochK,price){
   setStatus('🔔 Stoch RSI: '+msg,extrem==='überkauft'?'err':'ok');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+': Stochastischer RSI '+extrem,{cancel:true});
-  if(alarmShowPopup('stoch'))showAlarmPopup('Stoch RSI '+extrem,msg);
+  if(alarmShowPopup('stoch')){showAlarmPopup('Stoch RSI '+extrem,msg);_markWLAlarm(sym,'Stoch RSI');}
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('stoch')){
     cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf,smaType:'Stoch-'+extrem,price,smaValue:stochK,message:msg});
@@ -5655,7 +5715,7 @@ function triggerDailyMoveAlarm(sym,change,price){
   setStatus('🔔 '+msg,change>=0?'ok':'err');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+' heute '+Math.abs(pct)+' Prozent '+dir,{cancel:true});
-  if(alarmShowPopup('dailymove'))showAlarmPopup('5% Tages-Bewegung',msg);
+  if(alarmShowPopup('dailymove')){showAlarmPopup('5% Tages-Bewegung',msg);_markWLAlarm(sym,'5% Move');}
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('dailymove')){
     cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf:'D1',smaType:'Tages-Move '+pct+'%',price,smaValue:0,message:msg});
@@ -5669,7 +5729,7 @@ function triggerVolumeAlarm(sym,currentVol,avgVol){
   setStatus('🔔 '+msg,'ok');
   try{playAlarmSound();}catch{}
   speak(speakableSymbol(sym)+' ungewöhnlich hohes Volumen, '+ratio+' mal Durchschnitt',{cancel:true});
-  if(alarmShowPopup('volume'))showAlarmPopup('Volumen-Anomalie',msg);
+  if(alarmShowPopup('volume')){showAlarmPopup('Volumen-Anomalie',msg);_markWLAlarm(sym,'Volumen');}
   const email=localStorage.getItem('zen_alarm_email')||'';
   if(email&&alarmSendEmail('volume')){
     cloudRequest('notifySma',{symbol:sym,name:getSymName(sym),tf:'D1',smaType:'Volumen '+ratio+'x',price:0,smaValue:currentVol,message:msg});
@@ -6493,40 +6553,68 @@ function _macd(closes){
   }
   return{line,signal,hist};
 }
-// CHoCH (Change of Character) — Korrektur-Ende-Detektor.
-// Findet ein erstes höheres Hoch in einer laufenden Korrektur:
-// 1. ATH der letzten ~250 Tage als Korrektur-Ausgangspunkt
-// 2. Lower Highs zwischen ATH und HEUTE sammeln (Swing-Hochs unter ATH)
-// 3. Hat ein Tagesschluss in den letzten freshDays das letzte Lower High durchbrochen?
-// → Erstes klassisches Signal aus der Smart-Money-Concept-Lehre, dass
-// die Korrektur enden könnte. Siehe BOS/CHoCH/MSS in der techn. Analyse.
-function _chochCorrectionEnd(highs,closes,athLookback,swingWin,freshDays){
+// CHoCH V2 (Change of Character) — Korrektur-Ende-Detektor.
+// Findet das ERSTE höhere Hoch in einer laufenden Korrektur, indem es:
+// 1. Das ATH der letzten ~250 Tage als Korrektur-Start markiert
+// 2. Das tiefste Tief (Korrektur-Trog) in der Phase ATH→heute findet
+// 3. Das CHRONOLOGISCH LETZTE Lower High ZWISCHEN ATH und Trog als
+//    relevante Strukturmarke nimmt (= Smart-Money-Konzept "letztes
+//    Lower High vor dem Trend-Tief")
+// 4. Trigger auslöst wenn ein Tagesschluss dieses Lower High durchbricht
+//
+// Hinweis: ein internes Hoch NACH dem Trog (= z.B. erste Bounce-Versuche)
+// wird bewusst IGNORIERT, da es keine externe Strukturmarke darstellt.
+// Beispiel BTC: ATH 125k → Tief 80k → LH 110k → Tief 95k (intern) →
+// LH 97.8k → Tief 60k → interner Bounce auf 76k. Schwelle = 97.8k.
+function _chochCorrectionEnd(highs,closes,lows,athLookback,swingWin,freshDays){
   athLookback=athLookback||250;
-  swingWin=swingWin||5;
+  swingWin=swingWin||7;
   freshDays=freshDays||3;
   const n=closes.length;
   if(n<2*swingWin+10)return{triggered:false,age:null,level:null};
   const start=Math.max(0,n-athLookback);
+
+  // 1. ATH der letzten athLookback Tage finden
   let athIdx=start,athVal=highs[start];
   for(let i=start;i<n;i++){
     if(highs[i]>athVal){athVal=highs[i];athIdx=i;}
   }
-  // ATH zu nah am heute → keine Korrektur
   if(n-1-athIdx<swingWin*2)return{triggered:false,age:null,level:null};
-  // Lower Highs zwischen ATH und HEUTE
-  const lowerHighs=[];
-  for(let i=athIdx+swingWin;i<=n-1-swingWin;i++){
-    let isPeak=true;
-    for(let j=i-swingWin;j<=i+swingWin;j++){
-      if(j!==i&&highs[j]>=highs[i]){isPeak=false;break;}
-    }
-    if(isPeak&&highs[i]<athVal){
-      lowerHighs.push({idx:i,val:highs[i]});
-    }
+
+  // 2. Trend-Tief (tiefstes Tief der Korrektur)
+  let troughIdx=athIdx,troughVal=lows[athIdx];
+  for(let i=athIdx+1;i<n;i++){
+    if(lows[i]<troughVal){troughVal=lows[i];troughIdx=i;}
   }
-  if(!lowerHighs.length)return{triggered:false,age:null,level:null};
-  const lastLH=lowerHighs[lowerHighs.length-1];
-  // Schluss in den letzten freshDays über letztem LH?
+  if(troughIdx<athIdx+swingWin){
+    return{triggered:false,age:null,level:null};
+  }
+
+  // 3. Externe Lower Highs ZWISCHEN ATH und Trog finden
+  const lhs=[];
+  for(let i=athIdx+swingWin;i<=troughIdx-swingWin;i++){
+    let isHigh=true;
+    for(let j=Math.max(0,i-swingWin);j<=Math.min(n-1,i+swingWin);j++){
+      if(j!==i&&highs[j]>=highs[i]){isHigh=false;break;}
+    }
+    if(isHigh&&highs[i]<athVal)lhs.push({idx:i,val:highs[i]});
+  }
+
+  // Fallback: kein LH zwischen ATH und Trog (= "ein-Zug"-Korrektur)
+  // → suche nach LHs nach dem Trog (= aktuelle Erholung)
+  if(!lhs.length){
+    for(let i=troughIdx+swingWin;i<=n-1-swingWin;i++){
+      let isHigh=true;
+      for(let j=Math.max(0,i-swingWin);j<=Math.min(n-1,i+swingWin);j++){
+        if(j!==i&&highs[j]>=highs[i]){isHigh=false;break;}
+      }
+      if(isHigh&&highs[i]<athVal)lhs.push({idx:i,val:highs[i]});
+    }
+    if(!lhs.length)return{triggered:false,age:null,level:null};
+  }
+
+  // 4. Letztes LH = die Schwelle. Trigger-Check.
+  const lastLH=lhs[lhs.length-1];
   for(let i=Math.max(lastLH.idx+1,n-freshDays);i<n;i++){
     if(closes[i]>lastLH.val){
       return{triggered:true,age:n-1-i,level:lastLH.val};
@@ -6636,7 +6724,8 @@ async function runScreenerScan(){
           const sma200Last=sma200[sma200.length-1];
           const smaDist=sma200Last?((last-sma200Last)/sma200Last*100):null;
           const macdAge=_macdBullCross(macd.line,macd.signal,flt.macd.val);
-          const choch=_chochCorrectionEnd(highs,closes,250,5,flt.hh.val);
+          const lows=r.candles.map(c=>c.l);
+          const choch=_chochCorrectionEnd(highs,closes,lows,250,7,flt.hh.val);
           const hasHH=choch.triggered;
           const chochAge=choch.age;
           const chochLevel=choch.level;
@@ -7014,12 +7103,13 @@ async function scanWatchlistForChoch(){
       const r=j.chart&&j.chart.result&&j.chart.result[0];
       if(!r||!r.timestamp){items.push({sym,error:'keine Daten'});continue;}
       const q=r.indicators.quote[0];
-      const candles=r.timestamp.map((t,i)=>({h:q.high[i],c:q.close[i]})).filter(c=>c.c!=null&&c.h!=null&&c.c>0);
+      const candles=r.timestamp.map((t,i)=>({h:q.high[i],l:q.low[i],c:q.close[i]})).filter(c=>c.c!=null&&c.h!=null&&c.l!=null&&c.c>0);
       if(candles.length<60){items.push({sym,error:'zu wenig Daten'});continue;}
       const highs=candles.map(c=>c.h);
       const closes=candles.map(c=>c.c);
       // CHoCH-Check (freshDays=1 reicht — wir wollen nur das aktuelle LH wissen)
-      const choch=window._chochCorrectionEnd(highs,closes,250,5,1);
+      const lows=candles.map(c=>c.l);
+          const choch=window._chochCorrectionEnd(highs,closes,lows,250,7,1);
       if(r.meta&&(r.meta.longName||r.meta.shortName)){
         setSymName(sym,r.meta.longName||r.meta.shortName);
       }
@@ -7326,6 +7416,28 @@ setTimeout(function tryAutoRefresh(){
 // Initial das Label setzen, falls Profil-Modal später geöffnet wird
 setInterval(updateLastScanLabel,30000);
 console.log('[CHoCH-Auto] Auto-Refresh aktiv (24h-Schwelle)');
+})();
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  WATCHLIST-ALARM-MARKER  —  Reset-Button-Handler                  ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+const btn=document.getElementById('wl-clear-marks');
+if(!btn)return;
+btn.addEventListener('click',()=>{
+  let count=0;
+  try{
+    const m=JSON.parse(localStorage.getItem('zen_wl_alarm_marks')||'{}');
+    count=Object.keys(m).length;
+    if(!count){alert('Keine Alarm-Marker vorhanden.');return;}
+  }catch(_){}
+  if(!confirm(count+' Alarm-Marker entfernen?'))return;
+  localStorage.setItem('zen_wl_alarm_marks','{}');
+  if(typeof renderWL==='function')renderWL();
+});
+console.log('[ZEN] Watchlist-Alarm-Marker aktiv');
 })();
 
 </script>
