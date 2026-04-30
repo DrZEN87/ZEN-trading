@@ -579,6 +579,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
     </div>
   </div>
 </div>
+<!-- Icon-Picker (TradingView-Stil) -->
+<div id="icon-picker" style="display:none;position:absolute;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);max-width:340px">
+  <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:500">Icon waehlen, dann in den Chart klicken</div>
+  <div id="icon-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
+  <div style="font-size:10px;color:#64748b;margin-top:8px">Esc zum Abbrechen</div>
+</div>
+
+<!-- Volume-Profile Tooltip (eingeblendet bei Hover über VPOC/VAH/VAL) -->
+<div id="vp-tooltip" style="display:none;position:fixed;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:10px 12px;font-size:12px;color:#e2e8f0;max-width:280px;z-index:9998;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.6);line-height:1.4"></div>
+
 <script>
 
 // Polyfill for ctx.roundRect (not in all browsers)
@@ -7928,15 +7938,5 @@ console.log('[ZEN] Volume-Profile Hover-Tooltip aktiv');
 })();
 
 </script>
-
-<!-- Icon-Picker (TradingView-Stil) -->
-<div id="icon-picker" style="display:none;position:absolute;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);max-width:340px">
-  <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:500">Icon waehlen, dann in den Chart klicken</div>
-  <div id="icon-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
-  <div style="font-size:10px;color:#64748b;margin-top:8px">Esc zum Abbrechen</div>
-</div>
-
-<!-- Volume-Profile Tooltip (eingeblendet bei Hover über VPOC/VAH/VAL) -->
-<div id="vp-tooltip" style="display:none;position:fixed;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:10px 12px;font-size:12px;color:#e2e8f0;max-width:280px;z-index:9998;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.6);line-height:1.4"></div>
 </body>
 </html>
