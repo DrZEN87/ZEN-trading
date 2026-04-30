@@ -426,15 +426,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   <div id="al-cloud-list"></div>
 </div>
 
-<!-- ╔══════════════════════════════════════════════════════════════════╗
-     ║  SCREENER MODAL — direkt vor 
-<div id="icon-picker" style="display:none;position:absolute;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);max-width:340px">
-  <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:500">Icon waehlen, dann in den Chart klicken</div>
-  <div id="icon-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
-  <div style="font-size:10px;color:#64748b;margin-top:8px">Esc zum Abbrechen</div>
-</div>
-</body> einfügen (vor Zeile 6068)   ║
-     ╚══════════════════════════════════════════════════════════════════╝ -->
+<!-- SCREENER MODAL Anchor -->
 <div id="screener-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
   <div style="background:#0f0f12;border:1px solid #2a2a34;border-radius:8px;width:100%;max-width:1200px;max-height:calc(100vh - 40px);display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.6)">
 
@@ -1629,7 +1621,29 @@ function buildVolProfile(vc,yMin,yMax,buckets=24){
   const profile=Array(buckets).fill(0);
   vc.forEach(c=>{const idx=Math.min(buckets-1,Math.max(0,Math.floor((c.c-yMin)/bucketSize)));profile[idx]+=(c.v||0);});
   const maxVol=Math.max(...profile);
-  return{profile,bucketSize,maxVol};
+  // VPOC: Bucket-Index mit höchstem Volumen
+  let vpocIdx=0;
+  for(let i=1;i<profile.length;i++){if(profile[i]>profile[vpocIdx])vpocIdx=i;}
+  // VPOC-Preis: Mitte des Buckets
+  const vpocPrice=yMin+(vpocIdx+0.5)*bucketSize;
+  // Value Area: vom VPOC nach oben/unten erweitern bis 70% des Gesamtvolumens erreicht
+  const totalVol=profile.reduce((a,b)=>a+b,0);
+  const valueAreaTarget=totalVol*0.70;
+  let lo=vpocIdx,hi=vpocIdx;
+  let acc=profile[vpocIdx];
+  while(acc<valueAreaTarget&&(lo>0||hi<profile.length-1)){
+    // Nimm den höheren Nachbarn (klassische Value-Area-Berechnung)
+    const upVol=hi<profile.length-1?profile[hi+1]:-1;
+    const dnVol=lo>0?profile[lo-1]:-1;
+    if(upVol>=dnVol&&upVol>=0){hi++;acc+=upVol;}
+    else if(dnVol>=0){lo--;acc+=dnVol;}
+    else break;
+  }
+  // VAH (Value Area High) = oberkante des höchsten Buckets der VA
+  const vahPrice=yMin+(hi+1)*bucketSize;
+  // VAL (Value Area Low) = unterkante des niedrigsten Buckets der VA
+  const valPrice=yMin+lo*bucketSize;
+  return{profile,bucketSize,maxVol,vpocIdx,vpocPrice,vahPrice,valPrice,vaLoIdx:lo,vaHiIdx:hi};
 }
 
 // ── cpPlugin ──────────────────────────────────────────────────
@@ -1673,18 +1687,69 @@ const cpPlugin={
         ctx.restore();
       }
     }
-    // Vol Profile
+    // Vol Profile mit VPOC, VAH, VAL
     if(showVolProfile&&vc.length){
-      const{profile,maxVol}=buildVolProfile(vc,y.min,y.max);
+      const vp=buildVolProfile(vc,y.min,y.max);
+      const{profile,maxVol,vpocIdx,vpocPrice,vahPrice,valPrice,vaLoIdx,vaHiIdx}=vp;
       const profileW=(ca.right-ca.left)*0.12;
-      ctx.save();ctx.globalAlpha=.35;
+      const totalH=ca.bottom-ca.top;
+      const barH=Math.max(1,totalH/profile.length-.5);
+      // Bars zeichnen — Value Area heller, Rest gedämpft
+      ctx.save();
       profile.forEach((v,i)=>{
-        const barH=Math.max(1,(ca.bottom-ca.top)/profile.length-.5);
         const barW=maxVol>0?(v/maxVol)*profileW:0;
-        const yTop=ca.bottom-(i+1)*(ca.bottom-ca.top)/profile.length;
-        ctx.fillStyle='rgba(139,92,246,.6)';ctx.fillRect(ca.right-barW,yTop,barW,barH);
+        const yTop=ca.bottom-(i+1)*totalH/profile.length;
+        const inVA=i>=vaLoIdx&&i<=vaHiIdx;
+        const isVPOC=i===vpocIdx;
+        if(isVPOC){
+          // VPOC-Bar: leuchtend rot/orange
+          ctx.globalAlpha=.85;
+          ctx.fillStyle='rgba(255,140,40,.95)';
+        }else if(inVA){
+          // Value Area: kräftiges Lila
+          ctx.globalAlpha=.55;
+          ctx.fillStyle='rgba(139,92,246,.85)';
+        }else{
+          // Außerhalb VA: gedämpft
+          ctx.globalAlpha=.25;
+          ctx.fillStyle='rgba(139,92,246,.6)';
+        }
+        ctx.fillRect(ca.right-barW,yTop,barW,barH);
       });
       ctx.restore();
+
+      // Horizontale Linien für VPOC / VAH / VAL über die volle Chart-Breite
+      const vpY=y.getPixelForValue(vpocPrice);
+      const vahY=y.getPixelForValue(vahPrice);
+      const valY=y.getPixelForValue(valPrice);
+      ctx.save();
+      // VPOC: orange, durchgezogen
+      if(vpY>=ca.top&&vpY<=ca.bottom){
+        ctx.strokeStyle='rgba(255,140,40,.8)';ctx.lineWidth=1.5;ctx.setLineDash([]);
+        ctx.beginPath();ctx.moveTo(ca.left,vpY);ctx.lineTo(ca.right,vpY);ctx.stroke();
+        ctx.fillStyle='rgba(255,140,40,1)';ctx.font='bold 10px system-ui';
+        ctx.fillText('VPOC '+fmtPrice(vpocPrice),ca.left+8,vpY-3);
+      }
+      // VAH: lila gestrichelt
+      if(vahY>=ca.top&&vahY<=ca.bottom){
+        ctx.strokeStyle='rgba(139,92,246,.7)';ctx.lineWidth=1;ctx.setLineDash([5,3]);
+        ctx.beginPath();ctx.moveTo(ca.left,vahY);ctx.lineTo(ca.right,vahY);ctx.stroke();
+        ctx.fillStyle='rgba(139,92,246,1)';ctx.font='10px system-ui';
+        ctx.fillText('VAH '+fmtPrice(vahPrice),ca.left+8,vahY-3);
+      }
+      // VAL: lila gestrichelt
+      if(valY>=ca.top&&valY<=ca.bottom){
+        ctx.strokeStyle='rgba(139,92,246,.7)';ctx.lineWidth=1;ctx.setLineDash([5,3]);
+        ctx.beginPath();ctx.moveTo(ca.left,valY);ctx.lineTo(ca.right,valY);ctx.stroke();
+        ctx.fillStyle='rgba(139,92,246,1)';ctx.font='10px system-ui';
+        ctx.fillText('VAL '+fmtPrice(valPrice),ca.left+8,valY+12);
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+      // Werte global speichern für Tooltip-Logik
+      window._volProfileData={vpocPrice,vahPrice,valPrice,vpY,vahY,valY,profileLeft:ca.right-profileW};
+    }else{
+      window._volProfileData=null;
     }
     // Candles / Bars / Line
     vc.forEach((c,vi)=>{
@@ -4139,7 +4204,7 @@ document.querySelectorAll('[data-ctype]').forEach(btn=>btn.addEventListener('cli
 document.querySelectorAll('[data-tf]').forEach(btn=>btn.addEventListener('click',()=>{
   document.querySelectorAll('[data-tf]').forEach(b=>b.className='btn');btn.className='btn ab';currentTF=btn.dataset.tf;fetchData(currentSymbol,currentTF);updateFinnhubSubscriptions();
 }));
-document.querySelectorAll('[data-draw]').forEach(btn=>btn.addEventListener('click',()=>setDrawMode(btn.dataset.draw)));
+document.querySelectorAll('[data-draw]').forEach(btn=>btn.addEventListener('click',()=>{if(btn.dataset.draw==='icon')return;setDrawMode(btn.dataset.draw);}));
 // contextmenu cancel also resets supportfull
 document.getElementById('undo-btn').addEventListener('click',()=>{if(drawings.length){drawings.pop();redrawOC();}});
 document.getElementById('clear-btn').addEventListener('click',()=>{
@@ -7799,6 +7864,79 @@ refresh();
 console.log('[ZEN] Drawings-Toggle aktiv. Hidden:', window._drawingsHidden);
 })();
 
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  VOLUME-PROFILE HOVER-TOOLTIP                                     ║
+// ║  Zeigt VPOC/VAH/VAL-Erklärung wenn Maus über die Linien fährt    ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+const VPHELP={
+  vpoc:{
+    title:'VPOC — Volume Point of Control',
+    text:'Das Preislevel mit dem höchsten gehandelten Volumen im sichtbaren Zeitraum. Hauptnutzen: zeigt den "fair value" — der Preis, an dem sich Käufer und Verkäufer am häufigsten getroffen haben. Wirkt oft als starker Magnet und Unterstützung/Widerstand.'
+  },
+  vah:{
+    title:'VAH — Value Area High',
+    text:'Obere Grenze der Value Area: der Bereich um den VPOC, in dem 70% des Gesamtvolumens gehandelt wurden. Hauptnutzen: Preis über VAH = überteuert relativ zum Konsens, oft Reversal-Zone.'
+  },
+  val:{
+    title:'VAL — Value Area Low',
+    text:'Untere Grenze der Value Area (70%-Volumen-Bereich). Hauptnutzen: Preis unter VAL = unterbewertet relativ zum Konsens, oft Reversal-Zone. VAL/VAH zusammen = "fair value range".'
+  }
+};
+
+let activeLine=null;
+
+const ovCanvas=document.getElementById('ov-canvas');
+const tooltip=document.getElementById('vp-tooltip');
+if(!ovCanvas||!tooltip)return;
+
+ovCanvas.addEventListener('mousemove',e=>{
+  const data=window._volProfileData;
+  if(!data){hideTooltip();return;}
+  const rect=ovCanvas.getBoundingClientRect();
+  const ry=e.clientY-rect.top;
+  const rx=e.clientX-rect.left;
+  // Nur reagieren wenn Maus im rechten Bereich (wo Profile sichtbar) ODER nahe einer Linie
+  const tolerance=4;
+  let lineType=null;
+  if(Math.abs(ry-data.vpY)<=tolerance)lineType='vpoc';
+  else if(Math.abs(ry-data.vahY)<=tolerance)lineType='vah';
+  else if(Math.abs(ry-data.valY)<=tolerance)lineType='val';
+  if(!lineType){hideTooltip();return;}
+  if(lineType===activeLine)return; // schon angezeigt
+  activeLine=lineType;
+  const info=VPHELP[lineType];
+  tooltip.innerHTML='<div style="font-weight:600;color:#fbbf24;margin-bottom:5px">'+info.title+'</div>'+
+                   '<div style="color:#cbd5e1">'+info.text+'</div>';
+  tooltip.style.display='block';
+  // Tooltip in der Nähe der Maus, aber nicht über sie
+  const ttX=Math.min(window.innerWidth-300,e.clientX+15);
+  const ttY=Math.max(10,e.clientY-50);
+  tooltip.style.left=ttX+'px';
+  tooltip.style.top=ttY+'px';
+});
+
+function hideTooltip(){
+  if(activeLine===null)return;
+  activeLine=null;
+  tooltip.style.display='none';
+}
+ovCanvas.addEventListener('mouseleave',hideTooltip);
+console.log('[ZEN] Volume-Profile Hover-Tooltip aktiv');
+})();
+
 </script>
+
+<!-- Icon-Picker (TradingView-Stil) -->
+<div id="icon-picker" style="display:none;position:absolute;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);max-width:340px">
+  <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:500">Icon waehlen, dann in den Chart klicken</div>
+  <div id="icon-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
+  <div style="font-size:10px;color:#64748b;margin-top:8px">Esc zum Abbrechen</div>
+</div>
+
+<!-- Volume-Profile Tooltip (eingeblendet bei Hover über VPOC/VAH/VAL) -->
+<div id="vp-tooltip" style="display:none;position:fixed;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:10px 12px;font-size:12px;color:#e2e8f0;max-width:280px;z-index:9998;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.6);line-height:1.4"></div>
 </body>
 </html>
