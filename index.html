@@ -581,9 +581,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   </div>
 </div>
 <!-- Icon-Picker (TradingView-Stil) -->
-<div id="icon-picker" style="display:none;position:absolute;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);max-width:240px">
+<div id="icon-picker" style="display:none;position:absolute;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);box-sizing:border-box;width:max-content">
   <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:500">Icon waehlen, dann in den Chart klicken</div>
-  <div id="icon-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
+  <div id="icon-grid" style="display:grid;grid-template-columns:repeat(6,32px);gap:4px"></div>
   <div style="font-size:10px;color:#64748b;margin-top:8px">Esc zum Abbrechen</div>
 </div>
 
@@ -5590,7 +5590,7 @@ window.addEventListener('beforeunload',saveState);
 // ── Init ──────────────────────────────────────────────────────
 loadState();
 // ── Börsen-Öffnungszeiten ──────────────────────────────────────
-// Alle Zeiten in UTC — Berechnung berücksichtigt den Wochentag (Mo-Fr)
+// Alle Zeiten in UTC — Berechnung berücksichtigt den Wochentag (Mo-Fr) und Feiertage
 const EXCHANGES=[
   {name:'NYSE',      flag:'🇺🇸', tz:'America/New_York',  open:[9,30],  close:[16,0]},
   {name:'London',    flag:'🇬🇧', tz:'Europe/London',     open:[8,0],   close:[16,30]},
@@ -5599,6 +5599,70 @@ const EXCHANGES=[
   {name:'Hongkong',  flag:'🇭🇰', tz:'Asia/Hong_Kong',    open:[9,30],  close:[16,0]},
   {name:'Sydney',    flag:'🇦🇺', tz:'Australia/Sydney',  open:[10,0],  close:[16,0]},
 ];
+
+// Mapping Börse → ISO-Country-Code für nager.at API
+const EXCHANGE_COUNTRY={
+  'NYSE':'US','London':'GB','Frankfurt':'DE',
+  'Tokio':'JP','Hongkong':'HK','Sydney':'AU'
+};
+const HOLIDAY_CACHE_KEY='zen_holidays_v1';
+const HOLIDAY_CACHE_TTL=7*24*60*60*1000; // 7 Tage
+let holidayMap={}; // {countryCode: Set<'YYYY-MM-DD'>}
+
+// Lädt Feiertage aus Cache oder nager.at API (kostenlos, ohne Key)
+async function loadHolidays(){
+  const year=new Date().getFullYear();
+  // Cache prüfen
+  try{
+    const c=JSON.parse(localStorage.getItem(HOLIDAY_CACHE_KEY)||'null');
+    if(c&&c.ts&&c.year===year&&(Date.now()-c.ts)<HOLIDAY_CACHE_TTL){
+      holidayMap={};
+      Object.keys(c.data).forEach(k=>{holidayMap[k]=new Set(c.data[k]);});
+      console.log('[Holidays] aus Cache geladen');
+      return;
+    }
+  }catch(e){}
+
+  // Frischer Fetch (aktuelles + nächstes Jahr für Jahreswechsel)
+  const countries=[...new Set(Object.values(EXCHANGE_COUNTRY))];
+  const fresh={};
+  await Promise.all(countries.map(async cc=>{
+    fresh[cc]=[];
+    try{
+      const [r1,r2]=await Promise.all([
+        fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/${cc}`),
+        fetch(`https://date.nager.at/api/v3/PublicHolidays/${year+1}/${cc}`)
+      ]);
+      if(r1.ok){const d=await r1.json();fresh[cc].push(...d.map(h=>h.date));}
+      if(r2.ok){const d=await r2.json();fresh[cc].push(...d.map(h=>h.date));}
+    }catch(e){
+      console.warn('[Holidays] Fehler '+cc+': '+e.message);
+    }
+  }));
+
+  holidayMap={};
+  Object.keys(fresh).forEach(k=>{holidayMap[k]=new Set(fresh[k]);});
+
+  try{
+    localStorage.setItem(HOLIDAY_CACHE_KEY,JSON.stringify({ts:Date.now(),year,data:fresh}));
+  }catch(e){}
+  const counts=Object.fromEntries(Object.keys(fresh).map(k=>[k,fresh[k].length]));
+  console.log('[Holidays] von nager.at geladen:',counts);
+}
+
+// Datum als 'YYYY-MM-DD' in der Timezone der Börse
+function getDateStr(tz,date){
+  return new Intl.DateTimeFormat('en-CA',{
+    timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'
+  }).format(date);
+}
+
+// Ist 'date' ein Feiertag in der Börse 'ex'?
+function isHolidayOn(ex,date){
+  const cc=EXCHANGE_COUNTRY[ex.name];
+  if(!cc||!holidayMap[cc])return false;
+  return holidayMap[cc].has(getDateStr(ex.tz,date));
+}
 
 // Erhalte aktuelle Stunde/Minute/Wochentag in der Timezone der Börse
 function getTZTime(tz){
@@ -5621,29 +5685,49 @@ function getExchangeStatus(ex){
   const openMin=ex.open[0]*60+ex.open[1];
   const closeMin=ex.close[0]*60+ex.close[1];
   const isWeekend=(now.weekday==='Sat'||now.weekday==='Sun');
-  const isOpen=!isWeekend && now.minutes>=openMin && now.minutes<closeMin;
+  const todayHoliday=isHolidayOn(ex,new Date());
+  const isOpen=!isWeekend && !todayHoliday && now.minutes>=openMin && now.minutes<closeMin;
+
   if(isOpen){
     const untilClose=closeMin-now.minutes;
-    return {open:true, text:`schließt in ${fmtMins(untilClose)}`};
+    return {open:true, holiday:false, text:`schließt in ${fmtMins(untilClose)}`};
   }
-  // Geschlossen — berechne Minuten bis zur nächsten Öffnung
-  let targetMinutes;
-  if(!isWeekend && now.minutes<openMin){
-    // Öffnet heute noch
-    targetMinutes=openMin-now.minutes;
-  }else if(isWeekend){
-    // Wochenende → nächster Montag-Open
-    const wMap={Sat:2, Sun:1};
-    const daysToAdd=wMap[now.weekday]||1;
-    targetMinutes=(24*60-now.minutes)+openMin+(daysToAdd-1)*24*60;
-  }else if(now.weekday==='Fri' && now.minutes>=closeMin){
-    // Freitag nach Close → Montag-Open (Sa+So überspringen)
-    targetMinutes=(24*60-now.minutes)+openMin+2*24*60;
-  }else{
-    // Mo-Do nach Close → morgen Open
-    targetMinutes=(24*60-now.minutes)+openMin;
+
+  // Geschlossen — finde nächsten gültigen Handelstag (Schleife max 14 Tage)
+  const targetMinutes=getMinutesUntilNextOpen(ex);
+
+  // Heute Feiertag während normaler Handelszeit? → spezielle Anzeige
+  if(todayHoliday && !isWeekend && now.minutes<closeMin){
+    return {open:false, holiday:true, text:`Feiertag · öffnet in ${fmtMins(targetMinutes)}`};
   }
-  return {open:false, text:`öffnet in ${fmtMins(targetMinutes)}`};
+  return {open:false, holiday:false, text:`öffnet in ${fmtMins(targetMinutes)}`};
+}
+
+// Schleift durch die nächsten Tage und sucht den ersten Werktag, der KEIN Feiertag ist
+function getMinutesUntilNextOpen(ex){
+  const now=getTZTime(ex.tz);
+  const openMin=ex.open[0]*60+ex.open[1];
+  const today=new Date();
+  const isWeekend=(now.weekday==='Sat'||now.weekday==='Sun');
+  const todayHoliday=isHolidayOn(ex,today);
+
+  // Heute öffnet noch?
+  if(!isWeekend && !todayHoliday && now.minutes<openMin){
+    return openMin-now.minutes;
+  }
+
+  // Suche in nächsten 14 Tagen den ersten gültigen Handelstag
+  for(let off=1; off<=14; off++){
+    const future=new Date(today.getTime()+off*24*60*60*1000);
+    const wd=new Intl.DateTimeFormat('en-US',{timeZone:ex.tz,weekday:'short'}).format(future);
+    if(wd==='Sat'||wd==='Sun') continue;
+    if(isHolidayOn(ex,future)) continue;
+
+    // Gefunden → Restzeit heute + volle Tage dazwischen + Open-Zeit
+    const minutesLeftToday=24*60-now.minutes;
+    return minutesLeftToday+(off-1)*24*60+openMin;
+  }
+  return 0; // sollte nie passieren
 }
 
 function fmtMins(totalMin){
@@ -5661,9 +5745,13 @@ function renderExchanges(){
   if(!el)return;
   const parts=EXCHANGES.map(ex=>{
     const s=getExchangeStatus(ex);
-    const dot=s.open?'<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#26a69a;box-shadow:0 0 5px #26a69a"></span>':
-                     '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#64748b"></span>';
-    const col=s.open?'#26a69a':'#cbd5e1';
+    let dotColor;
+    if(s.open)         dotColor='#26a69a';
+    else if(s.holiday) dotColor='#f59e0b'; // amber für Feiertag
+    else               dotColor='#64748b';
+    const glow=s.open?`box-shadow:0 0 5px ${dotColor}`:'';
+    const dot=`<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${dotColor};${glow}"></span>`;
+    const col=s.open?'#26a69a':(s.holiday?'#fbbf24':'#cbd5e1');
     return `<span title="${ex.name} ${ex.tz}" style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:12px">
       ${dot}<span style="color:${col};font-weight:${s.open?600:500}">${ex.flag} ${ex.name}</span>
       <span style="color:#94a3b8;font-size:12px">${s.text}</span>
@@ -5671,8 +5759,13 @@ function renderExchanges(){
   });
   el.innerHTML=parts.join('<span style="color:#334155">·</span>');
 }
+
+// Init: Sofort rendern (ohne Feiertage falls API langsam), dann erneut nach Holiday-Load
 renderExchanges();
+loadHolidays().then(renderExchanges).catch(e=>console.warn('[Holidays] init failed:',e));
 setInterval(renderExchanges,30000); // alle 30s updaten
+// Täglich Cache-Refresh (wichtig für Jahreswechsel)
+setInterval(()=>loadHolidays().then(renderExchanges).catch(()=>{}), 24*60*60*1000);
 
 loadWL();
 setDrawMode('pointer');
@@ -7745,8 +7838,10 @@ console.log('[ZEN] Shift = Messen aktiv');
 'use strict';
 // Kuratierte Icon-Liste fuer Trader (TradingView-aehnlich, aber gezielt)
 const TRADER_ICONS=[
-  {char:'\u{1F7E2}\u{2B06}',label:'Long Entry',name:'Long Einstieg'},
-  {char:'\u{1F534}\u{2B07}',label:'Short Entry',name:'Short Einstieg'},
+  {char:'\u{1F7E2}\u{2B06}',label:'Long Entry',name:'Long Einstieg',
+   html:'<span style="display:inline-flex;align-items:center;gap:2px;line-height:1"><span style="width:8px;height:8px;border-radius:50%;background:#26a69a;box-shadow:0 0 4px #26a69a;display:inline-block"></span><span style="color:#26a69a;font-size:11px;font-weight:700">▲</span></span>'},
+  {char:'\u{1F534}\u{2B07}',label:'Short Entry',name:'Short Einstieg',
+   html:'<span style="display:inline-flex;align-items:center;gap:2px;line-height:1"><span style="width:8px;height:8px;border-radius:50%;background:#ef5350;box-shadow:0 0 4px #ef5350;display:inline-block"></span><span style="color:#ef5350;font-size:11px;font-weight:700">▼</span></span>'},
   {char:'\u{2705}',label:'Verkauft',name:'Take-Profit / Verkauft'},
   {char:'\u{274C}',label:'Stop',name:'Stop-Loss / Verlust'},
   {char:'\u{1F4B0}',label:'Gewinn',name:'Gewinn realisiert'},
@@ -7772,7 +7867,7 @@ window._selectedIconLabel='';
 const grid=document.getElementById('icon-grid');
 if(grid){
   grid.innerHTML=TRADER_ICONS.map((it,i)=>{
-    return '<button data-icon-idx="'+i+'" title="'+it.name+'" style="font-size:16px;background:#1e293b;border:1px solid #334155;border-radius:5px;padding:5px;cursor:pointer;line-height:1">'+it.char+'</button>';
+    return '<button data-icon-idx="'+i+'" title="'+it.name+'" style="font-size:16px;background:#1e293b;border:1px solid #334155;border-radius:5px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;line-height:1;white-space:nowrap;padding:0">'+(it.html||it.char)+'</button>';
   }).join('');
   grid.addEventListener('click',e=>{
     const btn=e.target.closest('[data-icon-idx]');
