@@ -629,6 +629,9 @@ function setAIProvider(p){localStorage.setItem('chartpro_ai_provider',p);}
 // ── State ─────────────────────────────────────────────────────
 let candles=[],alarms=[],alarmType='above',watchlist=[];
 let symMetaCache={}; // {sym: {delay: number_minutes, exchange: string}}
+// Pre-Market / Post-Market Daten von Yahoo (nur für US-Aktien relevant)
+// Format: {sym: {state, pre:{price,time,chg,chgPct}|null, post:{...}|null, reg:{price,time}|null}}
+let extendedHoursCache={};
 let chartEvents={dividends:[],earnings:[],splits:[]}; // {timestamp, amount, type}
 // Wirtschaftskalender 2026 (Hardcoded für wichtige Termine)
 // Quelle: Federal Reserve, BLS, BEA, ECB offizielle Kalender
@@ -797,6 +800,10 @@ let panelStep={},panelTemp={},panelMouse={};
 let selectedPanelAlarm=null; // {panelKey, idx, id}
 let panelDragState=null;     // {panelKey, alarmId, startRy, origPrice, moved}
 let panelTrash={};           // {panelKey: {x,y,w,h,alarmId} | null} — pro Frame gesetzt
+// Indikator-Icon Selection/Drag/Trash State (analog zu Alarm)
+let selectedPanelIcon=null;  // {panelKey, idx, id}
+let panelIconDragState=null; // {panelKey, iconId, startRx, startRy, origIdx, origValue, moved}
+let panelIconTrash={};       // {panelKey: {x,y,w,h,iconId} | null}
 let popupTimer=null;
 let crossSignals=[];
 let aiDrawings=[];
@@ -984,8 +991,8 @@ async function loadCandles(sym,tf){
   // ── Try Yahoo Finance ──
   async function tryYahoo(sym,tf){
     const yUrls=[
-      `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=${iYahoo[tf]}&range=${rYahoo[tf]||'max'}`,
-      `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=${iYahoo[tf]}&range=${rYahoo[tf]||'max'}`,
+      `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=${iYahoo[tf]}&range=${rYahoo[tf]||'max'}&includePrePost=true`,
+      `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=${iYahoo[tf]}&range=${rYahoo[tf]||'max'}&includePrePost=true`,
     ];
     for(const url of yUrls){
       const txt=await corsGet(url,8000);
@@ -1003,6 +1010,30 @@ async function loadCandles(sym,tf){
           // Delay in Minuten speichern (Yahoo liefert 0 bei Live-fähigen Symbolen, 15/20 bei delayed)
           if(meta&&typeof meta.exchangeDataDelayedBy==='number'){
             symMetaCache[sym]={delay:meta.exchangeDataDelayedBy,exchange:meta.exchangeName||meta.fullExchangeName||''};
+          }
+          // Pre-Market / Post-Market Daten cachen (US-Aktien primär)
+          if(meta){
+            const eh={state:meta.marketState||'',pre:null,post:null,reg:null};
+            if(typeof meta.regularMarketPrice==='number'){
+              eh.reg={price:meta.regularMarketPrice,time:meta.regularMarketTime||0};
+            }
+            if(typeof meta.preMarketPrice==='number'&&meta.preMarketPrice>0){
+              eh.pre={
+                price:meta.preMarketPrice,
+                time:meta.preMarketTime||0,
+                chg:meta.preMarketChange||0,
+                chgPct:meta.preMarketChangePercent||0
+              };
+            }
+            if(typeof meta.postMarketPrice==='number'&&meta.postMarketPrice>0){
+              eh.post={
+                price:meta.postMarketPrice,
+                time:meta.postMarketTime||0,
+                chg:meta.postMarketChange||0,
+                chgPct:meta.postMarketChangePercent||0
+              };
+            }
+            extendedHoursCache[sym]=eh;
           }
           // Wenn 4h angefragt: aus 1h-Daten aggregieren (Yahoo liefert kein natives 4h)
           if(tf==='4h'){
@@ -1871,6 +1902,46 @@ const cpPlugin={
         }catch{}
         ctx.textAlign='left';
         ctx.restore();
+      }
+    }
+    // ── Pre-Market / Post-Market Linie (gelb gestrichelt, analog zu TradingView) ──
+    // Wird nur gezeigt wenn:
+    //  - Yahoo Pre/Post-Daten geliefert hat
+    //  - aktuelle Marktphase ist PRE oder POST (sonst überlagern alte Daten)
+    //  - der Wert weicht spürbar vom Schluss-Preis ab (>0.01% Toleranz gegen Rundungsmüll)
+    if(candles.length){
+      const eh=extendedHoursCache[currentSymbol];
+      if(eh){
+        let ext=null,prefix='';
+        if(eh.state==='PRE'&&eh.pre){ext=eh.pre;prefix='Pre';}
+        else if((eh.state==='POST'||eh.state==='POSTPOST')&&eh.post){ext=eh.post;prefix='Post';}
+        if(ext){
+          const lp=candles[candles.length-1].c;
+          const diffPct=Math.abs(ext.price-lp)/Math.max(1e-9,lp);
+          if(diffPct>0.0001){
+            const yp=y.getPixelForValue(ext.price);
+            if(yp>=ca.top&&yp<=ca.bottom){
+              ctx.save();
+              ctx.strokeStyle='#fbbf24'; // amber-400
+              ctx.lineWidth=1;
+              ctx.setLineDash([4,4]);
+              ctx.beginPath();ctx.moveTo(ca.left,yp);ctx.lineTo(ca.right,yp);ctx.stroke();
+              ctx.setLineDash([]);
+              // Y-Achse Label rechts (analog zur regulären Last-Price-Box)
+              const bw3=52,bh3=16;
+              ctx.fillStyle='#fbbf24';
+              ctx.beginPath();ctx.roundRect(ca.right+1,yp-bh3/2,bw3,bh3,3);ctx.fill();
+              ctx.fillStyle='#000';ctx.font='700 10px system-ui';ctx.textAlign='center';
+              ctx.fillText(fmtPrice(ext.price),ca.right+1+bw3/2,yp+3.5);
+              // Beschriftung links auf der Linie
+              const sign=ext.chg>=0?'+':'';
+              const lbl=`${prefix} ${fmtPrice(ext.price)} (${sign}${ext.chgPct.toFixed(2)}%)`;
+              ctx.fillStyle='#fbbf24';ctx.font='10px system-ui';ctx.textAlign='left';
+              ctx.fillText(lbl,ca.left+8,yp-4);
+              ctx.restore();
+            }
+          }
+        }
       }
     }
     // Alarm lines
@@ -3519,7 +3590,7 @@ async function fetchYahooNews(sym){
 function getPanelChart(k){return{vol:volChart,rsi:rsiChart,srsi:srsiChart,macd:macdChart,atr:atrChart}[k];}
 
 function syncPanelOCs(){
-  const drawActive=drawMode==='support'||drawMode==='supportfull'||drawMode==='trendline'||drawMode==='alarm';
+  const drawActive=drawMode==='support'||drawMode==='supportfull'||drawMode==='trendline'||drawMode==='alarm'||drawMode==='icon';
   PANEL_KEYS.forEach(k=>{
     const oc=document.getElementById(k+'-ov');
     const canvas=document.getElementById(k+'-canvas');
@@ -3527,10 +3598,11 @@ function syncPanelOCs(){
     if(!oc||!canvas||!wrap||!wrap.classList.contains('show'))return;
     oc.width=canvas.offsetWidth;oc.height=canvas.offsetHeight;
     oc.style.width=canvas.offsetWidth+'px';oc.style.height=canvas.offsetHeight+'px';
-    // Pointer-Events auch im Pointer-Modus aktiv, wenn ein Indikator-Alarm im Panel existiert
-    // (damit User bestehende Alarme selektieren/draggen/löschen kann)
+    // Pointer-Events auch im Pointer-Modus aktiv, wenn Indikator-Alarm ODER Icon im Panel existiert
+    // (damit User selektieren/draggen/löschen kann)
     const hasAlarmInPanel=alarms.some(a=>a.sym===currentSymbol&&a.indicator===k);
-    const enablePointer=drawActive||hasAlarmInPanel;
+    const hasIconInPanel=(panelDrawings[k]||[]).some(d=>d.type==='icon');
+    const enablePointer=drawActive||hasAlarmInPanel||hasIconInPanel;
     oc.style.pointerEvents=enablePointer?'all':'none';
     if(drawActive)oc.style.cursor='crosshair';
     else oc.style.cursor='default';
@@ -3547,7 +3619,7 @@ function redrawPanelOC(k){
   const{scales:{x,y}}=chart;
   ctx.save();ctx.beginPath();ctx.rect(ca.left,ca.top,ca.right-ca.left,ca.bottom-ca.top);ctx.clip();
   const COL='rgba(180,160,255,.95)';
-  (panelDrawings[k]||[]).forEach(d=>{
+  (panelDrawings[k]||[]).forEach((d,di)=>{
     if(d.type==='hline'){
       const yp=y.getPixelForValue(d.value);
       ctx.save();ctx.strokeStyle=COL;ctx.lineWidth=1;ctx.setLineDash([]);
@@ -3563,10 +3635,46 @@ function redrawPanelOC(k){
       ctx.save();ctx.strokeStyle=COL;ctx.lineWidth=1.5;ctx.setLineDash([]);
       ctx.beginPath();ctx.moveTo(ext.x1,ext.y1);ctx.lineTo(ext.x2,ext.y2);ctx.stroke();
       dpt(ctx,x1,y1,COL);dpt(ctx,x2,y2,COL);ctx.restore();
+    }else if(d.type==='icon'){
+      const vi=d.idx-viewStart;
+      const px=x.getPixelForValue(vi),py=y.getPixelForValue(d.value);
+      if(isNaN(px)||isNaN(py))return;
+      const isSelIcon=selectedPanelIcon&&selectedPanelIcon.panelKey===k&&selectedPanelIcon.id===d.id;
+      ctx.save();
+      const sz=20;
+      if(isSelIcon){
+        ctx.fillStyle='rgba(255,224,102,.25)';
+        ctx.fillRect(px-sz/2,py-sz/2,sz,sz);
+        ctx.strokeStyle='rgba(255,224,102,.9)';ctx.lineWidth=2;
+        ctx.strokeRect(px-sz/2,py-sz/2,sz,sz);
+      }
+      ctx.font='16px system-ui,Apple Color Emoji,Segoe UI Emoji';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(d.icon||'📌',px,py);
+      if(d.label){
+        ctx.font='10px system-ui';ctx.fillStyle='#cbd5e1';
+        ctx.fillText(d.label,px,py+sz/2+8);
+      }
+      ctx.textAlign='left';ctx.textBaseline='alphabetic';
+      ctx.restore();
+      if(isSelIcon){
+        // Trash rechts oben am Icon
+        const tx=px+sz/2,ty=py-sz/2-2;
+        ctx.save();
+        ctx.fillStyle='rgba(239,68,68,.95)';
+        ctx.beginPath();ctx.roundRect(tx-2,ty-16,18,18,3);ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='12px system-ui';
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText('🗑',tx+7,ty-7);
+        ctx.textAlign='left';ctx.textBaseline='alphabetic';
+        ctx.restore();
+        panelIconTrash[k]={x:tx-2,y:ty-16,w:18,h:18,iconId:d.id};
+      }
     }
   });
   // ── Indikator-Alarme zeichnen ───────────────────────────────
   panelTrash[k]=null; // Reset Trash-Position für diesen Frame
+  panelIconTrash[k]=null; // Reset Icon-Trash-Position für diesen Frame
   const matching=alarms.filter(a=>a.sym===currentSymbol&&a.indicator===k);
   matching.forEach(a=>{
     const yp=y.getPixelForValue(a.price);
@@ -3624,6 +3732,14 @@ function redrawPanelOC(k){
       const inf=INDICATOR_INFO[k];
       ctx.fillText(`🔔 ${inf.fmt(v)}`,ca.left+6,mp.ry-4);
     }
+    // Icon-Preview: Vorschau des aktuell gewählten Icons unter dem Cursor
+    if(drawMode==='icon'){
+      ctx.globalAlpha=.55;
+      ctx.font='16px system-ui,Apple Color Emoji,Segoe UI Emoji';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(window._selectedIconChar||'📌',mp.rx,mp.ry);
+      ctx.textAlign='left';ctx.textBaseline='alphabetic';
+    }
     ctx.restore();
   }
   ctx.restore();
@@ -3657,23 +3773,44 @@ function initPanelOverlays(){
         redrawPanelOC(k);
         return;
       }
-      // ── Cursor-Hinweis bei Hover über existierenden Alarm ──
-      if(drawMode==='pointer'||drawMode==='alarm'){
-        const hit=findIndicatorAlarmAt(k,ry);
+      // ── Drag-Update für Indikator-Icon ──
+      if(panelIconDragState&&panelIconDragState.panelKey===k){
+        const dx=rx-panelIconDragState.startRx;
+        const dy=ry-panelIconDragState.startRy;
+        if(!panelIconDragState.moved&&(Math.abs(dx)>3||Math.abs(dy)>3))panelIconDragState.moved=true;
+        const ic=(panelDrawings[k]||[]).find(d=>d.id===panelIconDragState.iconId);
+        if(ic){
+          let newVal=chart.scales.y.getValueForPixel(ry);
+          if(k==='rsi'||k==='srsi')newVal=Math.max(0,Math.min(100,newVal));
+          const newVi=Math.max(0,Math.min(Math.round(chart.scales.x.getValueForPixel(rx)),viewTotal()-1));
+          ic.idx=viewStart+newVi;
+          ic.value=newVal;
+        }
+        oc.style.cursor='grabbing';
+        redrawPanelOC(k);
+        return;
+      }
+      // ── Cursor-Hinweis bei Hover über existierenden Alarm/Icon ──
+      if(drawMode==='pointer'||drawMode==='alarm'||drawMode==='icon'){
+        const hitAlarm=findIndicatorAlarmAt(k,ry);
+        const hitIcon=findIndicatorIconAt(k,rx,ry);
         const trash=panelTrash[k];
+        const iconTrash=panelIconTrash[k];
         const overTrash=trash&&rx>=trash.x-2&&rx<=trash.x+trash.w&&ry>=trash.y-2&&ry<=trash.y+trash.h;
-        if(overTrash)oc.style.cursor='pointer';
-        else if(hit)oc.style.cursor='grab';
-        else oc.style.cursor=drawMode==='alarm'?'crosshair':'default';
+        const overIconTrash=iconTrash&&rx>=iconTrash.x&&rx<=iconTrash.x+iconTrash.w&&ry>=iconTrash.y&&ry<=iconTrash.y+iconTrash.h;
+        if(overTrash||overIconTrash)oc.style.cursor='pointer';
+        else if(hitAlarm||hitIcon)oc.style.cursor='grab';
+        else if(drawMode==='alarm'||drawMode==='icon')oc.style.cursor='crosshair';
+        else oc.style.cursor='default';
       }
       redrawPanelOC(k);
     });
     oc.addEventListener('mouseleave',()=>{delete panelMouse[k];redrawPanelOC(k);});
     oc.addEventListener('contextmenu',e=>{
       e.preventDefault();
-      // Rechtsklick auf Alarm → löschen
       const rect=oc.getBoundingClientRect();
-      const ry=e.clientY-rect.top;
+      const rx=e.clientX-rect.left,ry=e.clientY-rect.top;
+      // Rechtsklick auf Alarm → löschen
       const hit=findIndicatorAlarmAt(k,ry);
       if(hit){
         alarms=alarms.filter((_,i)=>i!==hit.idx);
@@ -3682,6 +3819,16 @@ function initPanelOverlays(){
         renderAlarmTags();
         refreshSubChartAlarms();
         setStatus('Alarm gelöscht','ok');
+        return;
+      }
+      // Rechtsklick auf Icon → löschen
+      const hitIcon=findIndicatorIconAt(k,rx,ry);
+      if(hitIcon){
+        panelDrawings[k].splice(hitIcon.idx,1);
+        if(selectedPanelIcon&&selectedPanelIcon.id===hitIcon.id)selectedPanelIcon=null;
+        try{localStorage.setItem('zen_panelDrawings',JSON.stringify(panelDrawings));}catch{}
+        refreshSubChartAlarms();
+        setStatus('Icon gelöscht','ok');
         return;
       }
       setDrawMode('pointer');
@@ -3693,7 +3840,7 @@ function initPanelOverlays(){
       const rx=e.clientX-rect.left,ry=e.clientY-rect.top;
       const ca=chart.chartArea;if(!ca)return;
       if(rx<ca.left||rx>ca.right||ry<ca.top||ry>ca.bottom)return;
-      // Trash-Icon-Klick prüfen (nur wenn ein Alarm selektiert ist)
+      // Trash-Icon-Klick prüfen (Alarm)
       const trash=panelTrash[k];
       if(trash&&rx>=trash.x-2&&rx<=trash.x+trash.w&&ry>=trash.y-2&&ry<=trash.y+trash.h){
         alarms=alarms.filter(a=>a.id!==trash.alarmId);
@@ -3705,22 +3852,47 @@ function initPanelOverlays(){
         e.preventDefault();e.stopPropagation();
         return;
       }
+      // Trash-Icon-Klick prüfen (Icon)
+      const iconTrash=panelIconTrash[k];
+      if(iconTrash&&rx>=iconTrash.x&&rx<=iconTrash.x+iconTrash.w&&ry>=iconTrash.y&&ry<=iconTrash.y+iconTrash.h){
+        panelDrawings[k]=panelDrawings[k].filter(d=>d.id!==iconTrash.iconId);
+        selectedPanelIcon=null;
+        try{localStorage.setItem('zen_panelDrawings',JSON.stringify(panelDrawings));}catch{}
+        refreshSubChartAlarms();
+        setStatus('Icon gelöscht','ok');
+        e.preventDefault();e.stopPropagation();
+        return;
+      }
       // Hit-Test auf existierende Alarme → Selection + Drag-Start
       const hit=findIndicatorAlarmAt(k,ry);
       if(hit){
         selectedPanelAlarm={panelKey:k,idx:hit.idx,id:hit.id};
+        selectedPanelIcon=null;
         const a=alarms[hit.idx];
         panelDragState={panelKey:k,alarmId:a.id,startRy:ry,origPrice:a.price,moved:false};
-        // Andere Selektionen aufheben
+        if(typeof selectedDrawing!=='undefined')selectedDrawing=null;
+        redrawPanelOC(k);
+        e.preventDefault();e.stopPropagation();
+        return;
+      }
+      // Hit-Test auf existierende Icons → Selection + Drag-Start
+      const hitIcon=findIndicatorIconAt(k,rx,ry);
+      if(hitIcon){
+        selectedPanelIcon={panelKey:k,idx:hitIcon.idx,id:hitIcon.id};
+        selectedPanelAlarm=null;
+        const ic=panelDrawings[k][hitIcon.idx];
+        panelIconDragState={panelKey:k,iconId:ic.id,startRx:rx,startRy:ry,origIdx:ic.idx,origValue:ic.value,moved:false};
         if(typeof selectedDrawing!=='undefined')selectedDrawing=null;
         redrawPanelOC(k);
         e.preventDefault();e.stopPropagation();
         return;
       }
       // Klick ins Leere im Pointer-Modus → Selektion löschen
-      if(drawMode==='pointer'&&selectedPanelAlarm&&selectedPanelAlarm.panelKey===k){
-        selectedPanelAlarm=null;
-        redrawPanelOC(k);
+      if(drawMode==='pointer'){
+        let needsRedraw=false;
+        if(selectedPanelAlarm&&selectedPanelAlarm.panelKey===k){selectedPanelAlarm=null;needsRedraw=true;}
+        if(selectedPanelIcon&&selectedPanelIcon.panelKey===k){selectedPanelIcon=null;needsRedraw=true;}
+        if(needsRedraw)redrawPanelOC(k);
       }
     });
     oc.addEventListener('mouseup',e=>{
@@ -3734,6 +3906,15 @@ function initPanelOverlays(){
         panelDragState=null;
         redrawPanelOC(k);
       }
+      if(panelIconDragState&&panelIconDragState.panelKey===k){
+        if(panelIconDragState.moved){
+          try{localStorage.setItem('zen_panelDrawings',JSON.stringify(panelDrawings));}catch{}
+          setStatus('Icon verschoben','ok');
+          setTimeout(()=>setStatus('Bereit','idle'),1200);
+        }
+        panelIconDragState=null;
+        redrawPanelOC(k);
+      }
     });
     oc.addEventListener('click',e=>{
       const chart=getPanelChart(k);if(!chart)return;
@@ -3741,10 +3922,11 @@ function initPanelOverlays(){
       const rx=e.clientX-rect.left,ry=e.clientY-rect.top;
       const ca=chart.chartArea;if(!ca)return;
       if(rx<ca.left||rx>ca.right||ry<ca.top||ry>ca.bottom)return;
-      // Wenn gerade ein Drag passiert ist, KEINEN neuen Alarm setzen
-      if(panelDragState||(panelDragState===null&&e.defaultPrevented))return;
-      // Wenn Klick auf Alarm-Linie (im Alarm-Modus) → bereits in mousedown selektiert, Click ignorieren
+      // Wenn gerade ein Drag passiert ist, KEINEN neuen Alarm/Icon setzen
+      if(panelDragState||panelIconDragState||(panelDragState===null&&e.defaultPrevented))return;
+      // Wenn Klick auf Alarm-Linie oder Icon → bereits in mousedown selektiert, Click ignorieren
       if(findIndicatorAlarmAt(k,ry))return;
+      if(findIndicatorIconAt(k,rx,ry))return;
       const value=chart.scales.y.getValueForPixel(ry);
       const vi=Math.max(0,Math.min(Math.round(chart.scales.x.getValueForPixel(rx)),viewTotal()-1));
       const fullIdx=viewStart+vi;
@@ -3766,6 +3948,18 @@ function initPanelOverlays(){
         const dir=(cur!=null&&v>=cur)?'above':'below';
         addIndicatorAlarm(k,v,dir);
         setDrawMode('pointer');
+      }else if(drawMode==='icon'){
+        // Indikator-Icon stempeln (Multi-Stempel: Modus bleibt aktiv, Esc zum Verlassen)
+        let v=value;
+        if(k==='rsi'||k==='srsi')v=Math.max(0,Math.min(100,v));
+        if(isNaN(v))return;
+        const sel=window._selectedIconChar||'📌';
+        const lbl=window._selectedIconLabel||'';
+        panelDrawings[k].push({type:'icon',icon:sel,label:lbl,idx:fullIdx,value:v,id:Date.now()});
+        try{localStorage.setItem('zen_panelDrawings',JSON.stringify(panelDrawings));}catch{}
+        // syncPanelOCs erneut: damit pointer-events aktiviert bleiben (für späteres Drag)
+        syncPanelOCs();
+        redrawPanelOC(k);
       }
     });
   });
@@ -4680,6 +4874,25 @@ function findIndicatorAlarmAt(panelKey,ry){
   }
   return null;
 }
+
+// Findet Indikator-Icon unter Mauszeiger (Box ca. 20x20 px)
+function findIndicatorIconAt(panelKey,rx,ry){
+  const chart=(typeof getPanelChart==='function')?getPanelChart(panelKey):null;
+  if(!chart||!chart.scales||!chart.scales.y||!chart.scales.x)return null;
+  const arr=panelDrawings[panelKey]||[];
+  const sz=12; // Hit-Box-Halb-Größe (etwas grösser als sz/2=10 für Toleranz)
+  // Rückwärts iterieren: oberstes Icon wird zuerst gefunden
+  for(let i=arr.length-1;i>=0;i--){
+    const d=arr[i];
+    if(d.type!=='icon')continue;
+    const vi=d.idx-viewStart;
+    const ix=chart.scales.x.getPixelForValue(vi);
+    const iy=chart.scales.y.getPixelForValue(d.value);
+    if(isNaN(ix)||isNaN(iy))continue;
+    if(Math.abs(rx-ix)<=sz&&Math.abs(ry-iy)<=sz)return{idx:i,id:d.id,panelKey};
+  }
+  return null;
+}
 // Intervall starten (läuft wenn entweder Preis-Alarme ODER Zeichnungen mit aktiviertem Fib/TL/SR da sind)
 function startAlarmLoop(){
   if(!alarmInterval)alarmInterval=setInterval(checkAlarms,8000);
@@ -5311,6 +5524,22 @@ function renderWL(){
     const hasAlarm=!!alarmMarks[s];
     const alarmTitle=hasAlarm?('Alarm ausgelöst: '+(alarmMarks[s].msg||'?')+' am '+new Date(alarmMarks[s].ts).toLocaleString('de-DE')):'';
     const alarmIcon=hasAlarm?`<span class="wl-alarm-mark" title="${alarmTitle.replace(/"/g,'&quot;')}">🔔</span>`:'';
+    // Pre/Post-Market-Zeile (gelb), nur wenn Yahoo Daten geliefert hat und Marktphase passt
+    let extRow='';
+    const eh=extendedHoursCache[s];
+    if(eh){
+      let ext=null,prefix='';
+      if(eh.state==='PRE'&&eh.pre){ext=eh.pre;prefix='Pre';}
+      else if((eh.state==='POST'||eh.state==='POSTPOST')&&eh.post){ext=eh.post;prefix='Post';}
+      if(ext){
+        const sign=ext.chg>=0?'+':'';
+        const colE=ext.chg>=0?'#26a69a':'#ef5350';
+        extRow=`<div class="wl-row" style="color:#fbbf24;font-size:11px;line-height:1">
+          <span style="opacity:.85">${prefix} ${fmtPrice(ext.price,s)}</span>
+          <span style="color:${colE}">${sign}${ext.chgPct.toFixed(2)}%</span>
+        </div>`;
+      }
+    }
     return `<div class="wl-item${s===currentSymbol?' active':''}${hasAlarm?' has-alarm':''}" data-sym="${s}" data-idx="${idx}" draggable="true">
       <div class="wl-row">
         <span class="wl-name">${displayName}</span>
@@ -5323,6 +5552,7 @@ function renderWL(){
           <span class="wl-chg-pct" id="wlpct-${id}" style="color:${col}">${pctTxt}</span>
         </span>
       </div>
+      ${extRow}
       ${alarmIcon}
       <span class="wl-del" data-del="${s}">✕</span>
     </div>`;
