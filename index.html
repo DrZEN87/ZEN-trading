@@ -1971,7 +1971,8 @@ function createRSI(labels){
         ctx.restore();
       });
       ctx.restore();}},
-      makeLiveLabelPlugin(0,v=>v>=70?C.dn:v<=30?C.up:C.rsiLine,v=>v.toFixed(1))]
+      makeLiveLabelPlugin(0,v=>v>=70?C.dn:v<=30?C.up:C.rsiLine,v=>v.toFixed(1)),
+      makeAlarmLinePlugin('rsi')]
   });
 }
 function createSRSI(labels){
@@ -1982,7 +1983,8 @@ function createSRSI(labels){
     type:'line',data:{labels:labels||getLabels(),datasets:[{label:'%K',data:[...k.slice(sl,el),...Array(pads).fill(null)],borderColor:C.srsiK,borderWidth:1.5,pointRadius:0,fill:false},{label:'%D',data:[...d.slice(sl,el),...Array(pads).fill(null)],borderColor:C.srsiD,borderWidth:1,pointRadius:0,fill:false,borderDash:[3,3]}]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{display:false},y:{position:'right',min:0,max:100,ticks:{color:C.txt,font:{size:9}},grid:{color:C.grid}}}},
     plugins:[{id:'sz',beforeDraw(chart){const{ctx,chartArea,scales:{y}}=chart;if(!chartArea)return;const{left,right}=chartArea;ctx.save();ctx.fillStyle='rgba(239,68,68,.07)';ctx.fillRect(left,y.getPixelForValue(80),right-left,y.getPixelForValue(100)-y.getPixelForValue(80));ctx.fillStyle='rgba(34,197,94,.07)';ctx.fillRect(left,y.getPixelForValue(20),right-left,y.getPixelForValue(0)-y.getPixelForValue(20));ctx.restore();}},
-      makeLiveLabelPlugin(0,v=>v>=80?C.dn:v<=20?C.up:C.srsiK,v=>v.toFixed(0))]
+      makeLiveLabelPlugin(0,v=>v>=80?C.dn:v<=20?C.up:C.srsiK,v=>v.toFixed(0)),
+      makeAlarmLinePlugin('srsi')]
   });
 }
 function createMACD(labels){
@@ -2006,7 +2008,8 @@ function createMACD(labels){
       {data:[...signal.slice(sl,el),...Array(pads).fill(null)],borderColor:C.macdSig,borderWidth:1,pointRadius:0,type:'line',order:0,tension:.3}
     ]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{display:false},y:{position:'right',ticks:{color:C.txt,font:{size:9},callback:v=>v.toFixed(1)},grid:{color:C.grid}}}},
-    plugins:[makeLiveLabelPlugin(1,v=>v>=0?C.up:C.dn,v=>v.toFixed(2))]
+    plugins:[makeLiveLabelPlugin(1,v=>v>=0?C.up:C.dn,v=>v.toFixed(2)),
+      makeAlarmLinePlugin('macd')]
   });
 }
 function createATR(labels){
@@ -2016,7 +2019,8 @@ function createATR(labels){
   atrChart=new Chart(document.getElementById('atr-canvas'),{
     type:'line',data:{labels:labels||getLabels(),datasets:[{label:'ATR',data:[...atr.slice(viewStart,viewStart+vc.length),...Array(pads).fill(null)],borderColor:C.atrLine,borderWidth:1.5,pointRadius:0,fill:false}]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw!=null?'ATR: '+fmtPrice(c.raw):''}}},scales:{x:{display:false},y:{position:'right',ticks:{color:C.txt,font:{size:9},callback:v=>fmtPrice(v)},grid:{color:C.grid}}}},
-    plugins:[makeLiveLabelPlugin(0,()=>C.atrLine,v=>fmtPrice(v))]
+    plugins:[makeLiveLabelPlugin(0,()=>C.atrLine,v=>fmtPrice(v)),
+      makeAlarmLinePlugin('atr')]
   });
 }
 
@@ -4456,7 +4460,7 @@ function addAlarm(price,dir){
   if(isNaN(price)||price<=0)return;
   // Duplicate protection: ignore if same symbol+price+dir added in last 2s
   const now=Date.now();
-  const dup=alarms.find(a=>a.sym===currentSymbol&&Math.abs(a.price-price)<0.01&&a.dir===dir&&(now-a.id)<2000);
+  const dup=alarms.find(a=>a.sym===currentSymbol&&!a.indicator&&Math.abs(a.price-price)<0.01&&a.dir===dir&&(now-a.id)<2000);
   if(dup){setStatus('⚠ Alarm schon gesetzt','err');return;}
   alarms.push({price,dir,sym:currentSymbol,id:now});
   renderAlarmTags();
@@ -4466,14 +4470,127 @@ function addAlarm(price,dir){
     cloudAddAlarm(currentSymbol,dir,price);
   }
 }
+
+// ── Indikator-Alarme (RSI / StochRSI / MACD / ATR / Volumen) ──
+// Nutzen das gleiche alarms[] Array, aber mit zusätzlichem 'indicator'-Feld.
+// HINWEIS: Indikator-Alarme sind LOKAL ONLY — kein Cloud-Sync, kein Email-Versand.
+// Trigger lokal: Popup, Sound, TTS, Watchlist-Marker.
+const INDICATOR_INFO={
+  rsi:  {label:'RSI',     fmt:v=>v.toFixed(1)},
+  srsi: {label:'StochRSI',fmt:v=>v.toFixed(1)},
+  macd: {label:'MACD',    fmt:v=>v.toFixed(3)},
+  atr:  {label:'ATR',     fmt:v=>fmtPrice(v)},
+};
+
+// Aktueller Wert eines Indikators (letzte Kerze) — null wenn nicht berechenbar
+function getCurrentIndicatorValue(ind){
+  if(!candles.length)return null;
+  const closes=candles.map(c=>c.c);
+  if(ind==='rsi'){const r=rsiCalc(closes);return r[r.length-1];}
+  if(ind==='srsi'){const{k}=stochRSI(closes);return k[k.length-1];}
+  if(ind==='macd'){const{line}=macdCalc(closes);return line[line.length-1];}
+  if(ind==='atr'){const a=atrCalc(candles);return a[a.length-1];}
+  return null;
+}
+
+function addIndicatorAlarm(indicator,value,dir){
+  if(value===null||value===undefined||isNaN(value))return;
+  if(!INDICATOR_INFO[indicator])return;
+  const now=Date.now();
+  // Duplicate-Schutz: gleiches Symbol+Indikator+ähnlicher Wert+Richtung innerhalb 2s
+  const tol=Math.max(Math.abs(value)*0.01,0.001);
+  const dup=alarms.find(a=>a.sym===currentSymbol&&a.indicator===indicator&&Math.abs(a.price-value)<tol&&a.dir===dir&&(now-a.id)<2000);
+  if(dup){setStatus('⚠ Alarm schon gesetzt','err');return;}
+  alarms.push({indicator,price:value,dir,sym:currentSymbol,id:now});
+  renderAlarmTags();
+  refreshSubChartAlarms();
+  startAlarmLoop();
+  const inf=INDICATOR_INFO[indicator];
+  setStatus(`🔔 ${inf.label}-Alarm: ${dir==='above'?'≥':'≤'} ${inf.fmt(value)}`,'ok');
+}
+
+// Trigger Subcharts neu zu zeichnen damit Alarm-Linie erscheint
+function refreshSubChartAlarms(){
+  try{if(rsiChart)rsiChart.update('none');}catch(_){}
+  try{if(srsiChart)srsiChart.update('none');}catch(_){}
+  try{if(macdChart)macdChart.update('none');}catch(_){}
+  try{if(atrChart)atrChart.update('none');}catch(_){}
+}
+
+// Chart.js Plugin-Factory — zeichnet horizontale Alarm-Linien im Subchart
+function makeAlarmLinePlugin(indId){
+  return {
+    id:'alarmLine_'+indId,
+    afterDraw(chart){
+      if(!chart||!chart.chartArea||!chart.scales||!chart.scales.y)return;
+      const matching=alarms.filter(a=>a.sym===currentSymbol&&a.indicator===indId);
+      if(!matching.length)return;
+      const ctx=chart.ctx;
+      const yScale=chart.scales.y;
+      const{left,right}=chart.chartArea;
+      matching.forEach(a=>{
+        const y=yScale.getPixelForValue(a.price);
+        if(isNaN(y)||y<chart.chartArea.top||y>chart.chartArea.bottom)return;
+        ctx.save();
+        ctx.strokeStyle='#ffe066';
+        ctx.lineWidth=1.2;
+        ctx.setLineDash([5,3]);
+        ctx.globalAlpha=0.75;
+        ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha=1;
+        ctx.fillStyle='#ffe066';
+        ctx.font='10px system-ui';
+        const arrow=a.dir==='above'?'▲':'▼';
+        const inf=INDICATOR_INFO[indId];
+        ctx.fillText(`🔔 ${arrow} ${inf.fmt(a.price)}`,left+6,y-4);
+        ctx.restore();
+      });
+    }
+  };
+}
+
+// Click-Handler auf Subchart-Canvas — einmal beim Init anhängen
+// Funktioniert über Chart-Recreations hinweg, da Canvas-Element identisch bleibt
+['rsi','srsi','macd','atr'].forEach(ind=>{
+  const canvas=document.getElementById(ind+'-canvas');
+  if(!canvas)return;
+  canvas.addEventListener('click',e=>{
+    if(drawMode!=='alarm')return;
+    e.stopPropagation();
+    const chart=(typeof getPanelChart==='function')?getPanelChart(ind):null;
+    if(!chart||!chart.chartArea||!chart.scales||!chart.scales.y)return;
+    const rect=canvas.getBoundingClientRect();
+    const cx=e.clientX-rect.left;
+    const cy=e.clientY-rect.top;
+    const ca=chart.chartArea;
+    // Click muss innerhalb der Plot-Area liegen (nicht auf Y-Achse oder Padding)
+    if(cx<ca.left||cx>ca.right||cy<ca.top||cy>ca.bottom)return;
+    let value=chart.scales.y.getValueForPixel(cy);
+    if(value===null||isNaN(value))return;
+    // Sinnvolle Wertebereiche
+    if(ind==='rsi'||ind==='srsi')value=Math.max(0,Math.min(100,value));
+    const cur=getCurrentIndicatorValue(ind);
+    const dir=(cur!=null&&value>=cur)?'above':'below';
+    addIndicatorAlarm(ind,value,dir);
+    setDrawMode('pointer');
+  });
+});
 // Intervall starten (läuft wenn entweder Preis-Alarme ODER Zeichnungen mit aktiviertem Fib/TL/SR da sind)
 function startAlarmLoop(){
   if(!alarmInterval)alarmInterval=setInterval(checkAlarms,8000);
 }
 function renderAlarmTags(){
   const el=document.getElementById('al-list');
-  el.innerHTML=alarms.map(a=>`<div class="al-tag">${a.sym} ${a.dir==='above'?'▲':'▼'} ${getCurrency(a.sym)}${a.price.toFixed(2)}<span class="al-x" data-id="${a.id}">✕</span></div>`).join('');
-  el.querySelectorAll('.al-x').forEach(b=>b.addEventListener('click',()=>{alarms=alarms.filter(a=>a.id!=b.dataset.id);renderAlarmTags();renderAll();redrawOC();}));
+  el.innerHTML=alarms.map(a=>{
+    const arrow=a.dir==='above'?'▲':'▼';
+    if(a.indicator&&INDICATOR_INFO[a.indicator]){
+      const inf=INDICATOR_INFO[a.indicator];
+      return `<div class="al-tag" style="background:rgba(255,224,102,.12);border-color:rgba(255,224,102,.4)">${a.sym} <span style="color:#ffe066;font-weight:600">${inf.label}</span> ${arrow} ${inf.fmt(a.price)}<span class="al-x" data-id="${a.id}">✕</span></div>`;
+    }
+    return `<div class="al-tag">${a.sym} ${arrow} ${getCurrency(a.sym)}${a.price.toFixed(2)}<span class="al-x" data-id="${a.id}">✕</span></div>`;
+  }).join('');
+  el.querySelectorAll('.al-x').forEach(b=>b.addEventListener('click',()=>{alarms=alarms.filter(a=>a.id!=b.dataset.id);renderAlarmTags();renderAll();redrawOC();refreshSubChartAlarms();}));
 }
 function checkAlarms(){
   if(!candles.length)return;
@@ -4482,22 +4599,45 @@ function checkAlarms(){
   const triggeredIds=[];
   alarms.forEach(a=>{
     if(a.sym!==currentSymbol)return;
-    if((a.dir==='above'&&cur>=a.price)||(a.dir==='below'&&cur<=a.price)){
+    // Indikator-Alarm: prüfe gegen aktuellen Indikator-Wert
+    let val,isIndicator=false;
+    if(a.indicator&&INDICATOR_INFO[a.indicator]){
+      val=getCurrentIndicatorValue(a.indicator);
+      if(val===null||val===undefined||isNaN(val))return;
+      isIndicator=true;
+    }else{
+      val=cur;
+    }
+    if((a.dir==='above'&&val>=a.price)||(a.dir==='below'&&val<=a.price)){
       if(!a.triggered){
         a.triggered=true;
-        if(alarmShowPopup('price'))showPopup(a);
-        const cur2=getCurrency(a.sym);
-        const msg=a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2);
-        setStatus('🔔 Alarm: '+msg,'err');
-        if(typeof recordAlarm==='function')recordAlarm('Preis-'+a.dir,a.sym,'',msg);
-        if(Notification.permission==='granted')new Notification(a.sym+' Alarm',{body:(a.dir==='above'?'Über':'Unter')+' '+cur2+a.price.toFixed(2)});
-        else if(Notification.permission!=='denied')Notification.requestPermission();
-        // Sound + TTS in die Queue: kein Überlappen mehr
-        const richtung=a.dir==='above'?'überschritten':'unterschritten';
-        enqueueAlarm(speakableSymbol(a.sym)+' Alarm: '+a.price.toFixed(2)+' '+currencyName(cur2)+' '+richtung);
-        if(alarmSendEmail('price'))sendAlarmEmail(a);
-        // Cloud: mark as triggered (will be auto-removed on next check)
-        if(localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
+        if(isIndicator){
+          // Indikator-Alarm: lokal only (kein Cloud, kein Email)
+          const inf=INDICATOR_INFO[a.indicator];
+          const richtung=a.dir==='above'?'überschritten':'unterschritten';
+          const popupTitle=`${inf.label}-Alarm ausgelöst`;
+          const popupMsg=`${_alarmLabel(a.sym)}: ${inf.label} ${a.dir==='above'?'≥':'≤'} ${inf.fmt(a.price)} (aktuell: ${inf.fmt(val)})`;
+          if(alarmShowPopup('price'))showAlarmPopup(popupTitle,popupMsg);
+          _markWLAlarm(a.sym,`${inf.label} ${a.dir==='above'?'≥':'≤'} ${inf.fmt(a.price)}`);
+          setStatus('🔔 '+popupMsg,'err');
+          if(typeof recordAlarm==='function')recordAlarm(inf.label+'-'+a.dir,a.sym,'',popupMsg);
+          if(Notification.permission==='granted')new Notification(a.sym+' '+inf.label+' Alarm',{body:`${inf.label} ${richtung} ${inf.fmt(a.price)}`});
+          else if(Notification.permission!=='denied')Notification.requestPermission();
+          enqueueAlarm(`${speakableSymbol(a.sym)} ${inf.label} Alarm: ${inf.fmt(a.price)} ${richtung}`);
+        }else{
+          // Klassischer Preis-Alarm (unverändert)
+          if(alarmShowPopup('price'))showPopup(a);
+          const cur2=getCurrency(a.sym);
+          const msg=a.sym+' '+(a.dir==='above'?'über':'unter')+' '+cur2+a.price.toFixed(2);
+          setStatus('🔔 Alarm: '+msg,'err');
+          if(typeof recordAlarm==='function')recordAlarm('Preis-'+a.dir,a.sym,'',msg);
+          if(Notification.permission==='granted')new Notification(a.sym+' Alarm',{body:(a.dir==='above'?'Über':'Unter')+' '+cur2+a.price.toFixed(2)});
+          else if(Notification.permission!=='denied')Notification.requestPermission();
+          const richtung=a.dir==='above'?'überschritten':'unterschritten';
+          enqueueAlarm(speakableSymbol(a.sym)+' Alarm: '+a.price.toFixed(2)+' '+currencyName(cur2)+' '+richtung);
+          if(alarmSendEmail('price'))sendAlarmEmail(a);
+          if(localStorage.getItem('zen_alarm_email')){cloudDeleteAlarm(a.sym,a.price);}
+        }
         triggeredIds.push(a.id);
       }
     }
@@ -4508,6 +4648,7 @@ function checkAlarms(){
       alarms=alarms.filter(a=>!triggeredIds.includes(a.id));
       renderAlarmTags();
       redrawOC();
+      refreshSubChartAlarms();
     },2000); // 2s delay so user sees the alarm line briefly
   }
   // Zeichnungs-Alarme (Fib / Trendline / S-R) im gleichen Intervall prüfen
@@ -4529,7 +4670,7 @@ document.getElementById('al-toggle-btn').addEventListener('click',(e)=>{
   if(!requireProfileFor('alarm'))return;
   setDrawMode('alarm');
   const email=localStorage.getItem('zen_alarm_email')||'';
-  setStatus('🔔 Alarm-Modus AKTIV — Klick im Chart setzt Alarm (wird an '+email+' gesendet)','ai');
+  setStatus('🔔 Alarm-Modus AKTIV — Klick im Chart (→ Email '+email+') ODER in Indikator (RSI/StochRSI/MACD/ATR — lokal only)','ai');
 });
 
 // ── RSI-Alarme für Watchlist-Symbole ──────────────────────────
