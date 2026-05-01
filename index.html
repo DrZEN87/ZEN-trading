@@ -793,6 +793,10 @@ let mainResizing=false,mainResizeStartY=0,mainResizeStartH=0;
 const PANEL_KEYS=['vol','rsi','srsi','macd','atr'];
 let panelDrawings={vol:[],rsi:[],srsi:[],macd:[],atr:[]};
 let panelStep={},panelTemp={},panelMouse={};
+// Indikator-Alarm Selection/Drag/Trash State
+let selectedPanelAlarm=null; // {panelKey, idx, id}
+let panelDragState=null;     // {panelKey, alarmId, startRy, origPrice, moved}
+let panelTrash={};           // {panelKey: {x,y,w,h,alarmId} | null} — pro Frame gesetzt
 let popupTimer=null;
 let crossSignals=[];
 let aiDrawings=[];
@@ -1971,8 +1975,7 @@ function createRSI(labels){
         ctx.restore();
       });
       ctx.restore();}},
-      makeLiveLabelPlugin(0,v=>v>=70?C.dn:v<=30?C.up:C.rsiLine,v=>v.toFixed(1)),
-      makeAlarmLinePlugin('rsi')]
+      makeLiveLabelPlugin(0,v=>v>=70?C.dn:v<=30?C.up:C.rsiLine,v=>v.toFixed(1))]
   });
 }
 function createSRSI(labels){
@@ -1983,8 +1986,7 @@ function createSRSI(labels){
     type:'line',data:{labels:labels||getLabels(),datasets:[{label:'%K',data:[...k.slice(sl,el),...Array(pads).fill(null)],borderColor:C.srsiK,borderWidth:1.5,pointRadius:0,fill:false},{label:'%D',data:[...d.slice(sl,el),...Array(pads).fill(null)],borderColor:C.srsiD,borderWidth:1,pointRadius:0,fill:false,borderDash:[3,3]}]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{display:false},y:{position:'right',min:0,max:100,ticks:{color:C.txt,font:{size:9}},grid:{color:C.grid}}}},
     plugins:[{id:'sz',beforeDraw(chart){const{ctx,chartArea,scales:{y}}=chart;if(!chartArea)return;const{left,right}=chartArea;ctx.save();ctx.fillStyle='rgba(239,68,68,.07)';ctx.fillRect(left,y.getPixelForValue(80),right-left,y.getPixelForValue(100)-y.getPixelForValue(80));ctx.fillStyle='rgba(34,197,94,.07)';ctx.fillRect(left,y.getPixelForValue(20),right-left,y.getPixelForValue(0)-y.getPixelForValue(20));ctx.restore();}},
-      makeLiveLabelPlugin(0,v=>v>=80?C.dn:v<=20?C.up:C.srsiK,v=>v.toFixed(0)),
-      makeAlarmLinePlugin('srsi')]
+      makeLiveLabelPlugin(0,v=>v>=80?C.dn:v<=20?C.up:C.srsiK,v=>v.toFixed(0))]
   });
 }
 function createMACD(labels){
@@ -2008,8 +2010,7 @@ function createMACD(labels){
       {data:[...signal.slice(sl,el),...Array(pads).fill(null)],borderColor:C.macdSig,borderWidth:1,pointRadius:0,type:'line',order:0,tension:.3}
     ]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{display:false},y:{position:'right',ticks:{color:C.txt,font:{size:9},callback:v=>v.toFixed(1)},grid:{color:C.grid}}}},
-    plugins:[makeLiveLabelPlugin(1,v=>v>=0?C.up:C.dn,v=>v.toFixed(2)),
-      makeAlarmLinePlugin('macd')]
+    plugins:[makeLiveLabelPlugin(1,v=>v>=0?C.up:C.dn,v=>v.toFixed(2))]
   });
 }
 function createATR(labels){
@@ -2019,8 +2020,7 @@ function createATR(labels){
   atrChart=new Chart(document.getElementById('atr-canvas'),{
     type:'line',data:{labels:labels||getLabels(),datasets:[{label:'ATR',data:[...atr.slice(viewStart,viewStart+vc.length),...Array(pads).fill(null)],borderColor:C.atrLine,borderWidth:1.5,pointRadius:0,fill:false}]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw!=null?'ATR: '+fmtPrice(c.raw):''}}},scales:{x:{display:false},y:{position:'right',ticks:{color:C.txt,font:{size:9},callback:v=>fmtPrice(v)},grid:{color:C.grid}}}},
-    plugins:[makeLiveLabelPlugin(0,()=>C.atrLine,v=>fmtPrice(v)),
-      makeAlarmLinePlugin('atr')]
+    plugins:[makeLiveLabelPlugin(0,()=>C.atrLine,v=>fmtPrice(v))]
   });
 }
 
@@ -3519,7 +3519,7 @@ async function fetchYahooNews(sym){
 function getPanelChart(k){return{vol:volChart,rsi:rsiChart,srsi:srsiChart,macd:macdChart,atr:atrChart}[k];}
 
 function syncPanelOCs(){
-  const drawActive=drawMode==='support'||drawMode==='supportfull'||drawMode==='trendline';
+  const drawActive=drawMode==='support'||drawMode==='supportfull'||drawMode==='trendline'||drawMode==='alarm';
   PANEL_KEYS.forEach(k=>{
     const oc=document.getElementById(k+'-ov');
     const canvas=document.getElementById(k+'-canvas');
@@ -3527,8 +3527,13 @@ function syncPanelOCs(){
     if(!oc||!canvas||!wrap||!wrap.classList.contains('show'))return;
     oc.width=canvas.offsetWidth;oc.height=canvas.offsetHeight;
     oc.style.width=canvas.offsetWidth+'px';oc.style.height=canvas.offsetHeight+'px';
-    oc.style.pointerEvents=drawActive?'all':'none';
-    oc.style.cursor=drawActive?'crosshair':'default';
+    // Pointer-Events auch im Pointer-Modus aktiv, wenn ein Indikator-Alarm im Panel existiert
+    // (damit User bestehende Alarme selektieren/draggen/löschen kann)
+    const hasAlarmInPanel=alarms.some(a=>a.sym===currentSymbol&&a.indicator===k);
+    const enablePointer=drawActive||hasAlarmInPanel;
+    oc.style.pointerEvents=enablePointer?'all':'none';
+    if(drawActive)oc.style.cursor='crosshair';
+    else oc.style.cursor='default';
   });
 }
 
@@ -3560,7 +3565,40 @@ function redrawPanelOC(k){
       dpt(ctx,x1,y1,COL);dpt(ctx,x2,y2,COL);ctx.restore();
     }
   });
-  // Preview
+  // ── Indikator-Alarme zeichnen ───────────────────────────────
+  panelTrash[k]=null; // Reset Trash-Position für diesen Frame
+  const matching=alarms.filter(a=>a.sym===currentSymbol&&a.indicator===k);
+  matching.forEach(a=>{
+    const yp=y.getPixelForValue(a.price);
+    if(isNaN(yp))return;
+    const isSel=selectedPanelAlarm&&selectedPanelAlarm.panelKey===k&&selectedPanelAlarm.id===a.id;
+    ctx.save();
+    ctx.strokeStyle='#ffe066';
+    ctx.lineWidth=isSel?2:1.2;
+    ctx.setLineDash(isSel?[]:[5,3]);
+    ctx.globalAlpha=isSel?1:0.85;
+    ctx.beginPath();ctx.moveTo(ca.left,yp);ctx.lineTo(ca.right,yp);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha=1;
+    ctx.fillStyle='#ffe066';
+    ctx.font=isSel?'bold 10px system-ui':'10px system-ui';
+    const arrow=a.dir==='above'?'▲':'▼';
+    const inf=INDICATOR_INFO[k];
+    ctx.fillText(`🔔 ${arrow} ${inf.fmt(a.price)}`,ca.left+6,yp-4);
+    // Trash-Icon bei Selektion (rechte Seite)
+    if(isSel){
+      const tx=ca.right-14,ty=yp-8;
+      ctx.fillStyle='rgba(239,68,68,.95)';
+      ctx.beginPath();ctx.roundRect(tx-2,ty-2,18,18,3);ctx.fill();
+      ctx.fillStyle='#fff';ctx.font='12px system-ui';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('🗑',tx+7,ty+8);
+      ctx.textAlign='left';ctx.textBaseline='alphabetic';
+      panelTrash[k]={x:tx,y:ty,w:18,h:18,alarmId:a.id};
+    }
+    ctx.restore();
+  });
+  // ── Preview ─────────────────────────────────────────────────
   const mp=panelMouse[k];
   if(mp&&mp.inChart){
     ctx.save();ctx.globalAlpha=.6;ctx.strokeStyle=COL;ctx.fillStyle=COL;ctx.font='10px system-ui';
@@ -3573,6 +3611,18 @@ function redrawPanelOC(k){
       const x1p=x.getPixelForValue(panelTemp[k].idx-viewStart),y1p=y.getPixelForValue(panelTemp[k].value);
       ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x1p,y1p);ctx.lineTo(mp.rx,mp.ry);ctx.stroke();
       dpt(ctx,x1p,y1p,COL);
+    }
+    // Alarm-Preview: gestrichelte gelbe Linie + Wert (nur wenn nicht über existierendem Alarm hovern)
+    if(drawMode==='alarm'&&!findIndicatorAlarmAt(k,mp.ry)){
+      ctx.globalAlpha=.55;
+      ctx.strokeStyle='#ffe066';ctx.fillStyle='#ffe066';
+      ctx.lineWidth=1;ctx.setLineDash([5,3]);
+      ctx.beginPath();ctx.moveTo(ca.left,mp.ry);ctx.lineTo(ca.right,mp.ry);ctx.stroke();
+      ctx.setLineDash([]);
+      let v=mp.value;
+      if(k==='rsi'||k==='srsi')v=Math.max(0,Math.min(100,v));
+      const inf=INDICATOR_INFO[k];
+      ctx.fillText(`🔔 ${inf.fmt(v)}`,ca.left+6,mp.ry-4);
     }
     ctx.restore();
   }
@@ -3594,16 +3644,107 @@ function initPanelOverlays(){
       const inChart=rx>=ca.left&&rx<=ca.right&&ry>=ca.top&&ry<=ca.bottom;
       const value=chart.scales.y.getValueForPixel(ry);
       const vi=Math.max(0,Math.min(Math.round(chart.scales.x.getValueForPixel(rx)),viewTotal()-1));
-      panelMouse[k]={rx,ry,value,vi,inChart};redrawPanelOC(k);
+      panelMouse[k]={rx,ry,value,vi,inChart};
+      // ── Drag-Update für Indikator-Alarm ──
+      if(panelDragState&&panelDragState.panelKey===k){
+        const dy=ry-panelDragState.startRy;
+        if(!panelDragState.moved&&Math.abs(dy)>3)panelDragState.moved=true;
+        let newVal=chart.scales.y.getValueForPixel(ry);
+        if(k==='rsi'||k==='srsi')newVal=Math.max(0,Math.min(100,newVal));
+        const a=alarms.find(x=>x.id===panelDragState.alarmId);
+        if(a){a.price=newVal;a.triggered=false;}
+        oc.style.cursor='grabbing';
+        redrawPanelOC(k);
+        return;
+      }
+      // ── Cursor-Hinweis bei Hover über existierenden Alarm ──
+      if(drawMode==='pointer'||drawMode==='alarm'){
+        const hit=findIndicatorAlarmAt(k,ry);
+        const trash=panelTrash[k];
+        const overTrash=trash&&rx>=trash.x-2&&rx<=trash.x+trash.w&&ry>=trash.y-2&&ry<=trash.y+trash.h;
+        if(overTrash)oc.style.cursor='pointer';
+        else if(hit)oc.style.cursor='grab';
+        else oc.style.cursor=drawMode==='alarm'?'crosshair':'default';
+      }
+      redrawPanelOC(k);
     });
     oc.addEventListener('mouseleave',()=>{delete panelMouse[k];redrawPanelOC(k);});
-    oc.addEventListener('contextmenu',e=>{e.preventDefault();setDrawMode('pointer');});
+    oc.addEventListener('contextmenu',e=>{
+      e.preventDefault();
+      // Rechtsklick auf Alarm → löschen
+      const rect=oc.getBoundingClientRect();
+      const ry=e.clientY-rect.top;
+      const hit=findIndicatorAlarmAt(k,ry);
+      if(hit){
+        alarms=alarms.filter((_,i)=>i!==hit.idx);
+        if(selectedPanelAlarm&&selectedPanelAlarm.id===hit.id)selectedPanelAlarm=null;
+        try{localStorage.setItem('zen_alarms',JSON.stringify(alarms));}catch{}
+        renderAlarmTags();
+        refreshSubChartAlarms();
+        setStatus('Alarm gelöscht','ok');
+        return;
+      }
+      setDrawMode('pointer');
+    });
+    oc.addEventListener('mousedown',e=>{
+      if(e.button!==0)return;
+      const chart=getPanelChart(k);if(!chart)return;
+      const rect=oc.getBoundingClientRect();
+      const rx=e.clientX-rect.left,ry=e.clientY-rect.top;
+      const ca=chart.chartArea;if(!ca)return;
+      if(rx<ca.left||rx>ca.right||ry<ca.top||ry>ca.bottom)return;
+      // Trash-Icon-Klick prüfen (nur wenn ein Alarm selektiert ist)
+      const trash=panelTrash[k];
+      if(trash&&rx>=trash.x-2&&rx<=trash.x+trash.w&&ry>=trash.y-2&&ry<=trash.y+trash.h){
+        alarms=alarms.filter(a=>a.id!==trash.alarmId);
+        selectedPanelAlarm=null;
+        try{localStorage.setItem('zen_alarms',JSON.stringify(alarms));}catch{}
+        renderAlarmTags();
+        refreshSubChartAlarms();
+        setStatus('Alarm gelöscht','ok');
+        e.preventDefault();e.stopPropagation();
+        return;
+      }
+      // Hit-Test auf existierende Alarme → Selection + Drag-Start
+      const hit=findIndicatorAlarmAt(k,ry);
+      if(hit){
+        selectedPanelAlarm={panelKey:k,idx:hit.idx,id:hit.id};
+        const a=alarms[hit.idx];
+        panelDragState={panelKey:k,alarmId:a.id,startRy:ry,origPrice:a.price,moved:false};
+        // Andere Selektionen aufheben
+        if(typeof selectedDrawing!=='undefined')selectedDrawing=null;
+        redrawPanelOC(k);
+        e.preventDefault();e.stopPropagation();
+        return;
+      }
+      // Klick ins Leere im Pointer-Modus → Selektion löschen
+      if(drawMode==='pointer'&&selectedPanelAlarm&&selectedPanelAlarm.panelKey===k){
+        selectedPanelAlarm=null;
+        redrawPanelOC(k);
+      }
+    });
+    oc.addEventListener('mouseup',e=>{
+      if(panelDragState&&panelDragState.panelKey===k){
+        if(panelDragState.moved){
+          try{localStorage.setItem('zen_alarms',JSON.stringify(alarms));}catch{}
+          renderAlarmTags();
+          setStatus('Alarm verschoben','ok');
+          setTimeout(()=>setStatus('Bereit','idle'),1200);
+        }
+        panelDragState=null;
+        redrawPanelOC(k);
+      }
+    });
     oc.addEventListener('click',e=>{
       const chart=getPanelChart(k);if(!chart)return;
       const rect=oc.getBoundingClientRect();
       const rx=e.clientX-rect.left,ry=e.clientY-rect.top;
       const ca=chart.chartArea;if(!ca)return;
       if(rx<ca.left||rx>ca.right||ry<ca.top||ry>ca.bottom)return;
+      // Wenn gerade ein Drag passiert ist, KEINEN neuen Alarm setzen
+      if(panelDragState||(panelDragState===null&&e.defaultPrevented))return;
+      // Wenn Klick auf Alarm-Linie (im Alarm-Modus) → bereits in mousedown selektiert, Click ignorieren
+      if(findIndicatorAlarmAt(k,ry))return;
       const value=chart.scales.y.getValueForPixel(ry);
       const vi=Math.max(0,Math.min(Math.round(chart.scales.x.getValueForPixel(rx)),viewTotal()-1));
       const fullIdx=viewStart+vi;
@@ -3616,6 +3757,15 @@ function initPanelOverlays(){
           panelDrawings[k].push({type:'trendline',p1:panelTemp[k],p2:{idx:fullIdx,value},id:Date.now()});
           panelTemp[k]=null;panelStep[k]=0;redrawPanelOC(k);
         }
+      }else if(drawMode==='alarm'){
+        // Indikator-Alarm setzen
+        let v=value;
+        if(k==='rsi'||k==='srsi')v=Math.max(0,Math.min(100,v));
+        if(isNaN(v))return;
+        const cur=getCurrentIndicatorValue(k);
+        const dir=(cur!=null&&v>=cur)?'above':'below';
+        addIndicatorAlarm(k,v,dir);
+        setDrawMode('pointer');
       }
     });
   });
@@ -4511,71 +4661,25 @@ function addIndicatorAlarm(indicator,value,dir){
 
 // Trigger Subcharts neu zu zeichnen damit Alarm-Linie erscheint
 function refreshSubChartAlarms(){
-  try{if(rsiChart)rsiChart.update('none');}catch(_){}
-  try{if(srsiChart)srsiChart.update('none');}catch(_){}
-  try{if(macdChart)macdChart.update('none');}catch(_){}
-  try{if(atrChart)atrChart.update('none');}catch(_){}
+  // Pointer-Events synchronisieren (z.B. wenn neuer Alarm in einem Panel landet, das vorher inaktiv war)
+  if(typeof syncPanelOCs==='function')syncPanelOCs();
+  if(typeof redrawAllPanelOCs==='function')redrawAllPanelOCs();
 }
 
-// Chart.js Plugin-Factory — zeichnet horizontale Alarm-Linien im Subchart
-function makeAlarmLinePlugin(indId){
-  return {
-    id:'alarmLine_'+indId,
-    afterDraw(chart){
-      if(!chart||!chart.chartArea||!chart.scales||!chart.scales.y)return;
-      const matching=alarms.filter(a=>a.sym===currentSymbol&&a.indicator===indId);
-      if(!matching.length)return;
-      const ctx=chart.ctx;
-      const yScale=chart.scales.y;
-      const{left,right}=chart.chartArea;
-      matching.forEach(a=>{
-        const y=yScale.getPixelForValue(a.price);
-        if(isNaN(y)||y<chart.chartArea.top||y>chart.chartArea.bottom)return;
-        ctx.save();
-        ctx.strokeStyle='#ffe066';
-        ctx.lineWidth=1.2;
-        ctx.setLineDash([5,3]);
-        ctx.globalAlpha=0.75;
-        ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.globalAlpha=1;
-        ctx.fillStyle='#ffe066';
-        ctx.font='10px system-ui';
-        const arrow=a.dir==='above'?'▲':'▼';
-        const inf=INDICATOR_INFO[indId];
-        ctx.fillText(`🔔 ${arrow} ${inf.fmt(a.price)}`,left+6,y-4);
-        ctx.restore();
-      });
-    }
-  };
+// Findet Indikator-Alarm unter Mauszeiger (Y-Koordinate matcht ±tolPx)
+function findIndicatorAlarmAt(panelKey,ry){
+  const chart=(typeof getPanelChart==='function')?getPanelChart(panelKey):null;
+  if(!chart||!chart.scales||!chart.scales.y)return null;
+  const tolPx=6;
+  for(let i=0;i<alarms.length;i++){
+    const a=alarms[i];
+    if(a.sym!==currentSymbol||a.indicator!==panelKey)continue;
+    const ay=chart.scales.y.getPixelForValue(a.price);
+    if(isNaN(ay))continue;
+    if(Math.abs(ry-ay)<=tolPx)return{idx:i,id:a.id,panelKey};
+  }
+  return null;
 }
-
-// Click-Handler auf Subchart-Canvas — einmal beim Init anhängen
-// Funktioniert über Chart-Recreations hinweg, da Canvas-Element identisch bleibt
-['rsi','srsi','macd','atr'].forEach(ind=>{
-  const canvas=document.getElementById(ind+'-canvas');
-  if(!canvas)return;
-  canvas.addEventListener('click',e=>{
-    if(drawMode!=='alarm')return;
-    e.stopPropagation();
-    const chart=(typeof getPanelChart==='function')?getPanelChart(ind):null;
-    if(!chart||!chart.chartArea||!chart.scales||!chart.scales.y)return;
-    const rect=canvas.getBoundingClientRect();
-    const cx=e.clientX-rect.left;
-    const cy=e.clientY-rect.top;
-    const ca=chart.chartArea;
-    // Click muss innerhalb der Plot-Area liegen (nicht auf Y-Achse oder Padding)
-    if(cx<ca.left||cx>ca.right||cy<ca.top||cy>ca.bottom)return;
-    let value=chart.scales.y.getValueForPixel(cy);
-    if(value===null||isNaN(value))return;
-    // Sinnvolle Wertebereiche
-    if(ind==='rsi'||ind==='srsi')value=Math.max(0,Math.min(100,value));
-    const cur=getCurrentIndicatorValue(ind);
-    const dir=(cur!=null&&value>=cur)?'above':'below';
-    addIndicatorAlarm(ind,value,dir);
-    setDrawMode('pointer');
-  });
-});
 // Intervall starten (läuft wenn entweder Preis-Alarme ODER Zeichnungen mit aktiviertem Fib/TL/SR da sind)
 function startAlarmLoop(){
   if(!alarmInterval)alarmInterval=setInterval(checkAlarms,8000);
