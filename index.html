@@ -3601,7 +3601,7 @@ function syncPanelOCs(){
     // Pointer-Events auch im Pointer-Modus aktiv, wenn Indikator-Alarm ODER Icon im Panel existiert
     // (damit User selektieren/draggen/löschen kann)
     const hasAlarmInPanel=alarms.some(a=>a.sym===currentSymbol&&a.indicator===k);
-    const hasIconInPanel=(panelDrawings[k]||[]).some(d=>d.type==='icon');
+    const hasIconInPanel=(panelDrawings[k]||[]).some(d=>d.type==='icon'&&(!d.sym||d.sym===currentSymbol));
     const enablePointer=drawActive||hasAlarmInPanel||hasIconInPanel;
     oc.style.pointerEvents=enablePointer?'all':'none';
     if(drawActive)oc.style.cursor='crosshair';
@@ -3636,6 +3636,9 @@ function redrawPanelOC(k){
       ctx.beginPath();ctx.moveTo(ext.x1,ext.y1);ctx.lineTo(ext.x2,ext.y2);ctx.stroke();
       dpt(ctx,x1,y1,COL);dpt(ctx,x2,y2,COL);ctx.restore();
     }else if(d.type==='icon'){
+      // Symbol-Filter: Icon nur zeigen wenn es zum aktuellen Symbol gehört
+      // (legacy Icons ohne sym werden überall gezeigt — rückwärtskompatibel)
+      if(d.sym&&d.sym!==currentSymbol)return;
       const vi=d.idx-viewStart;
       const px=x.getPixelForValue(vi),py=y.getPixelForValue(d.value);
       if(isNaN(px)||isNaN(py))return;
@@ -3955,7 +3958,7 @@ function initPanelOverlays(){
         if(isNaN(v))return;
         const sel=window._selectedIconChar||'📌';
         const lbl=window._selectedIconLabel||'';
-        panelDrawings[k].push({type:'icon',icon:sel,label:lbl,idx:fullIdx,value:v,id:Date.now()});
+        panelDrawings[k].push({type:'icon',icon:sel,label:lbl,idx:fullIdx,value:v,id:Date.now(),sym:currentSymbol});
         try{localStorage.setItem('zen_panelDrawings',JSON.stringify(panelDrawings));}catch{}
         // syncPanelOCs erneut: damit pointer-events aktiviert bleiben (für späteres Drag)
         syncPanelOCs();
@@ -4885,6 +4888,8 @@ function findIndicatorIconAt(panelKey,rx,ry){
   for(let i=arr.length-1;i>=0;i--){
     const d=arr[i];
     if(d.type!=='icon')continue;
+    // Symbol-Filter: nur Icons des aktuellen Symbols treffbar (legacy ohne sym = überall)
+    if(d.sym&&d.sym!==currentSymbol)continue;
     const vi=d.idx-viewStart;
     const ix=chart.scales.x.getPixelForValue(vi);
     const iy=chart.scales.y.getPixelForValue(d.value);
