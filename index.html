@@ -45,25 +45,44 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 .sep{width:1px;height:16px;background:var(--border2);margin:0 1px;flex-shrink:0}
 .tlbl{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
 #main-row{display:flex;flex:1;min-height:0}
-#watchlist{width:190px;min-width:140px;max-width:300px;background:var(--bg2);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+#watchlist{width:340px;min-width:200px;max-width:600px;background:var(--bg2);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;
+  --wl-col-sym:90px;--wl-col-last:80px;--wl-col-chg:60px;--wl-col-ext:80px}
 #wl-resize{width:6px;cursor:ew-resize;background:rgba(148,163,184,.15);border-left:2px solid rgba(148,163,184,.3);flex-shrink:0;transition:background .15s;position:relative}
 #wl-resize:hover{background:rgba(59,130,246,.5);border-left-color:rgba(59,130,246,.8)}
 #wl-resize::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:2px;height:24px;background:rgba(148,163,184,.4);border-radius:1px}
 #wl-resize:hover::after{background:rgba(59,130,246,.9)}
-#wl-hdr{font-size:10px;font-weight:500;color:var(--text3);padding:7px 10px;border-bottom:1px solid var(--border);letter-spacing:.6px;text-transform:uppercase}
+#wl-hdr{font-size:10px;font-weight:500;color:var(--text3);padding:7px 10px;border-bottom:1px solid var(--border);letter-spacing:.6px;text-transform:uppercase;display:flex;align-items:center;gap:6px}
+#wl-hdr-spacer{flex:1}
+#wl-cols{display:grid;grid-template-columns:var(--wl-col-sym) var(--wl-col-last) var(--wl-col-chg) var(--wl-col-ext);
+  font-size:10px;font-weight:500;color:var(--text3);border-bottom:1px solid var(--border);letter-spacing:.4px;text-transform:uppercase;
+  background:var(--bg2);position:sticky;top:0;z-index:3}
+.wl-col{padding:6px 6px;display:flex;align-items:center;gap:3px;position:relative;user-select:none}
+.wl-col-symbol{padding-left:10px}
+.wl-col-num{justify-content:flex-end;text-align:right}
+.wl-col-resize{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:ew-resize;z-index:4}
+.wl-col-resize:hover{background:rgba(59,130,246,.4)}
+.wl-col-resize.dragging{background:rgba(59,130,246,.8)}
+.wl-arrow{font-size:9px;opacity:.6}
 #wl-list{flex:1;overflow-y:auto}
 #wl-list::-webkit-scrollbar{width:3px}
 #wl-list::-webkit-scrollbar-thumb{background:var(--border2)}
-.wl-item{display:flex;flex-direction:column;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--border);gap:2px;transition:background .1s;position:relative}
+.wl-item{display:grid;grid-template-columns:var(--wl-col-sym) var(--wl-col-last) var(--wl-col-chg) var(--wl-col-ext);
+  align-items:center;padding:0;cursor:pointer;border-bottom:1px solid var(--border);transition:background .08s;position:relative;height:30px}
 .wl-item:hover{background:var(--bg3)}
-.wl-item.active{background:rgba(59,130,246,.1);border-right:2px solid var(--blue)}
-.wl-row{display:flex;align-items:baseline;justify-content:space-between;gap:6px;width:100%}
-.wl-name{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-.wl-sym{font-size:11px;color:var(--text3);white-space:nowrap;flex-shrink:0}
-.wl-item.active .wl-name{color:var(--blue)}
-.wl-price{font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;flex-shrink:0}
-.wl-chg{font-size:12px;white-space:nowrap;flex-shrink:0;text-align:right}
-.wl-del{font-size:12px;color:var(--dn);cursor:pointer;opacity:0;position:absolute;top:4px;right:4px;background:var(--bg2);padding:1px 4px;border-radius:3px;z-index:2}
+.wl-item.active{background:rgba(59,130,246,.10)}
+.wl-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--blue)}
+.wl-cell{padding:0 6px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:30px}
+.wl-cell-sym{padding-left:10px;display:flex;align-items:center;gap:6px;font-weight:500;color:var(--text)}
+.wl-cell-num{text-align:right;justify-content:flex-end}
+.wl-symdot{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0;letter-spacing:0}
+.wl-symtxt{overflow:hidden;text-overflow:ellipsis}
+.wl-livedot{width:5px;height:5px;border-radius:50%;background:#26a69a;display:inline-block;margin-left:4px;opacity:.7;flex-shrink:0}
+.wl-cell-last{color:var(--text);font-weight:500}
+.wl-cell-chg{font-weight:500}
+.wl-cell-ext{color:#fbbf24;font-size:11px}
+.wl-cell-ext .ext-pct{font-weight:500}
+.wl-item.active .wl-cell-sym{color:var(--blue)}
+.wl-del{font-size:11px;color:var(--dn);cursor:pointer;opacity:0;position:absolute;top:50%;right:4px;transform:translateY(-50%);background:var(--bg2);padding:1px 4px;border-radius:3px;z-index:2}
 .wl-item:hover .wl-del{opacity:.6}
 .wl-del:hover{opacity:1!important}
 .wl-item[draggable]{cursor:grab}
@@ -404,7 +423,27 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   </div>
   <div id="wl-resize" title="Watchlist-Breite anpassen"></div>
   <div id="watchlist">
-    <div id="wl-hdr">Watchlist</div>
+    <div id="wl-hdr">
+      <span>Watchlist</span>
+      <span id="wl-hdr-spacer"></span>
+    </div>
+    <div id="wl-cols">
+      <div class="wl-col wl-col-symbol">
+        <span>Symbol</span>
+        <div class="wl-col-resize" data-col="sym"></div>
+      </div>
+      <div class="wl-col wl-col-num">
+        <span>Zuletzt</span>
+        <div class="wl-col-resize" data-col="last"></div>
+      </div>
+      <div class="wl-col wl-col-num">
+        <span>Änd.</span>
+        <div class="wl-col-resize" data-col="chg"></div>
+      </div>
+      <div class="wl-col wl-col-num" title="Extended Hours — vor- und nachbörsliche Werte">
+        <span>Ext</span>
+      </div>
+    </div>
     <div id="wl-list"></div>
   </div>
 </div>
@@ -5510,6 +5549,13 @@ function loadWLCache(){
 function saveWLCache(c){
   try{localStorage.setItem('zen_wl_cache',JSON.stringify(c));}catch{}
 }
+// Generiert eine Farbe für den Symbol-Avatar (deterministisch aus Symbol-String)
+function wlSymColor(s){
+  let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))&0xffff;
+  const palette=['#3b82f6','#8b5cf6','#ec4899','#f59e0b','#10b981','#14b8a6','#06b6d4','#ef4444','#f97316','#84cc16','#6366f1','#a855f7'];
+  return palette[h%palette.length];
+}
+
 function renderWL(){
   const el=document.getElementById('wl-list');
   const cache=loadWLCache();
@@ -5518,19 +5564,21 @@ function renderWL(){
   try{alarmMarks=JSON.parse(localStorage.getItem('zen_wl_alarm_marks')||'{}');}catch(_){}
   el.innerHTML=watchlist.map((s,idx)=>{
     const id=s.replace(/\W/g,'_');
-    const name=getSymName(s);
-    const displayName=name||s;
     // Aus Cache den letzten bekannten Preis + Änderung anzeigen
     const c=cache[s]||{};
     const pTxt=c.p||'…';
-    const absTxt=c.abs||'…';
     const pctTxt=c.pct||'';
     const col=c.col||'var(--text3)';
     const hasAlarm=!!alarmMarks[s];
     const alarmTitle=hasAlarm?('Alarm ausgelöst: '+(alarmMarks[s].msg||'?')+' am '+new Date(alarmMarks[s].ts).toLocaleString('de-DE')):'';
-    const alarmIcon=hasAlarm?`<span class="wl-alarm-mark" title="${alarmTitle.replace(/"/g,'&quot;')}">🔔</span>`:'';
-    // Pre/Post-Market-Zeile (gelb), nur wenn Yahoo Daten geliefert hat und Marktphase passt
-    let extRow='';
+    // Symbol-Avatar (Farbpunkt mit erstem Buchstaben)
+    const symInitial=s.replace(/[^A-Z0-9]/gi,'').charAt(0).toUpperCase()||'?';
+    const symColor=wlSymColor(s);
+    // Symbol Display: nur Ticker, kein Firmenname (TradingView-Stil — hover zeigt Name)
+    const name=getSymName(s);
+    const symTooltip=name?`${s} — ${name}`:s;
+    // Ext-Spalte (Pre/Post-Market)
+    let extTxt='',extTitle='';
     const eh=extendedHoursCache[s];
     if(eh){
       let ext=null,prefix='';
@@ -5538,27 +5586,19 @@ function renderWL(){
       else if((eh.state==='POST'||eh.state==='POSTPOST')&&eh.post){ext=eh.post;prefix='Post';}
       if(ext){
         const sign=ext.chg>=0?'+':'';
-        const colE=ext.chg>=0?'#26a69a':'#ef5350';
-        extRow=`<div class="wl-row" style="color:#fbbf24;font-size:11px;line-height:1">
-          <span style="opacity:.85">${prefix} ${fmtPrice(ext.price,s)}</span>
-          <span style="color:${colE}">${sign}${ext.chgPct.toFixed(2)}%</span>
-        </div>`;
+        extTxt=`<span class="ext-pct" style="color:${ext.chg>=0?'#26a69a':'#ef5350'}">${sign}${ext.chgPct.toFixed(2)}%</span>`;
+        extTitle=`${prefix}: ${fmtPrice(ext.price,s)} (${sign}${ext.chgPct.toFixed(2)}%)`;
       }
     }
-    return `<div class="wl-item${s===currentSymbol?' active':''}${hasAlarm?' has-alarm':''}" data-sym="${s}" data-idx="${idx}" draggable="true">
-      <div class="wl-row">
-        <span class="wl-name">${displayName}</span>
-        ${name?`<span class="wl-sym">${s}</span>`:''}
+    return `<div class="wl-item${s===currentSymbol?' active':''}${hasAlarm?' has-alarm':''}" data-sym="${s}" data-idx="${idx}" draggable="true" title="${symTooltip.replace(/"/g,'&quot;')}">
+      <div class="wl-cell wl-cell-sym">
+        <span class="wl-symdot" style="background:${symColor}">${symInitial}</span>
+        <span class="wl-symtxt">${s}</span>
+        ${hasAlarm?`<span class="wl-livedot" style="background:#fbbf24;opacity:1" title="${alarmTitle.replace(/"/g,'&quot;')}"></span>`:'<span class="wl-livedot" id="wld-'+id+'"></span>'}
       </div>
-      <div class="wl-row">
-        <span class="wl-price" id="wlp-${id}">${pTxt}</span>
-        <span class="wl-chg" id="wlc-${id}">
-          <span class="wl-chg-abs" id="wla-${id}" style="color:#e2e8f0">${absTxt}</span>
-          <span class="wl-chg-pct" id="wlpct-${id}" style="color:${col}">${pctTxt}</span>
-        </span>
-      </div>
-      ${extRow}
-      ${alarmIcon}
+      <div class="wl-cell wl-cell-num wl-cell-last" id="wlp-${id}">${pTxt}</div>
+      <div class="wl-cell wl-cell-num wl-cell-chg" id="wlpct-${id}" style="color:${col}">${pctTxt}</div>
+      <div class="wl-cell wl-cell-num wl-cell-ext" id="wlext-${id}" title="${extTitle.replace(/"/g,'&quot;')}">${extTxt}</div>
       <span class="wl-del" data-del="${s}">✕</span>
     </div>`;
   }).join('');
@@ -5620,11 +5660,27 @@ async function updateWLPrices(){
 function setWLChg(sym,priceText,absText,pctText,color){
   const id=sym.replace(/\W/g,'_');
   const pEl=document.getElementById('wlp-'+id);
-  const aEl=document.getElementById('wla-'+id);
   const pctEl=document.getElementById('wlpct-'+id);
   if(pEl)pEl.textContent=priceText;
-  if(aEl){aEl.textContent=absText;aEl.style.color='#e2e8f0';}
   if(pctEl){pctEl.textContent=pctText;pctEl.style.color=color;}
+  // Ext-Spalte aus Cache aktualisieren (falls Pre/Post-Daten zwischenzeitlich aktualisiert wurden)
+  const extEl=document.getElementById('wlext-'+id);
+  if(extEl){
+    const eh=extendedHoursCache[sym];
+    let extHtml='',extTitle='';
+    if(eh){
+      let ext=null,prefix='';
+      if(eh.state==='PRE'&&eh.pre){ext=eh.pre;prefix='Pre';}
+      else if((eh.state==='POST'||eh.state==='POSTPOST')&&eh.post){ext=eh.post;prefix='Post';}
+      if(ext){
+        const sign=ext.chg>=0?'+':'';
+        extHtml=`<span class="ext-pct" style="color:${ext.chg>=0?'#26a69a':'#ef5350'}">${sign}${ext.chgPct.toFixed(2)}%</span>`;
+        extTitle=`${prefix}: ${fmtPrice(ext.price,sym)} (${sign}${ext.chgPct.toFixed(2)}%)`;
+      }
+    }
+    extEl.innerHTML=extHtml;
+    extEl.title=extTitle;
+  }
 }
 document.getElementById('add-wl-btn').addEventListener('click',()=>{
   const s=document.getElementById('sym-in').value.trim().toUpperCase();
@@ -5646,7 +5702,7 @@ new ResizeObserver(()=>{syncOC();redrawOC();}).observe(mainWrap);
   document.addEventListener('mousemove',e=>{
     if(!dragging)return;
     // Watchlist is on the right, so dragging left = wider
-    const newW=Math.min(300,Math.max(100,startW-(e.clientX-startX)));
+    const newW=Math.min(600,Math.max(200,startW-(e.clientX-startX)));
     wl.style.width=newW+'px';
     syncOC();redrawOC();
   });
@@ -5657,6 +5713,53 @@ new ResizeObserver(()=>{syncOC();redrawOC();}).observe(mainWrap);
   });
   // Restore saved width
   try{const sw=localStorage.getItem('zen_wl_width');if(sw)wl.style.width=sw+'px';}catch{}
+})();
+
+// ── Watchlist Spaltenbreiten Drag-Resize ────────────────────────
+(function(){
+  const wl=document.getElementById('watchlist');
+  if(!wl)return;
+  // Default + persistierte Breiten laden
+  const COL_DEFAULTS={sym:90,last:80,chg:60,ext:80};
+  const COL_MIN={sym:50,last:55,chg:45,ext:50};
+  const COL_MAX={sym:200,last:140,chg:120,ext:140};
+  function loadColWidths(){
+    try{return Object.assign({},COL_DEFAULTS,JSON.parse(localStorage.getItem('zen_wl_cols')||'{}'));}
+    catch{return{...COL_DEFAULTS};}
+  }
+  function applyColWidths(w){
+    wl.style.setProperty('--wl-col-sym',w.sym+'px');
+    wl.style.setProperty('--wl-col-last',w.last+'px');
+    wl.style.setProperty('--wl-col-chg',w.chg+'px');
+    wl.style.setProperty('--wl-col-ext',w.ext+'px');
+  }
+  let widths=loadColWidths();
+  applyColWidths(widths);
+  // Drag-Handler an die Header-Resize-Knubbel hängen
+  let drag=null;
+  document.querySelectorAll('#wl-cols .wl-col-resize').forEach(h=>{
+    h.addEventListener('mousedown',e=>{
+      e.preventDefault();e.stopPropagation();
+      const col=h.dataset.col;
+      drag={col,startX:e.clientX,startW:widths[col],handle:h};
+      h.classList.add('dragging');
+      document.body.style.cursor='ew-resize';
+    });
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!drag)return;
+    const dx=e.clientX-drag.startX;
+    const newW=Math.min(COL_MAX[drag.col],Math.max(COL_MIN[drag.col],drag.startW+dx));
+    widths[drag.col]=newW;
+    applyColWidths(widths);
+  });
+  document.addEventListener('mouseup',()=>{
+    if(!drag)return;
+    drag.handle.classList.remove('dragging');
+    document.body.style.cursor='';
+    try{localStorage.setItem('zen_wl_cols',JSON.stringify(widths));}catch{}
+    drag=null;
+  });
 })();
 function hideLoading(){const el=document.getElementById('loading');el.classList.add('hidden');setTimeout(()=>el.style.display='none',350);}
 
@@ -5907,11 +6010,10 @@ function applyLivePrice(sym,price){
   const flashClass=chg>=0?'flash-up':'flash-dn';
   const pTxt=fmtNum(price)+' '+cur;
   const absTxt=sign+fmtNum(chg)+' '+cur;
-  const pctTxt='('+sign+fmtNum(pct)+'%)';
+  const pctTxt=sign+fmtNum(pct)+'%';
 
   // 1) Watchlist-Zelle
   const wlP=document.getElementById('wlp-'+id);
-  const wlA=document.getElementById('wla-'+id);
   const wlPct=document.getElementById('wlpct-'+id);
   if(wlP&&wlP.textContent!==pTxt){
     wlP.textContent=pTxt;
@@ -5919,7 +6021,6 @@ function applyLivePrice(sym,price){
     wlP.classList.add(flashClass);
     setTimeout(()=>wlP.classList.remove('flash-up','flash-dn'),800);
   }
-  if(wlA&&prevC!=null){wlA.textContent=absTxt;wlA.style.color='#e2e8f0';}
   if(wlPct&&prevC!=null){wlPct.textContent=pctTxt;wlPct.style.color=col;}
   // WL-Cache synchron halten
   try{
