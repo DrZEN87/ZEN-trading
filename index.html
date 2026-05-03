@@ -45,38 +45,40 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 .sep{width:1px;height:16px;background:var(--border2);margin:0 1px;flex-shrink:0}
 .tlbl{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
 #main-row{display:flex;flex:1;min-height:0}
-#watchlist{width:340px;min-width:200px;max-width:600px;background:var(--bg2);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;
-  --wl-col-sym:90px;--wl-col-last:80px;--wl-col-chg:60px;--wl-col-ext:80px}
+#watchlist{width:340px;min-width:240px;max-width:600px;background:var(--bg2);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;
+  --wl-col-sym:90px;--wl-col-last:80px;--wl-col-chg:60px}
 #wl-resize{width:6px;cursor:ew-resize;background:rgba(148,163,184,.15);border-left:2px solid rgba(148,163,184,.3);flex-shrink:0;transition:background .15s;position:relative}
 #wl-resize:hover{background:rgba(59,130,246,.5);border-left-color:rgba(59,130,246,.8)}
 #wl-resize::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:2px;height:24px;background:rgba(148,163,184,.4);border-radius:1px}
 #wl-resize:hover::after{background:rgba(59,130,246,.9)}
 #wl-hdr{font-size:10px;font-weight:500;color:var(--text3);padding:7px 10px;border-bottom:1px solid var(--border);letter-spacing:.6px;text-transform:uppercase;display:flex;align-items:center;gap:6px}
 #wl-hdr-spacer{flex:1}
-#wl-cols{display:grid;grid-template-columns:var(--wl-col-sym) var(--wl-col-last) var(--wl-col-chg) var(--wl-col-ext);
+#wl-cols{display:grid;grid-template-columns:var(--wl-col-sym) var(--wl-col-last) var(--wl-col-chg) minmax(50px,1fr);
   font-size:10px;font-weight:500;color:var(--text3);border-bottom:1px solid var(--border);letter-spacing:.4px;text-transform:uppercase;
   background:var(--bg2);position:sticky;top:0;z-index:3}
-.wl-col{padding:6px 6px;display:flex;align-items:center;gap:3px;position:relative;user-select:none}
+.wl-col{padding:6px 6px;display:flex;align-items:center;gap:3px;position:relative;user-select:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wl-col-symbol{padding-left:10px}
 .wl-col-num{justify-content:flex-end;text-align:right}
 .wl-col-resize{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:ew-resize;z-index:4}
 .wl-col-resize:hover{background:rgba(59,130,246,.4)}
 .wl-col-resize.dragging{background:rgba(59,130,246,.8)}
 .wl-arrow{font-size:9px;opacity:.6}
-#wl-list{flex:1;overflow-y:auto}
+#wl-list{flex:1;overflow-y:auto;overflow-x:hidden}
 #wl-list::-webkit-scrollbar{width:3px}
 #wl-list::-webkit-scrollbar-thumb{background:var(--border2)}
-.wl-item{display:grid;grid-template-columns:var(--wl-col-sym) var(--wl-col-last) var(--wl-col-chg) var(--wl-col-ext);
+.wl-item{display:grid;grid-template-columns:var(--wl-col-sym) var(--wl-col-last) var(--wl-col-chg) minmax(50px,1fr);
   align-items:center;padding:0;cursor:pointer;border-bottom:1px solid var(--border);transition:background .08s;position:relative;height:30px}
 .wl-item:hover{background:var(--bg3)}
 .wl-item.active{background:rgba(59,130,246,.10)}
 .wl-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--blue)}
 .wl-cell{padding:0 6px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:30px}
-.wl-cell-sym{padding-left:10px;display:flex;align-items:center;gap:6px;font-weight:500;color:var(--text)}
+.wl-cell-sym{padding-left:10px;display:flex;align-items:center;gap:5px;font-weight:500;color:var(--text)}
 .wl-cell-num{text-align:right;justify-content:flex-end}
-.wl-symdot{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0;letter-spacing:0}
-.wl-symtxt{overflow:hidden;text-overflow:ellipsis}
-.wl-livedot{width:5px;height:5px;border-radius:50%;background:#26a69a;display:inline-block;margin-left:4px;opacity:.7;flex-shrink:0}
+.wl-symtxt{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.wl-livedot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0;background:#64748b;transition:background .2s}
+.wl-livedot.open{background:#26a69a;box-shadow:0 0 4px rgba(38,166,154,.6)}
+.wl-livedot.ext{background:#fbbf24;box-shadow:0 0 4px rgba(251,191,36,.5)}
+.wl-livedot.alarm{background:#ef5350;box-shadow:0 0 4px rgba(239,83,80,.7)}
 .wl-cell-last{color:var(--text);font-weight:500}
 .wl-cell-chg{font-weight:500}
 .wl-cell-ext{color:#fbbf24;font-size:11px}
@@ -5549,11 +5551,20 @@ function loadWLCache(){
 function saveWLCache(c){
   try{localStorage.setItem('zen_wl_cache',JSON.stringify(c));}catch{}
 }
-// Generiert eine Farbe für den Symbol-Avatar (deterministisch aus Symbol-String)
-function wlSymColor(s){
-  let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))&0xffff;
-  const palette=['#3b82f6','#8b5cf6','#ec4899','#f59e0b','#10b981','#14b8a6','#06b6d4','#ef4444','#f97316','#84cc16','#6366f1','#a855f7'];
-  return palette[h%palette.length];
+// Bestimmt den Status-Punkt für ein Symbol in der Watchlist (TradingView-Stil)
+//  - 'alarm' (rot)  = ausgelöster Alarm-Marker
+//  - 'open'  (grün) = Markt geöffnet (Yahoo marketState='REGULAR')
+//  - 'ext'   (gelb) = Pre/Post-Market aktiv (PRE/POST/POSTPOST)
+//  - ''      (grau) = Markt geschlossen / kein Live-Feed (CLOSED/PREPRE/unbekannt)
+function getWLDotState(sym,hasAlarm){
+  if(hasAlarm)return'alarm';
+  const eh=extendedHoursCache[sym];
+  if(!eh)return''; // kein Yahoo-Meta verfügbar → grau
+  const st=eh.state||'';
+  if(st==='REGULAR')return'open';
+  if(st==='PRE'&&eh.pre)return'ext';
+  if((st==='POST'||st==='POSTPOST')&&eh.post)return'ext';
+  return''; // CLOSED / PREPRE / Unknown → grau
 }
 
 function renderWL(){
@@ -5571,12 +5582,15 @@ function renderWL(){
     const col=c.col||'var(--text3)';
     const hasAlarm=!!alarmMarks[s];
     const alarmTitle=hasAlarm?('Alarm ausgelöst: '+(alarmMarks[s].msg||'?')+' am '+new Date(alarmMarks[s].ts).toLocaleString('de-DE')):'';
-    // Symbol-Avatar (Farbpunkt mit erstem Buchstaben)
-    const symInitial=s.replace(/[^A-Z0-9]/gi,'').charAt(0).toUpperCase()||'?';
-    const symColor=wlSymColor(s);
     // Symbol Display: nur Ticker, kein Firmenname (TradingView-Stil — hover zeigt Name)
     const name=getSymName(s);
     const symTooltip=name?`${s} — ${name}`:s;
+    // Status-Punkt (TradingView-Stil): grau=geschlossen, grün=offen, gelb=Pre/Post, rot=Alarm
+    const dotState=getWLDotState(s,hasAlarm);
+    const dotTooltip=hasAlarm?alarmTitle
+      :dotState==='open'?'Markt geöffnet'
+      :dotState==='ext'?'Pre-/Nachbörslicher Handel'
+      :'Markt geschlossen';
     // Ext-Spalte (Pre/Post-Market)
     let extTxt='',extTitle='';
     const eh=extendedHoursCache[s];
@@ -5592,9 +5606,8 @@ function renderWL(){
     }
     return `<div class="wl-item${s===currentSymbol?' active':''}${hasAlarm?' has-alarm':''}" data-sym="${s}" data-idx="${idx}" draggable="true" title="${symTooltip.replace(/"/g,'&quot;')}">
       <div class="wl-cell wl-cell-sym">
-        <span class="wl-symdot" style="background:${symColor}">${symInitial}</span>
+        <span class="wl-livedot${dotState?' '+dotState:''}" id="wld-${id}" title="${dotTooltip.replace(/"/g,'&quot;')}"></span>
         <span class="wl-symtxt">${s}</span>
-        ${hasAlarm?`<span class="wl-livedot" style="background:#fbbf24;opacity:1" title="${alarmTitle.replace(/"/g,'&quot;')}"></span>`:'<span class="wl-livedot" id="wld-'+id+'"></span>'}
       </div>
       <div class="wl-cell wl-cell-num wl-cell-last" id="wlp-${id}">${pTxt}</div>
       <div class="wl-cell wl-cell-num wl-cell-chg" id="wlpct-${id}" style="color:${col}">${pctTxt}</div>
@@ -5663,6 +5676,18 @@ function setWLChg(sym,priceText,absText,pctText,color){
   const pctEl=document.getElementById('wlpct-'+id);
   if(pEl)pEl.textContent=priceText;
   if(pctEl){pctEl.textContent=pctText;pctEl.style.color=color;}
+  // Status-Punkt aktualisieren (Marktstatus könnte sich geändert haben — z.B. Pre→Open)
+  const dotEl=document.getElementById('wld-'+id);
+  if(dotEl){
+    let hasAlarm=false;
+    try{const m=JSON.parse(localStorage.getItem('zen_wl_alarm_marks')||'{}');hasAlarm=!!m[sym];}catch{}
+    const st=getWLDotState(sym,hasAlarm);
+    dotEl.className='wl-livedot'+(st?' '+st:'');
+    dotEl.title=hasAlarm?(dotEl.title||'Alarm ausgelöst')
+      :st==='open'?'Markt geöffnet'
+      :st==='ext'?'Pre-/Nachbörslicher Handel'
+      :'Markt geschlossen';
+  }
   // Ext-Spalte aus Cache aktualisieren (falls Pre/Post-Daten zwischenzeitlich aktualisiert wurden)
   const extEl=document.getElementById('wlext-'+id);
   if(extEl){
@@ -5719,10 +5744,10 @@ new ResizeObserver(()=>{syncOC();redrawOC();}).observe(mainWrap);
 (function(){
   const wl=document.getElementById('watchlist');
   if(!wl)return;
-  // Default + persistierte Breiten laden
-  const COL_DEFAULTS={sym:90,last:80,chg:60,ext:80};
-  const COL_MIN={sym:50,last:55,chg:45,ext:50};
-  const COL_MAX={sym:200,last:140,chg:120,ext:140};
+  // Default + persistierte Breiten laden (Ext-Spalte ist responsiv: minmax(50px,1fr))
+  const COL_DEFAULTS={sym:90,last:80,chg:60};
+  const COL_MIN={sym:50,last:55,chg:45};
+  const COL_MAX={sym:200,last:140,chg:120};
   function loadColWidths(){
     try{return Object.assign({},COL_DEFAULTS,JSON.parse(localStorage.getItem('zen_wl_cols')||'{}'));}
     catch{return{...COL_DEFAULTS};}
@@ -5731,7 +5756,6 @@ new ResizeObserver(()=>{syncOC();redrawOC();}).observe(mainWrap);
     wl.style.setProperty('--wl-col-sym',w.sym+'px');
     wl.style.setProperty('--wl-col-last',w.last+'px');
     wl.style.setProperty('--wl-col-chg',w.chg+'px');
-    wl.style.setProperty('--wl-col-ext',w.ext+'px');
   }
   let widths=loadColWidths();
   applyColWidths(widths);
