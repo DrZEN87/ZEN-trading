@@ -633,6 +633,24 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 
 <script>
 
+// ── Service-Worker-Cleanup ────────────────────────────────────
+// Falls eine alte Version dieser App einen Service Worker registriert hat,
+// deregistrieren wir ihn jetzt. Sonst fängt er Fetches ab und bricht
+// die Datenladung (sw.js:18 'Failed to fetch'-Fehler).
+if('serviceWorker'in navigator){
+  navigator.serviceWorker.getRegistrations().then(regs=>{
+    if(regs.length){
+      console.log('[SW] '+regs.length+' alte Service Worker werden deregistriert');
+      regs.forEach(r=>r.unregister());
+      // Auch Caches leeren falls vorhanden
+      if('caches'in window){
+        caches.keys().then(keys=>keys.forEach(k=>caches.delete(k)));
+      }
+      console.log('[SW] Cleanup fertig — beim nächsten Reload sind alle Fetches direkt');
+    }
+  }).catch(()=>{});
+}
+
 // Polyfill for ctx.roundRect (not in all browsers)
 if(!CanvasRenderingContext2D.prototype.roundRect){
   CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){
@@ -947,15 +965,15 @@ function formatRevenue(v,cur){
 
 // Multiple CORS proxies — tried in order until one works
 // ── Data fetching ────────────────────────────────────────────
+// Stand 2025: cors-anywhere (Heroku) und thingproxy (Freeboard) sind tot bzw. unzuverlässig.
+// Übrig bleiben corsproxy.io (Body-Limit ~5 MB) und allorigins (~2 MB) und codetabs (langsam).
 const CORS_PROXIES = [
   'https://corsproxy.io/?url=',
   'https://api.allorigins.win/raw?url=',
-  'https://api.codetabs.com/v1/proxy?quest=',
-  'https://cors-anywhere.herokuapp.com/',
-  'https://thingproxy.freeboard.io/fetch/'
+  'https://api.codetabs.com/v1/proxy?quest='
 ];
 
-async function corsGet(rawUrl, timeoutMs=7000){
+async function corsGet(rawUrl, timeoutMs=5000){
   for(const base of CORS_PROXIES){
     try{
       const ctrl=new AbortController();
@@ -987,6 +1005,14 @@ async function loadCandles(sym,tf){
   // 5m: max 60 Tage. 1h: max 730 Tage. D1/W1/M1: max
   const iYahoo={'5m':'5m','1h':'1h','4h':'1h',d1:'1d',w1:'1wk',m1:'1mo'};
   const rYahoo={'5m':'60d','1h':'730d','4h':'730d',d1:'10y',w1:'max',m1:'max'};
+  // Krypto und 24/7-Märkte erzeugen bei 5m/1h sehr viele Kerzen (24/7 statt 6.5h/Tag).
+  // Proxies haben Body-Limits (~5 MB) → bei 5m kürzen wir auf 30d, bei 1h auf 365d.
+  const is24x7=/-USD$|-EUR$|^XAU|^XAG|^BTC|USDT$|^ETH/i.test(sym);
+  if(is24x7){
+    if(tf==='5m')rYahoo['5m']='30d';
+    if(tf==='1h')rYahoo['1h']='365d';
+    if(tf==='4h')rYahoo['4h']='365d';
+  }
 
   // ── Helper: aggregate daily candles into weekly or monthly ──
   function aggregateCandles(dailyRows, period){
