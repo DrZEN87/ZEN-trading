@@ -274,6 +274,30 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   </div>
 </div>
 
+<!-- Wirtschaftskalender Modal -->
+<div id="econ-cal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9998;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto">
+  <div style="background:#1e293b;border-radius:8px;width:100%;max-width:900px;box-shadow:0 20px 60px rgba(0,0,0,.5);border:1px solid #334155">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #334155">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:18px">📅</span>
+        <h3 style="margin:0;color:#e2e8f0;font-size:14px;font-weight:600">Wirtschaftskalender · Wichtige Termine (3 Sterne)</h3>
+      </div>
+      <button id="econ-cal-close" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;padding:4px 8px;border-radius:4px" title="Schließen (Esc)">×</button>
+    </div>
+    <div style="padding:14px 20px;border-bottom:1px solid #334155;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <button class="ec-tab" data-week="0" style="padding:6px 14px;background:#2563eb;border:1px solid #2563eb;border-radius:5px;color:#fff;cursor:pointer;font-size:12px;font-weight:500">Diese Woche</button>
+      <button class="ec-tab" data-week="1" style="padding:6px 14px;background:transparent;border:1px solid #334155;border-radius:5px;color:#94a3b8;cursor:pointer;font-size:12px">Nächste Woche</button>
+      <button class="ec-tab" data-week="2" style="padding:6px 14px;background:transparent;border:1px solid #334155;border-radius:5px;color:#94a3b8;cursor:pointer;font-size:12px">In 2 Wochen</button>
+      <span style="flex:1"></span>
+      <button id="econ-cal-refresh" style="padding:6px 12px;background:transparent;border:1px solid #334155;border-radius:5px;color:#94a3b8;cursor:pointer;font-size:11px" title="Daten neu laden">🔄 Aktualisieren</button>
+      <span id="econ-cal-status" style="color:#64748b;font-size:11px"></span>
+    </div>
+    <div id="econ-cal-list" style="max-height:60vh;overflow-y:auto;padding:0">
+      <div style="padding:30px;text-align:center;color:#64748b;font-size:13px">Lade Termine …</div>
+    </div>
+  </div>
+</div>
+
 <div id="app">
 <div id="topbar">
   <button class="btn icon-btn" id="help-btn" title="Tastatur-Shortcuts (?)" style="margin-right:4px">?</button>
@@ -290,6 +314,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
   </div>
   <button class="btn ag" id="add-wl-btn">+ Watchlist</button>
   <button class="btn" id="finnhub-key-btn" title="Finnhub API-Key für Live-Daten (US-Aktien)" style="margin-left:4px">🔑 Live</button>
+  <button class="btn" id="econ-cal-btn" title="Wirtschaftskalender — wichtige Termine (3 Sterne) der aktuellen und nächsten Woche" style="margin-left:4px">📅 Kalender</button>
   <div class="sep"></div>
   <span class="tlbl">Zeit</span>
   <button class="btn" data-tf="5m">5m</button>
@@ -9010,6 +9035,276 @@ window.addEventListener('keydown',e=>{
 });
 
 console.log('[ZEN] Copy/Paste fuer Drawings aktiv (Strg+C / Strg+V)');
+})();
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  WIRTSCHAFTSKALENDER (Investing.com-Stil)                         ║
+// ║  Quelle: TradingEconomics public API (c=guest:guest, importance=3)║
+// ║  Zeigt nur 3-Sterne-Termine (hohe Wichtigkeit) für die ausgewählte║
+// ║  Woche — Diese Woche · Nächste Woche · In 2 Wochen.               ║
+// ║  Cache: localStorage 'zen_econ_cal_v1', TTL 1h                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
+(function(){
+'use strict';
+const CACHE_KEY='zen_econ_cal_v1';
+const CACHE_TTL=60*60*1000; // 1 Stunde
+let activeWeek=0; // 0=diese, 1=nächste, 2=übernächste
+let refreshTimer=null;
+
+// Land-Codes → Flagge + ISO-Code
+const COUNTRY_MAP={
+  'United States':{flag:'🇺🇸',iso:'US'},
+  'Euro Area':{flag:'🇪🇺',iso:'EU'},
+  'European Union':{flag:'🇪🇺',iso:'EU'},
+  'Germany':{flag:'🇩🇪',iso:'DE'},
+  'United Kingdom':{flag:'🇬🇧',iso:'UK'},
+  'Japan':{flag:'🇯🇵',iso:'JP'},
+  'China':{flag:'🇨🇳',iso:'CN'},
+  'France':{flag:'🇫🇷',iso:'FR'},
+  'Italy':{flag:'🇮🇹',iso:'IT'},
+  'Spain':{flag:'🇪🇸',iso:'ES'},
+  'Australia':{flag:'🇦🇺',iso:'AU'},
+  'Canada':{flag:'🇨🇦',iso:'CA'},
+  'Switzerland':{flag:'🇨🇭',iso:'CH'},
+  'India':{flag:'🇮🇳',iso:'IN'},
+  'Brazil':{flag:'🇧🇷',iso:'BR'},
+  'Russia':{flag:'🇷🇺',iso:'RU'},
+  'South Korea':{flag:'🇰🇷',iso:'KR'},
+  'Mexico':{flag:'🇲🇽',iso:'MX'},
+  'Netherlands':{flag:'🇳🇱',iso:'NL'},
+  'New Zealand':{flag:'🇳🇿',iso:'NZ'}
+};
+function countryInfo(name){
+  return COUNTRY_MAP[name]||{flag:'🏳️',iso:(name||'?').slice(0,2).toUpperCase()};
+}
+const WEEKDAYS=['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+const MONTHS=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+
+function fmtDateHeader(d){
+  return WEEKDAYS[d.getDay()]+', '+d.getDate()+'. '+MONTHS[d.getMonth()]+' '+d.getFullYear();
+}
+function fmtTime(d){
+  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+function ymd(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+// Berechnet Mo-So-Range für angegebene Woche (offset 0=diese, 1=nächste, ...)
+function weekRange(offset){
+  const today=new Date();
+  const dow=(today.getDay()||7); // Sonntag=0 → 7 für ISO-Wochenstart Mo
+  const monday=new Date(today);
+  monday.setDate(today.getDate()-(dow-1)+offset*7);
+  monday.setHours(0,0,0,0);
+  const sunday=new Date(monday);
+  sunday.setDate(monday.getDate()+6);
+  sunday.setHours(23,59,59,999);
+  return{from:monday,to:sunday};
+}
+
+async function fetchEvents(weekOffset){
+  const{from,to}=weekRange(weekOffset);
+  const cacheKeyForWeek=CACHE_KEY+'_w'+weekOffset;
+  // Cache prüfen
+  try{
+    const raw=localStorage.getItem(cacheKeyForWeek);
+    if(raw){
+      const obj=JSON.parse(raw);
+      if(obj&&obj.ts&&(Date.now()-obj.ts)<CACHE_TTL&&Array.isArray(obj.events)){
+        return{events:obj.events,fromCache:true};
+      }
+    }
+  }catch{}
+  // Live laden
+  const url='https://api.tradingeconomics.com/calendar/country/All/'+ymd(from)+'/'+ymd(to)+'?c=guest:guest&importance=3&f=json';
+  try{
+    const txt=await corsGet(url,8000);
+    if(!txt||!txt.startsWith('['))throw new Error('Keine Daten');
+    const raw=JSON.parse(txt);
+    if(!Array.isArray(raw))throw new Error('Format-Fehler');
+    // Auf relevante Felder reduzieren
+    const events=raw.map(e=>({
+      date:e.Date,
+      country:e.Country||'',
+      event:e.Event||e.Category||'',
+      actual:e.Actual||'',
+      forecast:e.Forecast||e.TEForecast||'',
+      previous:e.Previous||'',
+      unit:e.Unit||'',
+      reference:e.Reference||''
+    })).filter(e=>e.date&&e.event);
+    // Cache speichern
+    try{localStorage.setItem(cacheKeyForWeek,JSON.stringify({ts:Date.now(),events}));}catch{}
+    return{events,fromCache:false};
+  }catch(e){
+    console.warn('[Wirtschaftskalender] Fetch fehlgeschlagen:',e.message);
+    // Fallback: cache anzeigen falls vorhanden, sonst leer
+    try{
+      const raw=localStorage.getItem(cacheKeyForWeek);
+      if(raw){
+        const obj=JSON.parse(raw);
+        if(obj&&Array.isArray(obj.events))return{events:obj.events,fromCache:true,stale:true};
+      }
+    }catch{}
+    return{events:[],error:e.message};
+  }
+}
+
+function escapeHtml(s){
+  return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderEvents(events,opts){
+  opts=opts||{};
+  const list=document.getElementById('econ-cal-list');
+  if(!list)return;
+  if(opts.error){
+    list.innerHTML='<div style="padding:30px;text-align:center;color:#ef4444;font-size:13px">⚠ '+escapeHtml(opts.error)+'</div>';
+    return;
+  }
+  if(!events.length){
+    list.innerHTML='<div style="padding:30px;text-align:center;color:#64748b;font-size:13px">Keine wichtigen Termine in diesem Zeitraum.</div>';
+    return;
+  }
+  // Sortieren + nach Tag gruppieren
+  events.sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const groups={};
+  for(const ev of events){
+    const d=new Date(ev.date);
+    const key=ymd(d);
+    if(!groups[key])groups[key]={header:fmtDateHeader(d),items:[]};
+    groups[key].items.push({...ev,_d:d});
+  }
+  const today=ymd(new Date());
+  const now=Date.now();
+  let html='<table style="width:100%;border-collapse:collapse;font-size:12px;color:#cbd5e1">';
+  // Header
+  html+='<thead><tr style="background:#0f172a;border-bottom:1px solid #334155;color:#94a3b8;font-size:11px">'
+    +'<th style="padding:8px 12px;text-align:left;width:60px">Zeit</th>'
+    +'<th style="padding:8px 12px;text-align:left;width:75px">Land</th>'
+    +'<th style="padding:8px 12px;text-align:left">Termin</th>'
+    +'<th style="padding:8px 12px;text-align:right;width:90px">Aktuell</th>'
+    +'<th style="padding:8px 12px;text-align:right;width:90px">Prognose</th>'
+    +'<th style="padding:8px 12px;text-align:right;width:90px">Vorherig</th>'
+    +'</tr></thead><tbody>';
+  for(const key of Object.keys(groups).sort()){
+    const g=groups[key];
+    const isToday=key===today;
+    html+='<tr><td colspan="6" style="background:'+(isToday?'#1e3a8a':'#1e293b')
+      +';color:'+(isToday?'#dbeafe':'#94a3b8')+';padding:8px 12px;font-weight:600;font-size:11px;text-align:center;border-top:1px solid #334155">'
+      +escapeHtml(g.header)+(isToday?' · Heute':'')+'</td></tr>';
+    for(const ev of g.items){
+      const ci=countryInfo(ev.country);
+      const time=fmtTime(ev._d);
+      // Wenn Aktuell-Wert da ist: Termin schon vorbei → grün/rot je nach Vergleich zur Prognose
+      let actualColor='#cbd5e1';
+      if(ev.actual&&ev.forecast){
+        const a=parseFloat(String(ev.actual).replace(/[^\d.\-]/g,''));
+        const f=parseFloat(String(ev.forecast).replace(/[^\d.\-]/g,''));
+        if(!isNaN(a)&&!isNaN(f)){
+          if(a>f)actualColor='#22c55e';
+          else if(a<f)actualColor='#ef4444';
+        }
+      }
+      const isPast=ev._d.getTime()<now;
+      const rowOpacity=isPast?'.65':'1';
+      const reference=ev.reference?(' <span style="color:#64748b;font-size:10px">('+escapeHtml(ev.reference)+')</span>'):'';
+      html+='<tr style="border-bottom:1px solid #1e293b;opacity:'+rowOpacity+'">'
+        +'<td style="padding:8px 12px;font-family:ui-monospace,monospace;color:#94a3b8">'+escapeHtml(time)+'</td>'
+        +'<td style="padding:8px 12px"><span style="font-size:14px;margin-right:4px">'+ci.flag+'</span><span style="color:#94a3b8;font-size:11px">'+ci.iso+'</span></td>'
+        +'<td style="padding:8px 12px;color:#e2e8f0">'+escapeHtml(ev.event)+reference+' <span title="Hohe Wichtigkeit" style="color:#f59e0b;margin-left:6px">★★★</span></td>'
+        +'<td style="padding:8px 12px;text-align:right;color:'+actualColor+';font-weight:'+(ev.actual?'600':'400')+'">'+escapeHtml(ev.actual||'—')+'</td>'
+        +'<td style="padding:8px 12px;text-align:right;color:#94a3b8">'+escapeHtml(ev.forecast||'—')+'</td>'
+        +'<td style="padding:8px 12px;text-align:right;color:#64748b">'+escapeHtml(ev.previous||'—')+'</td>'
+        +'</tr>';
+    }
+  }
+  html+='</tbody></table>';
+  list.innerHTML=html;
+}
+
+function setStatus(msg,col){
+  const el=document.getElementById('econ-cal-status');
+  if(!el)return;
+  el.textContent=msg||'';
+  el.style.color=col||'#64748b';
+}
+
+async function loadAndRender(){
+  setStatus('Lade Termine …','#3b82f6');
+  const{events,fromCache,stale,error}=await fetchEvents(activeWeek);
+  if(error&&!events.length){
+    renderEvents([],{error:'Daten konnten nicht geladen werden ('+error+'). Bitte später erneut versuchen.'});
+    setStatus('Fehler','#ef4444');
+    return;
+  }
+  renderEvents(events);
+  if(stale)setStatus(events.length+' Termine (Cache, API offline)','#f59e0b');
+  else if(fromCache)setStatus(events.length+' Termine (Cache)','#64748b');
+  else setStatus(events.length+' Termine geladen','#22c55e');
+}
+
+function setActiveWeek(w){
+  activeWeek=w;
+  document.querySelectorAll('.ec-tab').forEach(b=>{
+    const isActive=parseInt(b.dataset.week,10)===w;
+    b.style.background=isActive?'#2563eb':'transparent';
+    b.style.borderColor=isActive?'#2563eb':'#334155';
+    b.style.color=isActive?'#fff':'#94a3b8';
+    b.style.fontWeight=isActive?'500':'400';
+  });
+  loadAndRender();
+}
+
+function openModal(){
+  const m=document.getElementById('econ-cal-modal');
+  if(!m)return;
+  m.style.display='flex';
+  setActiveWeek(0);
+  // Auto-Refresh alle 5 min während Modal offen
+  if(refreshTimer)clearInterval(refreshTimer);
+  refreshTimer=setInterval(()=>{
+    // Cache invalidieren damit fetch frisch geht
+    try{localStorage.removeItem(CACHE_KEY+'_w'+activeWeek);}catch{}
+    loadAndRender();
+  },5*60*1000);
+}
+function closeModal(){
+  const m=document.getElementById('econ-cal-modal');
+  if(m)m.style.display='none';
+  if(refreshTimer){clearInterval(refreshTimer);refreshTimer=null;}
+}
+
+// Event-Wiring
+const btn=document.getElementById('econ-cal-btn');
+const closeBtn=document.getElementById('econ-cal-close');
+const refreshBtn=document.getElementById('econ-cal-refresh');
+if(btn)btn.addEventListener('click',openModal);
+if(closeBtn)closeBtn.addEventListener('click',closeModal);
+if(refreshBtn)refreshBtn.addEventListener('click',()=>{
+  // Cache invalidieren + neu laden
+  try{localStorage.removeItem(CACHE_KEY+'_w'+activeWeek);}catch{}
+  loadAndRender();
+});
+document.querySelectorAll('.ec-tab').forEach(b=>{
+  b.addEventListener('click',()=>setActiveWeek(parseInt(b.dataset.week,10)));
+});
+// Esc schließt
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    const m=document.getElementById('econ-cal-modal');
+    if(m&&m.style.display==='flex')closeModal();
+  }
+});
+// Klick auf Backdrop schließt
+const modal=document.getElementById('econ-cal-modal');
+if(modal){
+  modal.addEventListener('click',e=>{
+    if(e.target===modal)closeModal();
+  });
+}
+console.log('[ZEN] Wirtschaftskalender aktiv (TradingEconomics, importance=3)');
 })();
 
 </script>
