@@ -78,7 +78,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 .wl-livedot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0;background:#64748b;transition:background .2s}
 .wl-livedot.open{background:#26a69a;box-shadow:0 0 4px rgba(38,166,154,.6)}
 .wl-livedot.ext{background:#fbbf24;box-shadow:0 0 4px rgba(251,191,36,.5)}
-.wl-livedot.alarm{background:#ef5350;box-shadow:0 0 4px rgba(239,83,80,.7)}
+.wl-livedot.hidden{visibility:hidden}
 .wl-cell-last{color:var(--text);font-weight:500}
 .wl-cell-chg{font-weight:500}
 .wl-cell-ext{color:#fbbf24;font-size:11px}
@@ -164,7 +164,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-
 /* AI drawings have a distinct style */
 .ai-badge{position:absolute;top:8px;right:60px;font-size:10px;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);border-radius:4px;padding:2px 6px;pointer-events:none}
 
-.wl-alarm-mark{position:absolute;top:6px;right:24px;font-size:11px;animation:wlAlarmPulse 1.4s infinite ease-in-out;cursor:help}
+.wl-alarm-mark{position:absolute;left:6px;top:50%;transform:translateY(-50%);font-size:10px;animation:wlAlarmPulse 1.4s infinite ease-in-out;cursor:help;z-index:3;pointer-events:auto}
 @keyframes wlAlarmPulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.15)}}
 .wl-item.has-alarm{background:rgba(245,158,11,.07)}
 .wl-item.has-alarm.active{background:rgba(245,158,11,.14)}
@@ -1524,8 +1524,28 @@ function _runAlarmQueue(){
 function _speakAndWait(text){
   return new Promise(resolve=>{
     if(localStorage.getItem('zen_tts_enabled')==='0'){resolve();return;}
-    if(!('speechSynthesis'in window)){resolve();return;}
     if(!text){resolve();return;}
+    // Google TTS bevorzugt? (klingt natürlicher, braucht aber Internet + funktioniert nicht immer)
+    const useGoogle=localStorage.getItem('zen_tts_voice')==='__google__';
+    if(useGoogle){
+      _speakViaGoogleTTS(text).then(ok=>{
+        if(ok){resolve();}
+        else{
+          // Fallback auf Web Speech wenn Google geblockt ist
+          console.warn('[TTS] Google blockiert/fehlgeschlagen, Fallback auf Web Speech');
+          _speakViaWebSpeech(text).finally(resolve);
+        }
+      });
+      return;
+    }
+    _speakViaWebSpeech(text).finally(resolve);
+  });
+}
+
+// Web Speech API (Browser-eingebaut, Standard)
+function _speakViaWebSpeech(text){
+  return new Promise(resolve=>{
+    if(!('speechSynthesis'in window)){resolve();return;}
     try{
       // KEIN cancel — wir warten ja explizit auf das Ende
       const u=new SpeechSynthesisUtterance(text);
@@ -1543,6 +1563,32 @@ function _speakAndWait(text){
   });
 }
 
+// Google Translate TTS Hack — natürliche Stimme, aber:
+//  - Braucht Internet
+//  - Google blockiert oft mit 403 (CORS/Captcha)
+//  - Max ~200 Zeichen pro Request
+// Returns: Promise<boolean> — true bei Erfolg, false bei Fehler
+function _speakViaGoogleTTS(text){
+  return new Promise(resolve=>{
+    try{
+      // Text auf 200 Zeichen kürzen (Google-Limit)
+      const t=String(text).slice(0,200);
+      const url='https://translate.google.com/translate_tts?ie=UTF-8&q='+encodeURIComponent(t)+'&tl=de&client=tw-ob';
+      const audio=new Audio(url);
+      audio.volume=1.0;
+      let done=false;
+      const finish=ok=>{if(done)return;done=true;resolve(ok);};
+      audio.onended=()=>finish(true);
+      audio.onerror=()=>finish(false);
+      // Sicherheits-Timeout: 12 Sek (länger als Web Speech, da Audio laden kann)
+      setTimeout(()=>finish(false),12000);
+      // play() returns Promise → bei Block (403/CORS) wird Promise rejected
+      const p=audio.play();
+      if(p&&p.catch)p.catch(()=>finish(false));
+    }catch(e){console.warn('Google TTS error:',e);resolve(false);}
+  });
+}
+
 // Öffentliche API: alarm-queue-konformer Trigger.
 // Statt direkt playAlarmSound() + speak(text), nutze enqueueAlarm(text).
 function enqueueAlarm(text){
@@ -1550,20 +1596,17 @@ function enqueueAlarm(text){
   _runAlarmQueue();
 }
 // ── Text-to-Speech Sprachausgabe ─────────────────────────────
+// Synchroner Wrapper für Test-Ausgaben (Voice-Picker, Toggle-Bestätigung).
+// Im Alarm-Pfad wird stattdessen _speakAndWait() via enqueueAlarm() genutzt.
 function speak(text,opts){
   if(localStorage.getItem('zen_tts_enabled')==='0')return;
-  if(!('speechSynthesis'in window))return;
-  try{
-    if(opts&&opts.cancel)window.speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(text);
-    u.lang='de-DE';
-    u.rate=(opts&&opts.rate)||0.95;
-    u.volume=(opts&&opts.volume)||1.0;
-    u.pitch=(opts&&opts.pitch)||1.0;
-    const best=pickBestGermanVoice();
-    if(best)u.voice=best;
-    window.speechSynthesis.speak(u);
-  }catch(e){console.warn('TTS error:',e);}
+  if(!text)return;
+  // Cancel laufende Web-Speech-Ausgabe wenn gewünscht
+  if(opts&&opts.cancel&&'speechSynthesis'in window){
+    try{window.speechSynthesis.cancel();}catch{}
+  }
+  // _speakAndWait kümmert sich um Google/Web-Speech-Auswahl + Fallback
+  _speakAndWait(text).catch(e=>console.warn('TTS error:',e));
 }
 
 // Wählt die beste verfügbare deutsche Stimme aus.
@@ -1573,7 +1616,8 @@ function pickBestGermanVoice(){
   const deVoices=voices.filter(v=>v.lang.startsWith('de'));
   if(!deVoices.length)return null;
   const savedName=localStorage.getItem('zen_tts_voice');
-  if(savedName){
+  // __google__ ist ein Marker für Google TTS, kein Web-Speech-Stimmenname → ignorieren
+  if(savedName&&savedName!=='__google__'){
     const hit=deVoices.find(v=>v.name===savedName);
     if(hit)return hit;
   }
@@ -5552,19 +5596,23 @@ function saveWLCache(c){
   try{localStorage.setItem('zen_wl_cache',JSON.stringify(c));}catch{}
 }
 // Bestimmt den Status-Punkt für ein Symbol in der Watchlist (TradingView-Stil)
-//  - 'alarm' (rot)  = ausgelöster Alarm-Marker
-//  - 'open'  (grün) = Markt geöffnet (Yahoo marketState='REGULAR')
+//  - 'open'  (grün) = Markt geöffnet (Yahoo marketState='REGULAR' oder 24/7-Märkte)
 //  - 'ext'   (gelb) = Pre/Post-Market aktiv (PRE/POST/POSTPOST)
 //  - ''      (grau) = Markt geschlossen / kein Live-Feed (CLOSED/PREPRE/unbekannt)
-function getWLDotState(sym,hasAlarm){
-  if(hasAlarm)return'alarm';
+// Hinweis: Alarm-Status wird separat als Glocke dargestellt, nicht als Punktfarbe
+function getWLDotState(sym){
   const eh=extendedHoursCache[sym];
-  if(!eh)return''; // kein Yahoo-Meta verfügbar → grau
-  const st=eh.state||'';
-  if(st==='REGULAR')return'open';
-  if(st==='PRE'&&eh.pre)return'ext';
-  if((st==='POST'||st==='POSTPOST')&&eh.post)return'ext';
-  return''; // CLOSED / PREPRE / Unknown → grau
+  if(eh){
+    const st=eh.state||'';
+    if(st==='REGULAR')return'open';
+    if(st==='PRE'&&eh.pre)return'ext';
+    if((st==='POST'||st==='POSTPOST')&&eh.post)return'ext';
+    return''; // CLOSED / PREPRE / Unknown → grau
+  }
+  // Fallback ohne Yahoo-Meta: 24/7-Märkte (Krypto, Edelmetalle) als offen markieren
+  // damit nicht alles grau bleibt während der Cache aufgebaut wird
+  if(/-USD$|-EUR$|^XAU|^XAG|^BTC|USDT$|^ETH/i.test(sym))return'open';
+  return'';
 }
 
 function renderWL(){
@@ -5582,15 +5630,18 @@ function renderWL(){
     const col=c.col||'var(--text3)';
     const hasAlarm=!!alarmMarks[s];
     const alarmTitle=hasAlarm?('Alarm ausgelöst: '+(alarmMarks[s].msg||'?')+' am '+new Date(alarmMarks[s].ts).toLocaleString('de-DE')):'';
-    // Symbol Display: nur Ticker, kein Firmenname (TradingView-Stil — hover zeigt Name)
+    // Symbol Display: Firmennamen (TradingView-Stil), Ticker im Tooltip — fallback auf Ticker wenn Name fehlt
     const name=getSymName(s);
-    const symTooltip=name?`${s} — ${name}`:s;
-    // Status-Punkt (TradingView-Stil): grau=geschlossen, grün=offen, gelb=Pre/Post, rot=Alarm
-    const dotState=getWLDotState(s,hasAlarm);
-    const dotTooltip=hasAlarm?alarmTitle
-      :dotState==='open'?'Markt geöffnet'
+    const displayLabel=name||s;
+    const symTooltip=name?`${name} (${s})`:s;
+    // Status-Punkt (TradingView-Stil): grau=geschlossen, grün=offen, gelb=Pre/Post
+    const dotState=getWLDotState(s);
+    const dotTooltip=
+      dotState==='open'?'Markt geöffnet'
       :dotState==='ext'?'Pre-/Nachbörslicher Handel'
       :'Markt geschlossen';
+    // Alarm-Glocke (überlagert die Symbol-Zelle, wenn ein Alarm ausgelöst wurde)
+    const alarmIcon=hasAlarm?`<span class="wl-alarm-mark" title="${alarmTitle.replace(/"/g,'&quot;')}">🔔</span>`:'';
     // Ext-Spalte (Pre/Post-Market)
     let extTxt='',extTitle='';
     const eh=extendedHoursCache[s];
@@ -5605,9 +5656,10 @@ function renderWL(){
       }
     }
     return `<div class="wl-item${s===currentSymbol?' active':''}${hasAlarm?' has-alarm':''}" data-sym="${s}" data-idx="${idx}" draggable="true" title="${symTooltip.replace(/"/g,'&quot;')}">
+      ${alarmIcon}
       <div class="wl-cell wl-cell-sym">
-        <span class="wl-livedot${dotState?' '+dotState:''}" id="wld-${id}" title="${dotTooltip.replace(/"/g,'&quot;')}"></span>
-        <span class="wl-symtxt">${s}</span>
+        <span class="wl-livedot${dotState?' '+dotState:''}${hasAlarm?' hidden':''}" id="wld-${id}" title="${dotTooltip.replace(/"/g,'&quot;')}"></span>
+        <span class="wl-symtxt">${displayLabel}</span>
       </div>
       <div class="wl-cell wl-cell-num wl-cell-last" id="wlp-${id}">${pTxt}</div>
       <div class="wl-cell wl-cell-num wl-cell-chg" id="wlpct-${id}" style="color:${col}">${pctTxt}</div>
@@ -5618,7 +5670,7 @@ function renderWL(){
   // Click handlers
   el.querySelectorAll('.wl-item').forEach(it=>it.addEventListener('click',e=>{
     if(e.target.classList.contains('wl-del'))return;
-    if(e.target.classList.contains('wl-alarm-mark'))return; // Klick auf Glocke nicht weiterleiten
+    // Klick auf Glocke geht durch zur Symbol-Auswahl (und entfernt damit den Marker)
     const sym=it.dataset.sym;
     // Marker entfernen sobald User die Aktie anklickt
     try{
@@ -5677,14 +5729,15 @@ function setWLChg(sym,priceText,absText,pctText,color){
   if(pEl)pEl.textContent=priceText;
   if(pctEl){pctEl.textContent=pctText;pctEl.style.color=color;}
   // Status-Punkt aktualisieren (Marktstatus könnte sich geändert haben — z.B. Pre→Open)
+  // Glocke wird beim renderWL gerendert; hier nur den darunter liegenden Punkt updaten
   const dotEl=document.getElementById('wld-'+id);
   if(dotEl){
-    let hasAlarm=false;
-    try{const m=JSON.parse(localStorage.getItem('zen_wl_alarm_marks')||'{}');hasAlarm=!!m[sym];}catch{}
-    const st=getWLDotState(sym,hasAlarm);
-    dotEl.className='wl-livedot'+(st?' '+st:'');
-    dotEl.title=hasAlarm?(dotEl.title||'Alarm ausgelöst')
-      :st==='open'?'Markt geöffnet'
+    const st=getWLDotState(sym);
+    // Alarm-Hidden-Klasse beibehalten falls eine Glocke existiert
+    const wasHidden=dotEl.classList.contains('hidden');
+    dotEl.className='wl-livedot'+(st?' '+st:'')+(wasHidden?' hidden':'');
+    dotEl.title=
+      st==='open'?'Markt geöffnet'
       :st==='ext'?'Pre-/Nachbörslicher Handel'
       :'Markt geschlossen';
   }
@@ -6990,12 +7043,15 @@ setInterval(()=>{
 document.getElementById('tts-voice-btn').addEventListener('click',()=>{
   if(!('speechSynthesis'in window)){alert('Dein Browser unterstützt keine Sprachausgabe.');return;}
   const voices=window.speechSynthesis.getVoices().filter(v=>v.lang.startsWith('de'));
-  if(!voices.length){
-    alert('Keine deutschen Stimmen gefunden.\n\nTipps:\n• Windows 11: Einstellungen → Zeit und Sprache → Sprache → Deutsch hinzufügen → Sprachpaket laden → Neural-Stimme aktivieren\n• Seite neu laden nach Installation');
-    return;
-  }
   const saved=localStorage.getItem('zen_tts_voice')||'';
   const autoPick=pickBestGermanVoice();
+  const isGoogleSelected=saved==='__google__';
+
+  if(!voices.length&&!isGoogleSelected){
+    alert('Keine deutschen Stimmen gefunden.\n\nTipps:\n• Windows 11: Einstellungen → Zeit und Sprache → Sprache → Deutsch hinzufügen → Sprachpaket laden → Neural-Stimme aktivieren\n• Seite neu laden nach Installation\n\nAls Alternative: "0" eingeben für Google Translate TTS (online, klingt natürlich).');
+    if(!confirm('Trotzdem Google TTS testen?'))return;
+  }
+
   // Liste nach Qualität sortieren (Neural/Natural oben)
   const ranked=voices.slice().sort((a,b)=>{
     const score=v=>{
@@ -7009,13 +7065,16 @@ document.getElementById('tts-voice-btn').addEventListener('click',()=>{
     };
     return score(b)-score(a);
   });
-  const listTxt=ranked.map((v,i)=>{
-    const marker=v.name===saved?'✓':(v.name===(autoPick&&autoPick.name)&&!saved?'*':' ');
+  // Google TTS als Option 0 voranstellen (online, oft blockiert, mit automatischem Fallback)
+  const googleMarker=isGoogleSelected?'✓':' ';
+  const lines=['0) '+googleMarker+' Google Translate TTS (online, natürlich) [⚠ kann blockiert sein]'];
+  ranked.forEach((v,i)=>{
+    const marker=v.name===saved?'✓':(v.name===(autoPick&&autoPick.name)&&!saved&&!isGoogleSelected?'*':' ');
     const online=v.localService?'':' [online]';
-    return (i+1)+') '+marker+' '+v.name+' ('+v.lang+')'+online;
-  }).join('\n');
+    lines.push((i+1)+') '+marker+' '+v.name+' ('+v.lang+')'+online);
+  });
   const answer=prompt(
-    'Deutsche TTS-Stimmen:\n\n'+listTxt+
+    'Deutsche TTS-Stimmen:\n\n'+lines.join('\n')+
     '\n\n✓ = aktuell gewählt · * = Auto-Pick · [online] = Neural (beste Qualität, braucht Internet)\n\n'+
     'Nummer eingeben zum Wählen und Testen.\n"auto" → Auto-Pick · "x" → zurücksetzen',
     ''
@@ -7033,9 +7092,15 @@ document.getElementById('tts-voice-btn').addEventListener('click',()=>{
     speak('Auto-Pick: '+((picked&&picked.name)||'Standard'),{cancel:true});
     return;
   }
-  const idx=parseInt(a,10)-1;
-  if(!isNaN(idx)&&idx>=0&&idx<ranked.length){
-    const v=ranked[idx];
+  const idx=parseInt(a,10);
+  if(idx===0){
+    // Google TTS auswählen + testen — wenn 403, fällt _speakAndWait automatisch zurück
+    localStorage.setItem('zen_tts_voice','__google__');
+    speak('Hallo, ich bin die Google Stimme. Wenn du mich hörst, funktioniert es.',{cancel:true});
+    return;
+  }
+  if(!isNaN(idx)&&idx>=1&&idx<=ranked.length){
+    const v=ranked[idx-1];
     localStorage.setItem('zen_tts_voice',v.name);
     speak('Guten Tag, ich bin '+v.name.split(/[\s\-(]/)[0]+'. Der Aktienmarkt bewegt sich heute interessant.',{cancel:true});
   }else{
