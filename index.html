@@ -1501,6 +1501,29 @@ function detectCrosses(closes){
   }
   return signals;
 }
+// AudioContext einmalig "freischalten" beim ersten User-Click.
+// Browser blockieren AudioContext bis zur ersten User-Geste (Autoplay-Policy).
+// Ohne das schlagen Alarme die VOR dem ersten Klick getriggert werden, fehl.
+let _audioCtxUnlocked=false;
+function _unlockAudio(){
+  if(_audioCtxUnlocked)return;
+  try{
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    // Stiller Dummy-Buffer abspielen → Lock wird gelöst
+    const buf=ctx.createBuffer(1,1,22050);
+    const src=ctx.createBufferSource();
+    src.buffer=buf;src.connect(ctx.destination);
+    src.start(0);
+    if(ctx.state==='suspended')ctx.resume();
+    setTimeout(()=>{try{ctx.close();}catch(_){}},100);
+    _audioCtxUnlocked=true;
+    console.log('[Audio] Unlocked nach erster User-Geste');
+  }catch(e){console.warn('[Audio] Unlock fehlgeschlagen:',e);}
+}
+['click','keydown','touchstart'].forEach(ev=>{
+  window.addEventListener(ev,_unlockAudio,{once:true,passive:true});
+});
+
 function playAlarmSound(){
   // Spielt den Glockenton (~0.7s) und gibt ein Promise zurück, das resolved
   // wenn der Sound beendet ist. Wird von der Alarm-Queue genutzt.
@@ -6575,37 +6598,38 @@ function markTriggered(key){
   state[key]=Date.now();
   saveSMATouchState(state);
 }
+// Failure-Cache für SMA-Fetches: Symbole die in den letzten 15 Minuten gefailed haben
+// werden übersprungen, um nicht wiederholt CORS-Errors in die Console zu spammen
+const _smaFailCache={}; // {sym+tf: timestamp}
+const SMA_FAIL_TTL=15*60*1000; // 15 Minuten
+
 async function fetchDataForSMA(sym,tf){
-  // Kleine Data-Fetch-Funktion nur für SMA-Berechnung
-  // Reuse CORS-Proxy Logik vom Haupt-Fetcher aber ohne UI-Updates
+  // Skip wenn kürzlich gefailed
+  const failKey=sym+'|'+tf;
+  const lastFail=_smaFailCache[failKey];
+  if(lastFail&&(Date.now()-lastFail)<SMA_FAIL_TTL)return null;
+  // Reuse zentrale corsGet-Logik (richtige Proxy-URLs, Timeout, Fallback)
   try{
     const interval=tf==='m1'?'1mo':'1d';
     const range=tf==='m1'?'max':'2y';
     const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`;
-    const proxies=[
-      'https://corsproxy.io/?',
-      'https://api.allorigins.win/raw?url=',
-      'https://api.codetabs.com/v1/proxy?quest=',
-    ];
-    for(const p of proxies){
-      try{
-        const resp=await fetch(p+encodeURIComponent(url));
-        if(!resp.ok)continue;
-        const data=await resp.json();
-        const res=data.chart?.result?.[0];
-        if(!res||!res.indicators?.quote?.[0])continue;
-        const ts=res.timestamp||[];
-        const q=res.indicators.quote[0];
-        const candles=[];
-        for(let i=0;i<ts.length;i++){
-          if(q.close[i]==null)continue;
-          candles.push({c:+q.close[i],o:+q.open[i]||q.close[i],h:+q.high[i]||q.close[i],l:+q.low[i]||q.close[i],v:+q.volume[i]||0});
-        }
-        return candles;
-      }catch{}
+    const txt=await corsGet(url,5000);
+    if(!txt||!txt.startsWith('{')){_smaFailCache[failKey]=Date.now();return null;}
+    const data=JSON.parse(txt);
+    const res=data.chart?.result?.[0];
+    if(!res||!res.indicators?.quote?.[0]){_smaFailCache[failKey]=Date.now();return null;}
+    const ts=res.timestamp||[];
+    const q=res.indicators.quote[0];
+    const candles=[];
+    for(let i=0;i<ts.length;i++){
+      if(q.close[i]==null)continue;
+      candles.push({c:+q.close[i],o:+q.open[i]||q.close[i],h:+q.high[i]||q.close[i],l:+q.low[i]||q.close[i],v:+q.volume[i]||0});
     }
-  }catch(e){console.warn('SMA-fetch:',sym,tf,e);}
-  return null;
+    return candles;
+  }catch(e){
+    _smaFailCache[failKey]=Date.now();
+    return null;
+  }
 }
 function smaLast(closes,n){
   if(closes.length<n)return null;
